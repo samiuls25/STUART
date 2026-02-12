@@ -1,0 +1,302 @@
+@import "@fontsource/outfit/400.css";
+@import "@fontsource/outfit/500.css";
+@import "@fontsource/outfit/600.css";
+@import "@fontsource/outfit/700.css";
+@import "@fontsource/inter/400.css";
+@import "@fontsource/inter/500.css";
+
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* STUART Branding - Light, clean, trustworthy */
+    --background: 210 40% 98%;
+    --foreground: 201 100% 13%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 201 100% 13%;
+    --card-hover: 210 30% 96%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 201 100% 13%;
+
+    /* Primary: Deep Blue #004369 = hsl(201, 100%, 21%) */
+    --primary: 201 100% 21%;
+    --primary-foreground: 0 0% 100%;
+    --primary-glow: 201 80% 35%;
+
+    --secondary: 210 20% 96%;
+    --secondary-foreground: 201 100% 13%;
+
+    --muted: 210 20% 94%;
+    --muted-foreground: 201 30% 45%;
+
+    /* Muted teal accent */
+    --accent: 175 40% 45%;
+    --accent-foreground: 0 0% 100%;
+
+    /* Warm highlight */
+    --warm: 30 80% 55%;
+    --warm-foreground: 0 0% 100%;
+
+    --success: 150 60% 40%;
+    --success-foreground: 0 0% 100%;
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 210 20% 90%;
+    --input: 210 20% 94%;
+    --ring: 201 100% 21%;
+
+    --radius: 0.75rem;
+
+    /* Map tokens */
+    --map-background: 210 30% 96%;
+    --map-water: 201 60% 80%;
+    --map-land: 210 20% 92%;
+    --map-road: 0 0% 100%;
+
+    --pin-default: 201 30% 60%;
+    --pin-active: 201 100% 21%;
+    --pin-hover: 201 80% 35%;
+
+    /* Gradients */
+    --gradient-card: linear-gradient(135deg, hsl(0 0% 100%) 0%, hsl(210 30% 98%) 100%);
+    --gradient-hero: linear-gradient(180deg, hsl(201 100% 21% / 0.03) 0%, hsl(210 40% 98%) 100%);
+    --gradient-accent: linear-gradient(135deg, hsl(201 100% 21%) 0%, hsl(201 80% 35%) 100%);
+    --gradient-warm: linear-gradient(135deg, hsl(30 80% 55%) 0%, hsl(40 90% 60%) 100%);
+
+    /* Shadows */
+    --shadow-card: 0 4px 24px -4px hsl(201 100% 21% / 0.08);
+    --shadow-elevated: 0 8px 40px -8px hsl(201 100% 21% / 0.12);
+    --shadow-glow: 0 0 40px hsl(201 100% 21% / 0.15);
+
+    /* Typography */
+    --font-heading: "Outfit", system-ui, sans-serif;
+    --font-body: "Inter", system-ui, sans-serif;
+
+    /* Transitions */
+    --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+    --transition-base: 250ms cubic-bezier(0.4, 0, 0.2, 1);
+    --transition-smooth: 400ms cubic-bezier(0.4, 0, 0.2, 1);
+
+    /* Sidebar */
+    --sidebar-background: 0 0% 100%;
+    --sidebar-foreground: 201 100% 13%;
+    --sidebar-primary: 201 100% 21%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 210 20% 96%;
+    --sidebar-accent-foreground: 201 100% 13%;
+    --sidebar-border: 210 20% 90%;
+    --sidebar-ring: 201 100% 21%;
+  }
+
+  .dark {
+    --background: 201 50% 8%;
+    --foreground: 0 0% 98%;
+
+    --card: 201 40% 12%;
+    --card-foreground: 0 0% 98%;
+    --card-hover: 201 35% 16%;
+
+    --popover: 201 40% 12%;
+    --popover-foreground: 0 0% 98%;
+
+    --primary: 201 100% 45%;
+    --primary-foreground: 0 0% 100%;
+    --primary-glow: 201 80% 55%;
+
+    --secondary: 201 30% 18%;
+    --secondary-foreground: 0 0% 90%;
+
+    --muted: 201 25% 20%;
+    --muted-foreground: 201 20% 55%;
+
+    --accent: 175 50% 50%;
+    --accent-foreground: 0 0% 100%;
+
+    --border: 201 30% 20%;
+    --input: 201 30% 15%;
+    --ring: 201 100% 45%;
+
+    --map-background: 201 40% 10%;
+    --map-water: 201 50% 20%;
+    --map-land: 201 35% 14%;
+    --map-road: 201 30% 22%;
+
+    --pin-default: 201 25% 40%;
+    --pin-active: 201 100% 45%;
+    --pin-hover: 201 80% 50%;
+
+    --shadow-card: 0 4px 24px -4px hsl(0 0% 0% / 0.4);
+    --shadow-elevated: 0 8px 40px -8px hsl(0 0% 0% / 0.5);
+    --shadow-glow: 0 0 40px hsl(201 100% 45% / 0.3);
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-family: var(--font-body);
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-heading);
+  }
+}
+
+@layer utilities {
+  .glass {
+    @apply bg-card/80 backdrop-blur-xl border border-border/50;
+  }
+
+  .glass-strong {
+    @apply bg-card/95 backdrop-blur-2xl border border-border/60;
+  }
+
+  .text-gradient {
+    @apply bg-clip-text text-transparent;
+    background-image: var(--gradient-accent);
+  }
+
+  .hover-lift {
+    @apply transition-transform duration-300 hover:-translate-y-1;
+  }
+
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--muted)) transparent;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background: hsl(var(--muted));
+    border-radius: 3px;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--muted-foreground));
+  }
+}
+
+@layer components {
+  .btn-primary {
+    @apply bg-primary text-primary-foreground font-medium px-6 py-3 rounded-lg;
+    @apply hover:brightness-110 active:scale-[0.98];
+    @apply transition-all duration-200;
+    box-shadow: 0 4px 14px -4px hsl(var(--primary) / 0.35);
+  }
+
+  .btn-primary:hover {
+    box-shadow: 0 6px 20px -4px hsl(var(--primary) / 0.45);
+  }
+
+  .btn-secondary {
+    @apply bg-secondary text-secondary-foreground font-medium px-6 py-3 rounded-lg;
+    @apply hover:bg-secondary/80 active:scale-[0.98];
+    @apply transition-all duration-200 border border-border;
+  }
+
+  .btn-ghost {
+    @apply text-foreground font-medium px-4 py-2 rounded-lg;
+    @apply hover:bg-muted/50 active:scale-[0.98];
+    @apply transition-all duration-200;
+  }
+
+  .btn-outline {
+    @apply bg-transparent text-primary font-medium px-6 py-3 rounded-lg;
+    @apply border-2 border-primary hover:bg-primary hover:text-primary-foreground;
+    @apply active:scale-[0.98] transition-all duration-200;
+  }
+
+  .input-field {
+    @apply bg-card border border-border rounded-lg px-4 py-3;
+    @apply text-foreground placeholder:text-muted-foreground;
+    @apply focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary;
+    @apply transition-all duration-200;
+  }
+
+  .card-event {
+    @apply bg-card rounded-xl overflow-hidden border border-border;
+    @apply hover:border-primary/30 hover:bg-card-hover;
+    @apply transition-all duration-300 cursor-pointer;
+    box-shadow: var(--shadow-card);
+  }
+
+  .card-event:hover {
+    box-shadow: var(--shadow-elevated);
+  }
+
+  .card-event.selected {
+    @apply border-primary bg-card-hover;
+    box-shadow: var(--shadow-glow);
+  }
+
+  .card-group {
+    @apply bg-card rounded-xl overflow-hidden border border-border p-5;
+    @apply hover:border-accent/50 hover:bg-card-hover;
+    @apply transition-all duration-300 cursor-pointer;
+    box-shadow: var(--shadow-card);
+  }
+
+  .genre-tag {
+    @apply inline-flex items-center px-3 py-1 rounded-full text-xs font-medium;
+    @apply bg-muted text-muted-foreground;
+    @apply transition-colors duration-200;
+  }
+
+  .genre-tag.active {
+    @apply bg-primary/15 text-primary;
+  }
+
+  .map-pin {
+    @apply w-8 h-8 rounded-full flex items-center justify-center;
+    @apply bg-card border-2 border-muted-foreground/30;
+    @apply transition-all duration-300 cursor-pointer;
+  }
+
+  .map-pin:hover {
+    @apply border-primary bg-primary/10 scale-110;
+  }
+
+  .map-pin.active {
+    @apply bg-primary border-primary scale-125;
+    box-shadow: 0 0 20px hsl(var(--primary) / 0.4);
+  }
+
+  .nav-link {
+    @apply text-muted-foreground hover:text-foreground font-medium px-4 py-2 rounded-lg;
+    @apply transition-all duration-200 relative;
+  }
+
+  .nav-link.active {
+    @apply text-primary bg-primary/10;
+  }
+
+  .avatar-group {
+    @apply flex -space-x-2;
+  }
+
+  .avatar-group > * {
+    @apply ring-2 ring-card;
+  }
+}
