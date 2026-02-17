@@ -30,7 +30,7 @@ const MapPage = () => {
         selectedGenre === "All" || event.genre === selectedGenre;
       return matchesSegment && matchesGenre;
     });
-  }, [selectedSegment, selectedGenre]);
+  }, [events, selectedSegment, selectedGenre]);
 
   const handleEventClick = (event: Event) => {
     setSelectedEventId(event.id);
