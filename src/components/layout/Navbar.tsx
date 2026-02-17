@@ -4,6 +4,7 @@ import { Link, useLocation } from "react-router-dom";
 import { User, Heart, Search, Users, Compass, Map, Calendar, Settings } from "lucide-react";
 import { motion } from "framer-motion";
 import AuthModal from "../auth/AuthModal.tsx";
+import { useAuth } from "../../lib/AuthContext";
 
 const navItems = [
   { path: "/", label: "Explore", icon: Compass },
@@ -16,6 +17,7 @@ const navItems = [
 
 const Navbar = () => {
   const [showAuth, setShowAuth] = useState(false);
+  const { user, signOut } = useAuth();
   const location = useLocation();
 
   return (
@@ -26,8 +28,8 @@ const Navbar = () => {
         transition={{ duration: 0.4 }}
         className="fixed top-0 left-0 right-0 z-50 bg-card/95 backdrop-blur-xl border-b border-border"
       >
-        <div className="max-w-[1920px] mx-auto px-6 py-3">
-          <div className="flex items-center justify-between">
+        <div className="max-w-7xl mx-auto px-6">
+          <div className="flex items-center justify-between h-[72px]">
             {/* Logo */}
             <Link to="/" className="flex items-center gap-3 group">
               <div className="w-10 h-10 rounded-xl bg-primary flex items-center justify-center shadow-lg shadow-primary/20 group-hover:shadow-primary/30 transition-shadow">
@@ -76,13 +78,26 @@ const Navbar = () => {
                 <Settings className="w-5 h-5" />
               </Link>
 
-              <button
-                onClick={() => setShowAuth(true)}
-                className="btn-primary py-2 px-4 flex items-center gap-2"
-              >
-                <User className="w-4 h-4" />
-                <span className="text-sm hidden sm:inline">Sign In</span>
-              </button>
+              {user ? (
+                <div className="flex items-center gap-3">
+                  <span className="text-sm text-muted-foreground">
+                    {user.email}
+                  </span>
+                  <button
+                    onClick={signOut}
+                    className="btn-secondary px-4 py-2 text-sm"
+                  >
+                    Sign Out
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setShowAuth(true)}
+                  className="btn-primary px-4 py-2 text-sm"
+                >
+                  Sign In
+                </button>
+              )}
             </div>
           </div>
         </div>
