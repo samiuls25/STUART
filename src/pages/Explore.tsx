@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from "react";
 import { motion } from "framer-motion";
-import { Search, Sparkles, X } from "lucide-react";
+import { Search, Sparkles, X, Heart, MapPin } from "lucide-react";
 import React from "react";
 import Navbar from "../components/layout/Navbar.tsx";
 import FilterBar from "../components/shared/FilterBar.tsx";
@@ -14,6 +14,8 @@ import PlanBuilderCard from "../components/shared/PlanBuilderCard.tsx";
 // import { events, type Event } from "../data/events.ts";
 import { type Event, fetchEvents } from "../data/events";
 import { toast } from "../hooks/use-toast.ts";
+import { saveEvent, unsaveEvent, getSavedEventIds } from "../lib/SavedEvents";
+import { useAuth } from "../lib/AuthContext";
 
 const searchPlaceholders = [
   "free concerts this weekend",
@@ -285,6 +287,46 @@ const EventCardGrid = ({
   onClick: (event: Event) => void;
   index: number;
 }) => {
+  const { user } = useAuth();
+  const [isSaved, setIsSaved] = useState(false);
+
+  useEffect(() => {
+    if (user) {
+      getSavedEventIds().then((savedIds) => {
+        setIsSaved(savedIds.includes(event.id));
+      });
+    }
+  }, [user, event.id]);
+
+  const handleSaveToggle = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    
+    if (!user) {
+      toast({
+        title: "Sign in required",
+        description: "Please sign in to save events",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const success = isSaved ? await unsaveEvent(event.id) : await saveEvent(event.id);
+    
+    if (success) {
+      setIsSaved(!isSaved);
+      toast({
+        title: isSaved ? "Removed from saved" : "Event saved!",
+        description: isSaved ? "Event removed from your saved list" : "You can find this in your Saved events",
+      });
+    } else {
+      toast({
+        title: "Error",
+        description: "Failed to update saved events",
+        variant: "destructive",
+      });
+    }
+  };
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
@@ -313,49 +355,44 @@ const EventCardGrid = ({
               TONIGHT
             </span>
           )}
-          {event.isTrending && (
-            <span className="px-2 py-0.5 bg-orange-500 text-white text-[10px] font-bold rounded-full">
-              🔥 #{event.trendingRank}
+          {event.isRecommended && (
+            <span className="px-2 py-0.5 bg-primary/90 text-primary-foreground text-[10px] font-bold rounded-full backdrop-blur-sm">
+              ★ {event.recommendationScore}% MATCH
             </span>
           )}
         </div>
         
-        {/* Distance Badge */}
-        {event.distance && (
-          <div className="absolute top-3 right-3 px-2 py-0.5 bg-background/80 backdrop-blur-sm text-[10px] font-medium rounded-full text-foreground">
-            {event.distance} mi
-          </div>
-        )}
-        
-        <div className="absolute bottom-3 left-3 flex items-center gap-2">
+        {/* Save Button */}
+        <button
+          onClick={handleSaveToggle}
+          className={`absolute top-3 right-3 p-2 rounded-full backdrop-blur-sm opacity-0 group-hover:opacity-100 transition-all ${
+            isSaved 
+              ? "bg-primary text-primary-foreground" 
+              : "bg-background/80 hover:bg-primary/20"
+          }`}
+        >
+          <Heart className={`w-4 h-4 ${isSaved ? "fill-current" : ""}`} />
+        </button>
+
+        <div className="absolute bottom-3 left-3">
           <span className="genre-tag active">{event.genre}</span>
-          {event.isRecommended && (
-            <span className="px-2 py-0.5 bg-primary/90 text-primary-foreground text-[10px] font-bold rounded-full">
-              ★ For You
-            </span>
-          )}
         </div>
       </div>
+
       <div className="p-4">
-        <h3 className="font-heading font-semibold text-foreground mb-1 truncate group-hover:text-primary transition-colors">
+        <h3 className="font-heading font-semibold text-foreground mb-2 truncate group-hover:text-primary transition-colors">
           {event.name}
         </h3>
-        <p className="text-sm text-muted-foreground">
+        <p className="text-sm text-muted-foreground mb-1">
           {event.date} • {event.time}
         </p>
-        <p className="text-sm text-muted-foreground truncate">{event.venue}</p>
-        <div className="flex items-center justify-between mt-2">
-          {event.price && (
-            <p className={`font-semibold text-sm ${event.priceLevel === 'free' ? 'text-green-500' : 'text-primary'}`}>
-              {event.priceLevel === 'free' ? 'Free' : event.price}
-            </p>
-          )}
-          {event.travelTime && (
-            <span className="text-xs text-muted-foreground">
-              ~{event.travelTime} min away
-            </span>
-          )}
-        </div>
+        <p className="text-sm text-muted-foreground truncate flex items-center gap-1">
+          <MapPin className="w-3.5 h-3.5" />
+          {event.venue}
+        </p>
+        {event.price && (
+          <p className="text-primary font-semibold text-sm mt-2">{event.price}</p>
+        )}
       </div>
     </motion.div>
   );
