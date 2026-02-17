@@ -1,11 +1,12 @@
 import React from "react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { Heart, Trash2 } from "lucide-react";
 import Navbar from "../components/layout/Navbar";
 import EventCard from "../components/events/EventCard.tsx";
 import EventDetailModal from "../components/events/EventDetailModel.tsx";
-import { events, type Event } from "../data/events";
+// import { events, type Event } from "../data/events";
+import { type Event, fetchEvents } from "../data/events";
 
 // Mock saved events (first 4 events)
 const savedEventIds = ["1", "3", "7", "10"];
@@ -13,6 +14,13 @@ const savedEventIds = ["1", "3", "7", "10"];
 const Saved = () => {
   const [detailEvent, setDetailEvent] = useState<Event | null>(null);
   
+  // const savedEvents = events.filter((e) => savedEventIds.includes(e.id));
+  const [events, setEvents] = useState<Event[]>([]);
+
+  useEffect(() => {
+    fetchEvents().then(setEvents);
+  }, []);
+
   const savedEvents = events.filter((e) => savedEventIds.includes(e.id));
 
   return (
