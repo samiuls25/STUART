@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import React from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -21,6 +21,8 @@ import {
 } from "lucide-react";
 import type { Event } from "../../data/events";
 import { toast } from "../../hooks/use-toast";
+import { saveEvent, unsaveEvent, getSavedEventIds } from "../../lib/SavedEvents";
+import { useAuth } from "../../lib/AuthContext";
 
 interface EventDetailModalProps {
   event: Event | null;
@@ -28,16 +30,44 @@ interface EventDetailModalProps {
 }
 
 const EventDetailModal = ({ event, onClose }: EventDetailModalProps) => {
+  const { user } = useAuth();
   const [isSaved, setIsSaved] = useState(false);
+
+  useEffect(() => {
+    if (user && event) {
+      getSavedEventIds().then((savedIds) => {
+        setIsSaved(savedIds.includes(event.id));
+      });
+    }
+  }, [user, event]);
 
   if (!event) return null;
 
-  const handleSave = () => {
-    setIsSaved(!isSaved);
-    toast({
-      title: isSaved ? "Removed from saved" : "Event saved!",
-      description: isSaved ? "Event removed from your saved list" : "You can find this in your Saved events",
-    });
+  const handleSave = async () => {
+    if (!user) {
+      toast({
+        title: "Sign in required",
+        description: "Please sign in to save events",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const success = isSaved ? await unsaveEvent(event.id) : await saveEvent(event.id);
+    
+    if (success) {
+      setIsSaved(!isSaved);
+      toast({
+        title: isSaved ? "Removed from saved" : "Event saved!",
+        description: isSaved ? "Event removed from your saved list" : "You can find this in your Saved events",
+      });
+    } else {
+      toast({
+        title: "Error",
+        description: "Failed to update saved events",
+        variant: "destructive",
+      });
+    }
   };
 
   const handleSuggestToGroup = () => {
