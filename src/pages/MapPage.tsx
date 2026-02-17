@@ -1,5 +1,5 @@
 import React from "react";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { motion } from "framer-motion";
 import Navbar from "../components/layout/Navbar";
 import FilterBar from "../components/shared/FilterBar";
@@ -7,8 +7,8 @@ import EventCard from "../components/events/EventCard";
 import MapView from "../components/map/MapView";
 import EventDetailModal from "../components/events/EventDetailModel";
 import EmptyState from "../components/shared/EmptyState";
-import { events, type Event } from "../data/events";
-
+// import { events, type Event } from "../data/events";
+import { type Event, fetchEvents } from "../data/events"; 
 
 const MapPage = () => {
   const [selectedSegment, setSelectedSegment] = useState("All");
@@ -16,6 +16,11 @@ const MapPage = () => {
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
   const [hoveredEventId, setHoveredEventId] = useState<string | null>(null);
   const [detailEvent, setDetailEvent] = useState<Event | null>(null);
+  const [events, setEvents] = useState<Event[]>([]);
+
+  useEffect(() => {
+    fetchEvents().then(setEvents);
+  }, []);
 
   const filteredEvents = useMemo(() => {
     return events.filter((event) => {

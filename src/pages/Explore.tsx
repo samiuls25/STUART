@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { motion } from "framer-motion";
 import { Search, Sparkles, X } from "lucide-react";
 import React from "react";
@@ -11,7 +11,8 @@ import WeatherIndicator from "../components/shared/WeatherIndicator.tsx";
 import TrendingSection from "../components/events/TrendingSection.tsx";
 import RecommendedSection from "../components/events/RecommendedSection.tsx";
 import PlanBuilderCard from "../components/shared/PlanBuilderCard.tsx";
-import { events, type Event } from "../data/events.ts";
+// import { events, type Event } from "../data/events.ts";
+import { type Event, fetchEvents } from "../data/events";
 import { toast } from "../hooks/use-toast.ts";
 
 const searchPlaceholders = [
@@ -23,24 +24,50 @@ const searchPlaceholders = [
 ];
 
 const Explore = () => {
-  const [selectedSegment, setSelectedSegment] = useState("All");
-  const [selectedGenre, setSelectedGenre] = useState("All");
-  const [selectedPrice, setSelectedPrice] = useState("All");
-  const [selectedTime, setSelectedTime] = useState("All");
-  const [selectedDistance, setSelectedDistance] = useState(5);
+  const [selectedSegment, setSelectedSegment] = useState<string>("All");
+  const [selectedGenre, setSelectedGenre] = useState<string>("All");
+  const [selectedPrice, setSelectedPrice] = useState<string>("All");
+  const [selectedTime, setSelectedTime] = useState<string>("All");
+  const [selectedDistance, setSelectedDistance] = useState<number>(5);
   const [selectedMood, setSelectedMood] = useState<string | null>(null);
   const [detailEvent, setDetailEvent] = useState<Event | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [placeholderIndex] = useState(Math.floor(Math.random() * searchPlaceholders.length));
 
+  const [events, setEvents] = useState<Event[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetchEvents()
+      .then((data) => {
+        console.log("Fetched events from Supabase:", data);
+        if (data.length > 0) {
+          console.log("First event object:", data[0]);
+          Object.entries(data[0]).forEach(([k, v]) => console.log(`${k}:`, v));
+        }
+        setEvents(data);
+      })
+      .finally(() => setLoading(false));
+}, []);
+
+console.log("Filter state:", {
+  selectedSegment,
+  selectedGenre,
+  selectedPrice,
+  selectedTime,
+  selectedDistance,
+  selectedMood,
+  searchQuery,
+});
+
   const filteredEvents = useMemo(() => {
-    return events.filter((event) => {
+    const filtered = events.filter((event) => {
       const matchesSegment =
         selectedSegment === "All" || event.segment === selectedSegment;
       const matchesGenre =
         selectedGenre === "All" || event.genre === selectedGenre;
       const matchesPrice =
-        selectedPrice === "All" || 
+        selectedPrice === "All" ||
         (selectedPrice === "Free" && event.priceLevel === "free") ||
         event.priceLevel === selectedPrice;
       const matchesDistance =
@@ -48,23 +75,41 @@ const Explore = () => {
       const matchesTime =
         selectedTime === "All" ||
         (selectedTime === "Now" && event.happeningNow) ||
-        (selectedTime === "Tonight" && event.isTonight);
+        (selectedTime === "Tonight" && event.isTonight) ||
+        (!event.happeningNow && !event.isTonight);
       const matchesSearch =
         searchQuery === "" ||
-        event.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        event.venue.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        event.genre.toLowerCase().includes(searchQuery.toLowerCase());
-      
-      // Mood filtering (conceptual)
-      const matchesMood = !selectedMood || 
+        (event.name && event.name.toLowerCase().includes(searchQuery.toLowerCase())) ||
+        (event.venue && event.venue.toLowerCase().includes(searchQuery.toLowerCase())) ||
+        (event.genre && event.genre.toLowerCase().includes(searchQuery.toLowerCase()));
+      const matchesMood =
+        !selectedMood ||
         (selectedMood === "adventurous" && event.tags?.includes("immersive")) ||
         (selectedMood === "chill" && (event.tags?.includes("intimate") || event.tags?.includes("cultural"))) ||
         (selectedMood === "social" && (event.tags?.includes("nightlife") || event.tags?.includes("concert"))) ||
         (selectedMood === "artsy" && (event.segment === "Arts" || event.tags?.includes("art")));
-      
-      return matchesSegment && matchesGenre && matchesPrice && matchesDistance && matchesTime && matchesSearch && matchesMood;
+
+      return (
+        matchesSegment &&
+        matchesGenre &&
+        matchesPrice &&
+        matchesDistance &&
+        matchesTime &&
+        matchesSearch &&
+        matchesMood
+      );
     });
-  }, [selectedSegment, selectedGenre, selectedPrice, selectedTime, selectedDistance, selectedMood, searchQuery]);
+    console.log("Filtered events:", filtered);
+    return filtered;
+  }, [
+    selectedSegment,
+    selectedGenre,
+    selectedPrice,
+    selectedTime,
+    selectedDistance,
+    selectedMood,
+    searchQuery,
+]);
 
   const handleEventClick = (event: Event) => {
     setDetailEvent(event);
@@ -85,6 +130,14 @@ const Explore = () => {
       description: "STUART is creating a personalized itinerary for you.",
     });
   };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <span className="text-muted-foreground text-lg">Loading events...</span>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background">
