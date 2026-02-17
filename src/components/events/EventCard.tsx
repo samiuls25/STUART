@@ -1,7 +1,10 @@
-import React from "react";
+import React, { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { Calendar, Clock, MapPin, Heart, Navigation, Zap, ThumbsUp, ThumbsDown, DollarSign } from "lucide-react";
 import type { Event } from "../../data/events.ts";
+import { saveEvent, unsaveEvent, getSavedEventIds } from "../../lib/SavedEvents";
+import { useAuth } from "../../lib/AuthContext";
+import { toast } from "../../hooks/use-toast";
 
 interface EventCardProps {
   event: Event;
@@ -20,6 +23,46 @@ const EventCard = ({
   onClick,
   index,
 }: EventCardProps) => {
+  const { user } = useAuth();
+  const [isSaved, setIsSaved] = useState(false);
+
+  useEffect(() => {
+    if (user) {
+      getSavedEventIds().then((savedIds) => {
+        setIsSaved(savedIds.includes(event.id));
+      });
+    }
+  }, [user, event.id]);
+
+  const handleSaveToggle = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    
+    if (!user) {
+      toast({
+        title: "Sign in required",
+        description: "Please sign in to save events",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const success = isSaved ? await unsaveEvent(event.id) : await saveEvent(event.id);
+    
+    if (success) {
+      setIsSaved(!isSaved);
+      toast({
+        title: isSaved ? "Removed from saved" : "Event saved!",
+        description: isSaved ? "Event removed from your saved list" : "You can find this in your Saved events",
+      });
+    } else {
+      toast({
+        title: "Error",
+        description: "Failed to update saved events",
+        variant: "destructive",
+      });
+    }
+  };
+
   return (
     <motion.div
       initial={{ opacity: 0, x: -20 }}
@@ -55,12 +98,14 @@ const EventCard = ({
           
           {/* Save button */}
           <button
-            onClick={(e) => {
-              e.stopPropagation();
-            }}
-            className="absolute top-2 right-2 p-1.5 rounded-full bg-background/80 backdrop-blur-sm opacity-0 group-hover:opacity-100 transition-opacity hover:bg-primary/20"
+            onClick={handleSaveToggle}
+            className={`absolute top-2 right-2 p-1.5 rounded-full backdrop-blur-sm opacity-0 group-hover:opacity-100 transition-all ${
+              isSaved 
+                ? "bg-primary text-primary-foreground" 
+                : "bg-background/80 hover:bg-primary/20"
+            }`}
           >
-            <Heart className="w-3.5 h-3.5 text-foreground" />
+            <Heart className={`w-3.5 h-3.5 ${isSaved ? "fill-current" : ""}`} />
           </button>
         </div>
 
