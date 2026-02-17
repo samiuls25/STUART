@@ -102,6 +102,7 @@ console.log("Filter state:", {
     console.log("Filtered events:", filtered);
     return filtered;
   }, [
+    events,
     selectedSegment,
     selectedGenre,
     selectedPrice,
@@ -109,7 +110,7 @@ console.log("Filter state:", {
     selectedDistance,
     selectedMood,
     searchQuery,
-]);
+  ]);
 
   const handleEventClick = (event: Event) => {
     setDetailEvent(event);
