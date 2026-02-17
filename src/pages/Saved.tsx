@@ -3,6 +3,7 @@ import React from "react";
 import { motion } from "framer-motion";
 import { Heart, Trash2 } from "lucide-react";
 import Navbar from "../components/layout/Navbar";
+import EventDetailModal from "../components/events/EventDetailModel";
 import { type Event, fetchEvents } from "../data/events";
 import { getSavedEventIds, unsaveEvent } from "../lib/SavedEvents";
 import { useAuth } from "../lib/AuthContext";
@@ -13,6 +14,7 @@ const Saved = () => {
   const [events, setEvents] = useState<Event[]>([]);
   const [savedEventIds, setSavedEventIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
+  const [detailEvent, setDetailEvent] = useState<Event | null>(null);
 
   useEffect(() => {
     if (!user) {
@@ -91,12 +93,14 @@ const Saved = () => {
                   event={event}
                   index={index}
                   onUnsave={() => handleUnsave(event.id)}
+                  onClick={() => setDetailEvent(event)}
                 />
               ))}
             </div>
           )}
         </div>
       </main>
+      <EventDetailModal event={detailEvent} onClose={() => setDetailEvent(null)} />
     </div>
   );
 };
@@ -105,14 +109,16 @@ interface SavedEventCardProps {
   event: Event;
   onUnsave: () => void;
   index: number;
+  onClick: () => void;
 }
 
-const SavedEventCard = ({ event, onUnsave, index }: SavedEventCardProps) => {
+const SavedEventCard = ({ event, onUnsave, index, onClick }: SavedEventCardProps) => {
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.4, delay: index * 0.05 }}
+      onClick={onClick}
       className="card-event group"
     >
       <div className="relative aspect-[16/10] overflow-hidden">
