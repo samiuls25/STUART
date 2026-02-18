@@ -26,10 +26,16 @@ const FriendCard = ({ friend, onViewProfile, onMute, onBlock, compact = false }:
     busy: "bg-amber-500",
   };
 
-  const friendBadges = friend.badges
+  // Safely handle badges - Supabase friends don't have badges array
+  const friendBadges = (friend.badges ?? [])
     .map((id) => allBadges.find((b) => b.id === id))
     .filter(Boolean)
     .slice(0, 3);
+
+  // Safely handle status - Supabase friends don't have online/offline status
+  const friendStatus = (friend.status as string) in statusColors 
+    ? friend.status as "online" | "offline" | "busy"
+    : "offline";
 
   if (compact) {
     return (
@@ -49,7 +55,7 @@ const FriendCard = ({ friend, onViewProfile, onMute, onBlock, compact = false }:
               </span>
             )}
           </div>
-          <div className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-card ${statusColors[friend.status]}`} />
+          <div className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-card ${statusColors[friendStatus]}`} />
         </div>
         <div className="flex-1 min-w-0">
           <p className="font-medium text-foreground truncate">{friend.name}</p>
@@ -85,7 +91,7 @@ const FriendCard = ({ friend, onViewProfile, onMute, onBlock, compact = false }:
             </span>
           )}
         </div>
-        <div className={`absolute -bottom-1 -right-1 w-4 h-4 rounded-full border-2 border-card ${statusColors[friend.status]}`} />
+        <div className={`absolute -bottom-1 -right-1 w-4 h-4 rounded-full border-2 border-card ${statusColors[friendStatus]}`} />
       </button>
 
       {/* Info */}
@@ -115,11 +121,20 @@ const FriendCard = ({ friend, onViewProfile, onMute, onBlock, compact = false }:
           ))}
         </div>
 
-        {/* Stats */}
+        {/* Stats - only show if available */}
         <div className="flex items-center gap-3 mt-2 text-xs text-muted-foreground">
-          <span>{friend.mutualFriends} mutual friends</span>
-          <span>•</span>
-          <span>{friend.hangoutsTogether} hangouts together</span>
+          {friend.mutualFriends !== undefined && (
+            <>
+              <span>{friend.mutualFriends} mutual friends</span>
+              <span>•</span>
+            </>
+          )}
+          {friend.hangoutsTogether !== undefined && (
+            <span>{friend.hangoutsTogether} hangouts together</span>
+          )}
+          {friend.email && friend.mutualFriends === undefined && (
+            <span>{friend.email}</span>
+          )}
         </div>
       </div>
 
