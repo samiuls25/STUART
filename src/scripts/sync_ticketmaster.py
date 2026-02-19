@@ -76,7 +76,7 @@ def transform_event(event):
     lng = venue_data.get("location", {}).get("longitude")
 
     return {
-        "id": event.get("id"),           # Use Ticketmaster ID as primary key
+        "external_id": event.get("id"),  # Store Ticketmaster ID here
         "name": event.get("name"),
         "hero_image": pick_hero_image(event.get("images", [])),
         "date": dates.get("localDate"),
@@ -102,10 +102,13 @@ def transform_event(event):
 def sync_to_supabase(events):
     transformed = [transform_event(e) for e in events]
     # Filter out any with missing required fields
-    transformed = [e for e in transformed if e["name"] and e["date"]]
+    transformed = [e for e in transformed if e["name"] and e["date"] and e["external_id"]]
 
-    # Upsert - insert or update if ID already exists
-    result = supabase.table("events").upsert(transformed).execute()
+    # Upsert - insert or update if external_id already exists
+    result = supabase.table("events").upsert(
+        transformed, 
+        on_conflict="external_id"
+    ).execute()
     print(f"Synced {len(transformed)} events to Supabase")
     return result
 
