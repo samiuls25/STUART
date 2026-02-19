@@ -1,7 +1,6 @@
 import os
 from dotenv import load_dotenv
 import requests
-import json
 from supabase import create_client
 from datetime import datetime
 
@@ -96,19 +95,47 @@ def transform_event(event):
         "is_trending": False,
         "happening_now": False,
         "is_tonight": False,
-        "source": "ticketmaster",       # Track where data came from
+        "source": "ticketmaster",
     }
+
+def deduplicate_events(events):
+    """Remove duplicate events based on name + date + venue"""
+    seen = set()
+    unique = []
+    
+    for event in events:
+        # Create a unique key based on name, date, and venue
+        key = (
+            event.get("name", "").lower().strip(),
+            event.get("date"),
+            event.get("venue", "").lower().strip()
+        )
+        
+        if key not in seen:
+            seen.add(key)
+            unique.append(event)
+        else:
+            print(f"Skipping duplicate: {event['name']} on {event['date']} at {event['venue']}")
+    
+    return unique
 
 def sync_to_supabase(events):
     transformed = [transform_event(e) for e in events]
+    
     # Filter out any with missing required fields
     transformed = [e for e in transformed if e["name"] and e["date"] and e["external_id"]]
+    
+    # Deduplicate before inserting
+    transformed = deduplicate_events(transformed)
+    
+    print(f"After deduplication: {len(transformed)} unique events")
 
     # Upsert - insert or update if external_id already exists
     result = supabase.table("events").upsert(
         transformed, 
         on_conflict="external_id"
     ).execute()
+    
     print(f"Synced {len(transformed)} events to Supabase")
     return result
 
