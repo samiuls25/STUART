@@ -1,6 +1,7 @@
 export interface Friend {
     id: string;
     name: string;
+    email?: string;
     avatar?: string;
     status: "online" | "offline" | "busy";
     badges: string[]; // badge IDs
@@ -204,8 +205,11 @@ export interface Friend {
     },
   ];
   
-  // Mock hangouts data
-  export const hangouts: Hangout[] = [
+  // Mock hangouts data - empty by default, users create their own hangouts
+  export const hangouts: Hangout[] = [];
+  
+  // Previous mock data (kept for reference, can be reused if needed)
+  const mockHangouts: Hangout[] = [
     {
       id: "hangout-1",
       title: "Coffee & Catch-up",
