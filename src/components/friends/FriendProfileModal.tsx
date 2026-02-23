@@ -1,7 +1,7 @@
 import React from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, Trophy, Camera, Calendar, UserMinus, VolumeX, Volume2 } from "lucide-react";
-import { Friend } from "../../data/friends";
+import { Friend } from "../../lib/friends";
 import { badgeDefinitions as allBadges, memories } from "../../data/badges";
 import BadgeCard from "../profile/BadgeCard";
 import MemoryCard from "../profile/MemoryCard";

@@ -10,7 +10,6 @@ import { useAuth } from "../lib/AuthContext";
 import { toast } from "../hooks/use-toast";
 import { Input } from "../components/ui/input.tsx";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
-import { Friend, FriendRequest } from "../data/friends";
 
 const Friends = () => {
   const { user } = useAuth();
@@ -33,29 +32,8 @@ const Friends = () => {
 
     Promise.all([getFriends(), getPendingRequests()])
       .then(([friendsData, requestsData]) => {
-        // Patch backend friends to match frontend Friend type
-        const patchedFriends = friendsData.map(f => ({
-          ...f,
-          email: f.email ?? '',
-          status: 'offline' as 'offline', // default, backend doesn't provide
-          badges: [],
-          mutualFriends: 0,
-          hangoutsTogether: 0,
-          isMuted: false,
-          isBlocked: false,
-        }));
-        setFriends(patchedFriends);
-        // Patch requests to Friend shape
-        const patchedRequests = requestsData.map(r => ({
-          ...r,
-          status: 'offline' as 'offline',
-          badges: [],
-          mutualFriends: 0,
-          hangoutsTogether: 0,
-          isMuted: false,
-          isBlocked: false,
-        }));
-        setPendingRequests(patchedRequests);
+        setFriends(friendsData);
+        setPendingRequests(requestsData);
       })
       .finally(() => setLoading(false));
   }, [user]);
@@ -76,29 +54,10 @@ const Friends = () => {
   const handleAcceptRequest = async (friendId: string) => {
     const success = await acceptFriendRequest(friendId);
     if (success) {
-      // Refresh data
       Promise.all([getFriends(), getPendingRequests()])
         .then(([friendsData, requestsData]) => {
-          const patchedFriends = friendsData.map(f => ({
-            ...f,
-            status: 'offline' as 'offline',
-            badges: [],
-            mutualFriends: 0,
-            hangoutsTogether: 0,
-            isMuted: false,
-            isBlocked: false,
-          }));
-          setFriends(patchedFriends);
-          const patchedRequests = requestsData.map(r => ({
-            ...r,
-            status: 'offline' as 'offline',
-            badges: [],
-            mutualFriends: 0,
-            hangoutsTogether: 0,
-            isMuted: false,
-            isBlocked: false,
-          }));
-          setPendingRequests(patchedRequests);
+          setFriends(friendsData);
+          setPendingRequests(requestsData);
         });
       toast({ title: "Friend request accepted!" });
     } else {
