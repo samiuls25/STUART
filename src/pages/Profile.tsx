@@ -137,7 +137,7 @@ const Profile = () => {
     return (
       <div className="min-h-screen bg-background">
         <Navbar />
-        <main className="container mx-auto px-4 py-8">
+        <main className="container mx-auto px-4 py-8 pt-24">
           <div className="max-w-2xl mx-auto text-center space-y-6">
             <div className="w-20 h-20 rounded-2xl bg-muted mx-auto flex items-center justify-center">
               <User className="w-10 h-10 text-muted-foreground" />
@@ -189,8 +189,7 @@ const Profile = () => {
   return (
     <div className="min-h-screen bg-background">
       <Navbar />
-
-      <main className="container mx-auto px-4 py-8 pb-24">
+      <main className="container mx-auto px-4 py-8 pb-24 pt-24">
         <div className="max-w-4xl mx-auto space-y-6">
           {/* Profile Header */}
           <motion.div
