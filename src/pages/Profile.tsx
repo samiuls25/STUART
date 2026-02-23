@@ -21,7 +21,6 @@ import MemoryCard from "../components/profile/MemoryCard";
 import EditProfileModal from "../components/profile/EditProfileModal";
 import { groups } from "../data/groups";
 import { badges as localBadges, badgeDefinitions, memories as localMemories } from "../data/badges";
-// ...existing code...
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/AuthContext";
 import { getFriends } from "../lib/friends";
@@ -31,7 +30,6 @@ type TabType = "overview" | "badges" | "memories";
 
 const Profile = () => {
   const navigate = useNavigate();
-  // All hooks must be called at the top level, before any early returns
   const [activeTab, setActiveTab] = useState<TabType>("overview");
   const [editing, setEditing] = useState(false);
   const [showAuth, setShowAuth] = useState(false);
@@ -42,8 +40,27 @@ const Profile = () => {
   const [memoriesState, setMemoriesState] = useState(localMemories);
   const [loadingBadges, setLoadingBadges] = useState(false);
   const [loadingMemories, setLoadingMemories] = useState(false);
+  const [bio, setBio] = useState<string>("");
   
   const { user, loading, signOut } = useAuth();
+
+  // Fetch bio from user metadata or profiles table
+  useEffect(() => {
+    if (user) {
+      const userBio = (user as any)?.user_metadata?.bio || "";
+      setBio(userBio);
+      
+      // Optionally fetch from profiles table as backup
+      supabase
+        .from("profiles")
+        .select("bio")
+        .eq("id", user.id)
+        .maybeSingle()
+        .then(({ data }) => {
+          if (data?.bio) setBio(data.bio);
+        });
+    }
+  }, [user]);
 
   // useEffect MUST be called before any early returns to maintain consistent hook order
   useEffect(() => {
@@ -107,20 +124,11 @@ const Profile = () => {
     };
   }, [user]);
 
-  // Early returns for loading and unauthenticated states
+  // Now handle early returns AFTER all hooks
   if (loading) {
     return (
-      <div className="min-h-screen bg-background">
-        <Navbar />
-        <main className="pt-[72px]">
-          <div className="max-w-4xl mx-auto px-6 py-12">
-            <div className="bg-card rounded-2xl border border-border p-6 mb-6 animate-pulse">
-              <div className="h-6 bg-muted rounded w-48 mb-4" />
-              <div className="h-3 bg-muted rounded w-32 mb-2" />
-              <div className="h-2 bg-muted rounded w-full mt-4" />
-            </div>
-          </div>
-        </main>
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
       </div>
     );
   }
@@ -129,13 +137,18 @@ const Profile = () => {
     return (
       <div className="min-h-screen bg-background">
         <Navbar />
-        <main className="pt-[72px]">
-          <div className="max-w-4xl mx-auto px-6 py-12">
-            <div className="bg-card rounded-2xl border border-border p-6 mb-6 text-center">
-              <h2 className="font-heading text-xl font-semibold text-foreground mb-2">You're not signed in</h2>
-              <p className="text-sm text-muted-foreground mb-4">Sign in to view and edit your profile, badges, and memories.</p>
-              <button onClick={() => setShowAuth(true)} className="btn-primary px-4 py-2">Sign In</button>
+        <main className="container mx-auto px-4 py-8">
+          <div className="max-w-2xl mx-auto text-center space-y-6">
+            <div className="w-20 h-20 rounded-2xl bg-muted mx-auto flex items-center justify-center">
+              <User className="w-10 h-10 text-muted-foreground" />
             </div>
+            <div>
+              <h1 className="font-heading text-3xl font-bold text-foreground mb-2">Profile</h1>
+              <p className="text-muted-foreground">Sign in to view your profile</p>
+            </div>
+            <button onClick={() => setShowAuth(true)} className="btn-primary px-6 py-3">
+              Sign In
+            </button>
           </div>
         </main>
         <AuthModal isOpen={showAuth} onClose={() => setShowAuth(false)} />
@@ -147,7 +160,7 @@ const Profile = () => {
   const displayName =
     (user as any)?.user_metadata?.full_name ||
     (user?.email ? user.email.split("@")[0] : "Your Name");
-  const avatar = (user as any)?.user_metadata?.avatar_url ?? null;
+  const avatarUrl = (user as any)?.user_metadata?.avatar_url ?? null;
   const joinedDate = user?.created_at
     ? new Date(user.created_at).toLocaleString(undefined, { month: "long", year: "numeric" })
     : "Member";
@@ -177,101 +190,65 @@ const Profile = () => {
     <div className="min-h-screen bg-background">
       <Navbar />
 
-      <main className="pt-[72px]">
-        <div className="max-w-4xl mx-auto px-6 py-12">
+      <main className="container mx-auto px-4 py-8 pb-24">
+        <div className="max-w-4xl mx-auto space-y-6">
           {/* Profile Header */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.4 }}
-            className="bg-card rounded-2xl border border-border p-6 mb-6"
+            className="bg-card rounded-2xl border border-border p-6 shadow-elevated"
           >
             <div className="flex items-start gap-6">
               {/* Avatar */}
-              <div className="relative">
+              <div className="relative flex-shrink-0">
                 <div className="w-24 h-24 rounded-2xl bg-gradient-to-br from-primary/20 to-accent/20 flex items-center justify-center overflow-hidden">
-                  {avatar ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={avatar} alt={displayName} className="w-full h-full rounded-2xl object-cover" />
+                  {avatarUrl ? (
+                    <img src={avatarUrl} alt={displayName} className="w-full h-full object-cover" />
                   ) : (
-                    <span className="font-heading text-3xl font-bold text-primary">
+                    <span className="font-heading text-4xl font-bold text-primary">
                       {displayName.charAt(0).toUpperCase()}
                     </span>
                   )}
                 </div>
-                {/* Level Badge */}
-                <div className="absolute -bottom-2 -right-2 px-2 py-1 rounded-full bg-primary text-primary-foreground text-xs font-bold shadow-lg">
-                  Lvl {level}
-                </div>
+                <div className="absolute -bottom-2 -right-2 w-8 h-8 rounded-full bg-green-500 border-4 border-card" />
               </div>
 
-              <div className="flex-1">
-                <div className="flex items-center gap-3 mb-1">
-                  <h1 className="font-heading text-2xl font-bold text-foreground">{displayName}</h1>
-                  {/* Top Badges Preview */}
-                  <div className="flex gap-1">
-                    {topBadges.map((badge) => (
-                      <span key={badge.id} className="text-lg" title={badge.name}>
-                        {badge.icon}
-                      </span>
-                    ))}
+              {/* Info */}
+              <div className="flex-1 min-w-0">
+                <div className="flex items-start justify-between gap-4 mb-3">
+                  <div>
+                    <h1 className="font-heading text-2xl font-bold text-foreground mb-1">{displayName}</h1>
+                    <p className="text-sm text-muted-foreground">{user.email}</p>
                   </div>
-                </div>
-                <p className="text-muted-foreground break-all">{user?.email ?? "No email"}</p>
-                <p className="text-sm text-muted-foreground mt-1">Member since {joinedDate}</p>
-
-                {/* XP Progress */}
-                <div className="mt-4">
-                  <div className="flex items-center justify-between text-xs text-muted-foreground mb-1">
-                    <span className="flex items-center gap-1">
-                      <Sparkles className="w-3 h-3 text-primary" />
-                      {xp} XP
-                    </span>
-                    <span>
-                      {Math.max(0, nextLevelXp - xp)} XP to Level {level + 1}
-                    </span>
-                  </div>
-                  <div className="h-2 bg-muted rounded-full overflow-hidden">
-                    <motion.div
-                      initial={{ width: 0 }}
-                      animate={{ width: `${Math.min(100, (xp / Math.max(1, nextLevelXp)) * 100)}%` }}
-                      transition={{ duration: 0.8, ease: "easeOut" }}
-                      className="h-full rounded-full bg-gradient-to-r from-primary to-accent"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex flex-col gap-2">
-                <>
-                  <button onClick={() => setEditing(true)} className="btn-primary py-2 px-3 flex items-center gap-2" disabled={!user}>
+                  <button
+                    onClick={() => setEditing(true)}
+                    className="btn-secondary px-4 py-2 flex items-center gap-2"
+                  >
                     <User className="w-4 h-4" />
-                    <span>{user ? "Edit" : "Sign In"}</span>
+                    Edit Profile
                   </button>
-                  <button onClick={() => user ? navigate("/settings") : setShowAuth(true)} className="btn-secondary py-2 px-3 flex items-center gap-2">
-                    <Settings className="w-4 h-4" />
-                  </button>
-                </>
-              </div>
-            </div>
+                </div>
 
-            {/* Stats */}
-            <div className="grid grid-cols-4 gap-4 mt-6 pt-6 border-t border-border">
-              <div className="text-center">
-                <p className="text-2xl font-bold text-foreground">{hangoutsCount}</p>
-                <p className="text-sm text-muted-foreground">Hangouts</p>
-              </div>
-              <div className="text-center">
-                <p className="text-2xl font-bold text-foreground">{savedCount}</p>
-                <p className="text-sm text-muted-foreground">Saved</p>
-              </div>
-              <div className="text-center">
-                <p className="text-2xl font-bold text-foreground">{groupsCount}</p>
-                <p className="text-sm text-muted-foreground">Groups</p>
-              </div>
-              <div className="text-center">
-                <p className="text-2xl font-bold text-foreground">{friendsCount}</p>
-                <p className="text-sm text-muted-foreground">Friends</p>
+                {/* Bio */}
+                {bio && (
+                  <p className="text-muted-foreground text-sm mb-4">{bio}</p>
+                )}
+
+                {/* Stats */}
+                <div className="flex items-center gap-6">
+                  <div>
+                    <p className="text-2xl font-heading font-bold text-foreground">{savedCount}</p>
+                    <p className="text-sm text-muted-foreground">Saved</p>
+                  </div>
+                  <div>
+                    <p className="text-2xl font-heading font-bold text-foreground">{friendsCount}</p>
+                    <p className="text-sm text-muted-foreground">Friends</p>
+                  </div>
+                  <div>
+                    <p className="text-2xl font-heading font-bold text-foreground">{groupsCount}</p>
+                    <p className="text-sm text-muted-foreground">Groups</p>
+                  </div>
+                </div>
               </div>
             </div>
           </motion.div>

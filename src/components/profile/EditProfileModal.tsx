@@ -83,66 +83,76 @@ const EditProfileModal = ({ isOpen, onClose }: EditProfileModalProps) => {
 
   return (
     <AnimatePresence>
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        onClick={onClose}
-        className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50"
-      />
+      {isOpen && (
+        <>
+          {/* Backdrop */}
+          <motion.div
+            key="backdrop"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={onClose}
+            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50"
+          />
 
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 pointer-events-none">
-        <motion.div
-          initial={{ opacity: 0, scale: 0.95, y: 20 }}
-          animate={{ opacity: 1, scale: 1, y: 0 }}
-          exit={{ opacity: 0, scale: 0.95, y: 20 }}
-          className="w-full max-w-md pointer-events-auto"
-        >
-          <div className="bg-card rounded-2xl border border-border p-6 shadow-elevated max-h-[85vh] overflow-y-auto">
-            <div className="flex items-center justify-between mb-6">
-              <h2 className="font-heading text-xl font-bold text-foreground">Edit Profile</h2>
-              <button onClick={onClose} className="p-2 hover:bg-muted rounded-lg transition-colors">
-                <X className="w-5 h-5 text-muted-foreground" />
-              </button>
-            </div>
-
-            <div className="space-y-4">
-              <div className="flex items-center gap-4">
-                <div className="w-20 h-20 rounded-2xl bg-muted overflow-hidden flex items-center justify-center">
-                  {preview ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={preview} alt="avatar" className="w-full h-full object-cover" />
-                  ) : (
-                    <div className="text-muted-foreground">No avatar</div>
-                  )}
+          {/* Modal Container */}
+          <div key="modal-container" className="fixed inset-0 z-50 flex items-center justify-center p-4 pointer-events-none">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="w-full max-w-md pointer-events-auto"
+            >
+              <div className="bg-card rounded-2xl border border-border p-6 shadow-elevated max-h-[85vh] overflow-y-auto">
+                <div className="flex items-center justify-between mb-6">
+                  <h2 className="font-heading text-xl font-bold text-foreground">Edit Profile</h2>
+                  <button onClick={onClose} className="p-2 hover:bg-muted rounded-lg transition-colors">
+                    <X className="w-5 h-5 text-muted-foreground" />
+                  </button>
                 </div>
-                <label className="flex items-center gap-2 cursor-pointer text-sm text-primary">
-                  <Camera className="w-4 h-4" />
-                  <span>Change avatar</span>
-                  <input onChange={handleFile} type="file" accept="image/*" className="hidden" />
-                </label>
-              </div>
 
-              <div>
-                <label className="block text-sm font-medium text-foreground mb-2">Full name</label>
-                <input value={name} onChange={(e) => setName(e.target.value)} className="input-field w-full" />
-              </div>
+                <div className="space-y-4">
+                  {/* Avatar Section */}
+                  <div className="flex items-center gap-4">
+                    <div className="w-20 h-20 rounded-2xl bg-muted overflow-hidden flex items-center justify-center">
+                      {preview ? (
+                        <img src={preview} alt="avatar" className="w-full h-full object-cover" />
+                      ) : (
+                        <div className="text-muted-foreground">No avatar</div>
+                      )}
+                    </div>
+                    <label className="flex items-center gap-2 cursor-pointer text-sm text-primary">
+                      <Camera className="w-4 h-4" />
+                      <span>Change avatar</span>
+                      <input onChange={handleFile} type="file" accept="image/*" className="hidden" />
+                    </label>
+                  </div>
 
-              <div>
-                <label className="block text-sm font-medium text-foreground mb-2">Bio</label>
-                <textarea value={bio} onChange={(e) => setBio(e.target.value)} className="input-field w-full h-24 resize-none" />
-              </div>
+                  {/* Name Input */}
+                  <div>
+                    <label className="block text-sm font-medium text-foreground mb-2">Full name</label>
+                    <input value={name} onChange={(e) => setName(e.target.value)} className="input-field w-full" />
+                  </div>
 
-              <div className="flex gap-2">
-                <button onClick={handleSave} disabled={saving} className="btn-primary flex-1">
-                  {saving ? "Saving…" : "Save"}
-                </button>
-                <button onClick={onClose} className="btn-secondary">Cancel</button>
+                  {/* Bio Textarea */}
+                  <div>
+                    <label className="block text-sm font-medium text-foreground mb-2">Bio</label>
+                    <textarea value={bio} onChange={(e) => setBio(e.target.value)} className="input-field w-full h-24 resize-none" />
+                  </div>
+
+                  {/* Action Buttons */}
+                  <div className="flex gap-2">
+                    <button onClick={handleSave} disabled={saving} className="btn-primary flex-1">
+                      {saving ? "Saving…" : "Save"}
+                    </button>
+                    <button onClick={onClose} className="btn-secondary">Cancel</button>
+                  </div>
+                </div>
               </div>
-            </div>
+            </motion.div>
           </div>
-        </motion.div>
-      </div>
+        </>
+      )}
     </AnimatePresence>
   );
 };

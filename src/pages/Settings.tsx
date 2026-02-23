@@ -19,6 +19,7 @@ import {
   ArrowLeft,
   Check,
   AlertCircle,
+  Camera,
 } from "lucide-react";
 import Navbar from "../components/layout/Navbar";
 import AuthModal from "../components/auth/AuthModal";
@@ -40,7 +41,6 @@ type SettingsSection = "main" | "profile" | "privacy" | "notifications" | "block
 
 const Settings = () => {
   const navigate = useNavigate();
-  // All hooks must be called at the top level, before any early returns
   const [showAuth, setShowAuth] = useState(false);
   const [activeSection, setActiveSection] = useState<SettingsSection>("main");
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -48,7 +48,8 @@ const Settings = () => {
   const [settings, setSettings] = useState({
     // Profile
     name: "",
-    email: "",
+    bio: "", 
+    avatarUrl: "", 
     // Privacy
     profileVisibility: "friends" as "public" | "friends" | "private",
     showBadges: true,
@@ -64,6 +65,8 @@ const Settings = () => {
   });
   const [saving, setSaving] = useState(false);
   const [blockedUsers, setBlockedUsers] = useState<any[]>([]);
+  const [avatarFile, setAvatarFile] = useState<File | null>(null);
+  const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
 
   const { user, signOut } = useAuth();
 
@@ -97,18 +100,18 @@ const Settings = () => {
     }
   }, [settings.darkMode]);
 
-  // Initialize profile and privacy fields from user data
+  // Initialize profile fields from user data
   useEffect(() => {
     if (user) {
       const displayName = (user as any)?.user_metadata?.full_name || 
                          (user?.email ? user.email.split("@")[0] : "Your Name");
-      const userEmail = user?.email ?? "";
       const userMetadata = (user as any)?.user_metadata ?? {};
       
       setSettings((prev) => ({
         ...prev,
         name: displayName,
-        email: userEmail,
+        bio: userMetadata.bio || "",
+        avatarUrl: userMetadata.avatar_url || "",
         // Load privacy settings from user metadata
         profileVisibility: (userMetadata.profile_visibility ?? "friends") as "public" | "friends" | "private",
         showBadges: userMetadata.show_badges !== false,
@@ -120,8 +123,38 @@ const Settings = () => {
         eventReminders: userMetadata.notification_event_reminders !== false,
         friendActivity: userMetadata.notification_friend_activity !== false,
       }));
+      
+      setAvatarPreview(userMetadata.avatar_url || null);
     }
   }, [user]);
+
+  // Handle avatar file selection
+  useEffect(() => {
+    if (!avatarFile) return;
+    const url = URL.createObjectURL(avatarFile);
+    setAvatarPreview(url);
+    return () => URL.revokeObjectURL(url);
+  }, [avatarFile]);
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0] ?? null;
+    setAvatarFile(file);
+  };
+
+  const uploadAvatar = async (file: File) => {
+    if (!user) return null;
+    const fileExt = file.name.split(".").pop();
+    const filePath = `avatars/${user.id}-${Date.now()}.${fileExt}`;
+
+    const { error: uploadError } = await supabase.storage.from("avatars").upload(filePath, file);
+    if (uploadError) {
+      console.error("Upload failed", uploadError);
+      return null;
+    }
+
+    const { data } = supabase.storage.from("avatars").getPublicUrl(filePath);
+    return data.publicUrl;
+  };
 
   const handleDeleteAccount = async () => {
     if (!user) return;
@@ -227,21 +260,33 @@ const Settings = () => {
     
     setSaving(true);
     try {
+      let avatarUrl = settings.avatarUrl;
+
+      // Upload new avatar if selected
+      if (avatarFile) {
+        const uploaded = await uploadAvatar(avatarFile);
+        if (uploaded) avatarUrl = uploaded;
+      }
+
       // Update user metadata
       const { error: authError } = await supabase.auth.updateUser({
-        data: { full_name: settings.name },
+        data: { 
+          full_name: settings.name,
+          bio: settings.bio,
+          avatar_url: avatarUrl,
+        },
       });
       
       if (authError) throw authError;
       
-      // Save to profiles table (using 'name' column, not 'full_name')
+      // Save to profiles table
       const { error: profileError } = await supabase.from("profiles").upsert({
         id: user.id,
         name: settings.name,
+        bio: settings.bio,
+        avatar_url: avatarUrl,
         updated_at: new Date().toISOString(),
       }, { onConflict: "id" }).select();
-      
-      // Note: email updates are restricted in Supabase and may require confirmation
       
       if (profileError) {
         console.warn("Profile table update skipped (may not exist):", profileError);
@@ -260,6 +305,7 @@ const Settings = () => {
       });
     } finally {
       setSaving(false);
+      setAvatarFile(null);
     }
   };
 
@@ -448,8 +494,34 @@ const Settings = () => {
 
       <div className="bg-card rounded-2xl border border-border p-6 space-y-6">
         <h2 className="font-heading text-lg font-semibold text-foreground">
-          Profile Details
+          Profile Information
         </h2>
+
+        {/* Avatar Upload */}
+        <div>
+          <label className="block text-sm font-medium text-foreground mb-3">
+            Profile Picture
+          </label>
+          <div className="flex items-center gap-4">
+            <div className="w-20 h-20 rounded-2xl bg-muted overflow-hidden flex items-center justify-center">
+              {avatarPreview ? (
+                <img src={avatarPreview} alt="avatar" className="w-full h-full object-cover" />
+              ) : (
+                <User className="w-10 h-10 text-muted-foreground" />
+              )}
+            </div>
+            <label className="btn-secondary px-4 py-2 cursor-pointer flex items-center gap-2">
+              <Camera className="w-4 h-4" />
+              <span>Change Photo</span>
+              <input
+                type="file"
+                accept="image/*"
+                onChange={handleFileChange}
+                className="hidden"
+              />
+            </label>
+          </div>
+        </div>
 
         <div>
           <label className="block text-sm font-medium text-foreground mb-2">
@@ -458,39 +530,56 @@ const Settings = () => {
           <Input
             value={settings.name}
             onChange={(e) => setSettings((s) => ({ ...s, name: e.target.value }))}
+            placeholder="Your name"
           />
         </div>
 
         <div>
           <label className="block text-sm font-medium text-foreground mb-2">
-            Email
+            Email (read-only)
           </label>
           <Input
             type="email"
-            value={settings.email}
-            onChange={(e) => setSettings((s) => ({ ...s, email: e.target.value }))}
+            value={user?.email || ""}
+            disabled
+            className="bg-muted cursor-not-allowed"
+          />
+          <p className="text-xs text-muted-foreground mt-1">
+            Email cannot be changed. Contact support if you need to update it.
+          </p>
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-foreground mb-2">
+            Bio
+          </label>
+          <textarea
+            value={settings.bio}
+            onChange={(e) => setSettings((s) => ({ ...s, bio: e.target.value }))}
+            className="input-field w-full h-24 resize-none"
+            placeholder="Tell others about yourself..."
           />
         </div>
 
-          <button
-            className="btn-primary px-6 py-2 flex items-center gap-2"
-            onClick={handleSaveProfile}
-            disabled={saving}
-          >
-            {saving ? (
-              <>
-                <div className="inline-block animate-spin">
-                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full" />
-                </div>
-                Saving...
-              </>
-            ) : (
-              <>
-                <Check className="w-4 h-4" />
-                Save Changes
-              </>
-            )}
-          </button>
+        <button
+          className="btn-primary px-6 py-2 flex items-center gap-2"
+          onClick={handleSaveProfile}
+          disabled={saving}
+        >
+          {saving ? (
+            <>
+              <div className="inline-block animate-spin">
+                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full" />
+              </div>
+              Saving...
+            </>
+          ) : (
+            <>
+              <Check className="w-4 h-4" />
+              Save Changes
+            </>
+          )}
+        </button>
       </div>
 
       <div className="bg-card rounded-2xl border border-border p-6">
