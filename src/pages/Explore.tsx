@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect } from "react";
 import { motion } from "framer-motion";
 import { Search, Sparkles, X, Heart, MapPin } from "lucide-react";
 import React from "react";
+import Fuse from "fuse.js";
 import Navbar from "../components/layout/Navbar.tsx";
 import FilterBar from "../components/shared/FilterBar.tsx";
 import EventDetailModal from "../components/events/EventDetailModel.tsx";
@@ -16,6 +17,7 @@ import { type Event, fetchEvents } from "../data/events";
 import { toast } from "../hooks/use-toast.ts";
 import { saveEvent, unsaveEvent, getSavedEventIds } from "../lib/SavedEvents";
 import { useAuth } from "../lib/AuthContext";
+import { parseEventDate, isThisWeekend, isThisWeek, distanceMiles } from "../lib/eventFilters";
 
 const searchPlaceholders = [
   "free concerts this weekend",
@@ -38,32 +40,60 @@ const Explore = () => {
 
   const [events, setEvents] = useState<Event[]>([]);
   const [loading, setLoading] = useState(true);
+  const [userLocation, setUserLocation] = useState<{ lat: number; lon: number } | null>(null);
+  const [searchResults, setSearchResults] = useState<Event[] | null>(null);
 
   useEffect(() => {
     fetchEvents()
-      .then((data) => {
-        console.log("Fetched events from Supabase:", data);
-        if (data.length > 0) {
-          console.log("First event object:", data[0]);
-          Object.entries(data[0]).forEach(([k, v]) => console.log(`${k}:`, v));
-        }
-        setEvents(data);
-      })
+      .then((data) => setEvents(data))
       .finally(() => setLoading(false));
-}, []);
+  }, []);
 
-console.log("Filter state:", {
-  selectedSegment,
-  selectedGenre,
-  selectedPrice,
-  selectedTime,
-  selectedDistance,
-  selectedMood,
-  searchQuery,
-});
+  useEffect(() => {
+    if (!navigator.geolocation) return;
+    navigator.geolocation.getCurrentPosition(
+      (pos) => setUserLocation({ lat: pos.coords.latitude, lon: pos.coords.longitude }),
+      () => setUserLocation({ lat: 40.7128, lon: -74.006 }) // NYC default
+    );
+  }, []);
+
+  const fuse = useMemo(() => {
+    if (!events.length) return null;
+
+    const searchable = events.map((event) => ({
+      ...event,
+      title: event.name,
+      vibe: (event.tags ?? []).join(" "),
+    }));
+
+    return new Fuse(searchable, {
+      threshold: 0.35,
+      keys: [
+        { name: "title", weight: 0.7 },
+        { name: "vibe", weight: 0.2 },
+        { name: "venue", weight: 0.1 },
+      ],
+    });
+  }, [events]);
+
+  const handleSearch = (query: string, options?: { skipFuzzy?: boolean }) => {
+    setSearchQuery(query);
+
+    const trimmed = query.trim();
+    if (!trimmed || !fuse || options?.skipFuzzy) {
+      // Empty query or explicit skip: show all events (base list)
+      setSearchResults(null);
+      return;
+    }
+
+    const results = fuse.search(trimmed).map((r) => r.item as Event);
+    setSearchResults(results);
+  };
 
   const filteredEvents = useMemo(() => {
-    const filtered = events.filter((event) => {
+    const baseEvents = searchResults ?? events;
+
+    return baseEvents.filter((event) => {
       const matchesSegment =
         selectedSegment === "All" || event.segment === selectedSegment;
       const matchesGenre =
@@ -72,18 +102,27 @@ console.log("Filter state:", {
         selectedPrice === "All" ||
         (selectedPrice === "Free" && event.priceLevel === "free") ||
         event.priceLevel === selectedPrice;
+
+      let eventDistance = event.distance;
+      if (userLocation != null && event.latitude != null && event.longitude != null) {
+        eventDistance = distanceMiles(
+          userLocation.lat,
+          userLocation.lon,
+          event.latitude,
+          event.longitude
+        );
+      }
       const matchesDistance =
-        !event.distance || event.distance <= selectedDistance;
+        eventDistance == null || eventDistance <= selectedDistance;
+
+      const eventDate = parseEventDate(event.date);
       const matchesTime =
         selectedTime === "All" ||
         (selectedTime === "Now" && event.happeningNow) ||
         (selectedTime === "Tonight" && event.isTonight) ||
-        (!event.happeningNow && !event.isTonight);
-      const matchesSearch =
-        searchQuery === "" ||
-        (event.name && event.name.toLowerCase().includes(searchQuery.toLowerCase())) ||
-        (event.venue && event.venue.toLowerCase().includes(searchQuery.toLowerCase())) ||
-        (event.genre && event.genre.toLowerCase().includes(searchQuery.toLowerCase()));
+        (selectedTime === "This Weekend" && isThisWeekend(eventDate)) ||
+        (selectedTime === "This Week" && isThisWeek(eventDate));
+
       const matchesMood =
         !selectedMood ||
         (selectedMood === "adventurous" && event.tags?.includes("immersive")) ||
@@ -97,14 +136,13 @@ console.log("Filter state:", {
         matchesPrice &&
         matchesDistance &&
         matchesTime &&
-        matchesSearch &&
         matchesMood
       );
     });
-    console.log("Filtered events:", filtered);
-    return filtered;
   }, [
     events,
+    searchResults,
+    userLocation,
     selectedSegment,
     selectedGenre,
     selectedPrice,
@@ -124,7 +162,7 @@ console.log("Filter state:", {
     setSelectedPrice("All");
     setSelectedTime("All");
     setSelectedMood(null);
-    setSearchQuery("");
+    handleSearch("", { skipFuzzy: true });
   };
 
   const handleBuildPlan = () => {
@@ -183,13 +221,13 @@ console.log("Filter state:", {
                 <input
                   type="text"
                   value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
+                  onChange={(e) => handleSearch(e.target.value)}
                   placeholder={`Try "${searchPlaceholders[placeholderIndex]}"`}
                   className="input-field w-full pl-14 pr-12 py-4 text-base rounded-2xl shadow-lg shadow-primary/5"
                 />
                 {searchQuery && (
                   <button
-                    onClick={() => setSearchQuery("")}
+                    onClick={() => handleSearch("", { skipFuzzy: true })}
                     className="absolute right-4 top-1/2 -translate-y-1/2 p-1 rounded-full hover:bg-muted transition-colors"
                   >
                     <X className="w-4 h-4 text-muted-foreground" />
@@ -200,7 +238,11 @@ console.log("Filter state:", {
               {/* Mood Selector */}
               <div className="flex flex-col items-center gap-3">
                 <p className="text-sm text-muted-foreground">What's your vibe today?</p>
-                <MoodSelector selectedMood={selectedMood} onMoodChange={setSelectedMood} />
+                <MoodSelector
+                  selectedMood={selectedMood}
+                  onMoodChange={setSelectedMood}
+                  onMoodSearch={(label) => handleSearch(label, { skipFuzzy: true })}
+                />
               </div>
             </motion.div>
           </div>
@@ -236,10 +278,10 @@ console.log("Filter state:", {
           <PlanBuilderCard onBuildPlan={handleBuildPlan} />
           
           {/* Trending Section */}
-          <TrendingSection events={events} onEventClick={handleEventClick} />
+          <TrendingSection events={filteredEvents} onEventClick={handleEventClick} />
           
           {/* Recommended Section */}
-          <RecommendedSection events={events} onEventClick={handleEventClick} />
+          <RecommendedSection events={filteredEvents} onEventClick={handleEventClick} />
 
           {/* All Events Grid */}
           <div className="mb-4">

@@ -5,7 +5,12 @@ export interface Friend {
   name: string;
   email: string;
   avatar_url?: string;
-  status: 'pending' | 'accepted' | 'blocked';
+  status: 'online' | 'offline' | 'busy';
+  badges?: string[];
+  mutualFriends?: number;
+  hangoutsTogether?: number;
+  isMuted?: boolean;
+  isBlocked?: boolean;
   created_at: string;
 }
 

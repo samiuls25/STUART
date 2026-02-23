@@ -1,20 +1,28 @@
 import { supabase } from "./supabase";
 
 export async function getSavedEventIds(): Promise<string[]> {
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return [];
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      console.log("No user authenticated for getSavedEventIds");
+      return [];
+    }
 
-  const { data, error } = await supabase
-    .from("saved_events")
-    .select("event_id")
-    .eq("user_id", user.id);
+    const { data, error } = await supabase
+      .from("saved_events")
+      .select("event_id")
+      .eq("user_id", user.id);
 
-  if (error) {
-    console.error("Error fetching saved events:", error);
+    if (error) {
+      console.error("Error fetching saved events:", error);
+      return [];
+    }
+
+    return data?.map((row) => row.event_id) || [];
+  } catch (error) {
+    console.error("Unexpected error in getSavedEventIds:", error);
     return [];
   }
-
-  return data.map((row) => row.event_id);
 }
 
 export async function saveEvent(eventId: string): Promise<boolean> {
