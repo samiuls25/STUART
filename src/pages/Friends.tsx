@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Search, UserPlus, Check, X, Bell, Filter, UserCheck } from "lucide-react";
 import Navbar from "../components/layout/Navbar";
+import AuthModal from "../components/auth/AuthModal";
 import FriendCard from "../components/friends/FriendCard";
 import FriendProfileModal from "../components/friends/FriendProfileModal";
 import { getFriends, getPendingRequests, acceptFriendRequest, rejectFriendRequest, sendFriendRequest } from "../lib/friends";
@@ -9,10 +10,10 @@ import { useAuth } from "../lib/AuthContext";
 import { toast } from "../hooks/use-toast";
 import { Input } from "../components/ui/input.tsx";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
-import { Friend } from "../lib/friends";
 
 const Friends = () => {
   const { user } = useAuth();
+  const [showAuth, setShowAuth] = useState(false);
   const [friends, setFriends] = useState<Friend[]>([]);
   const [pendingRequests, setPendingRequests] = useState<Friend[]>([]);
   const [loading, setLoading] = useState(true);
@@ -53,7 +54,6 @@ const Friends = () => {
   const handleAcceptRequest = async (friendId: string) => {
     const success = await acceptFriendRequest(friendId);
     if (success) {
-      // Refresh data
       Promise.all([getFriends(), getPendingRequests()])
         .then(([friendsData, requestsData]) => {
           setFriends(friendsData);
@@ -101,7 +101,7 @@ const Friends = () => {
     return matchesSearch && matchesFilter && !friend.isBlocked;
   });
 
-  const pendingRequestsData = pendingRequests; // Already filtered by getPendingRequests()
+  const pendingRequestsData = pendingRequests;
 
   return (
     <div className="min-h-screen bg-background">
@@ -200,7 +200,13 @@ const Friends = () => {
               <motion.button
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
-                onClick={() => setShowAddFriend(true)}
+                onClick={() => {
+                  if (user) {
+                    setShowAddFriend(true);
+                  } else {
+                    setShowAuth(true);
+                  }
+                }}
                 className="w-full flex items-center justify-center gap-2 p-4 rounded-2xl border-2 border-dashed border-border hover:border-primary/50 text-muted-foreground hover:text-primary transition-colors"
               >
                 <UserPlus className="w-5 h-5" />
@@ -221,14 +227,14 @@ const Friends = () => {
                   >
                     <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-primary/20 to-accent/20 flex items-center justify-center">
                       <span className="font-heading text-lg font-bold text-primary">
-                        {request.name?.charAt(0) ?? "?"}  {/* Changed from request.from.name */}
+                        {request.name?.charAt(0) ?? "?"}
                       </span>
                     </div>
 
                     <div className="flex-1">
-                      <p className="font-medium text-foreground">{request.name}</p>  {/* Changed from request.from.name */}
+                      <p className="font-medium text-foreground">{request.name}</p>
                       <p className="text-sm text-muted-foreground">
-                        {request.email}  {/* Changed from request.from.mutualFriends */}
+                        {request.email}
                       </p>
                     </div>
 
@@ -269,7 +275,7 @@ const Friends = () => {
 
       {/* Add Friend Modal */}
       <AnimatePresence>
-        {showAddFriend && (
+        {showAddFriend && user && (
           <>
             <motion.div
               initial={{ opacity: 0 }}
@@ -294,12 +300,13 @@ const Friends = () => {
                   value={friendEmail}
                   onChange={(e) => setFriendEmail(e.target.value)}
                   className="mb-4"
+                  disabled={!user}
                 />
                 <div className="flex gap-2">
                   <button onClick={() => setShowAddFriend(false)} className="btn-secondary flex-1">
                     Cancel
                   </button>
-                  <button onClick={handleSendRequest} className="btn-primary flex-1">
+                  <button onClick={handleSendRequest} className="btn-primary flex-1" disabled={!user}>
                     Send Request
                   </button>
                 </div>
@@ -308,6 +315,7 @@ const Friends = () => {
           </>
         )}
       </AnimatePresence>
+      <AuthModal isOpen={showAuth} onClose={() => setShowAuth(false)} />
     </div>
   );
 };

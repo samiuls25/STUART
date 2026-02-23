@@ -1,8 +1,8 @@
 import React from "react";
 import { motion } from "framer-motion";
 import { UserMinus, VolumeX, Volume2, MessageCircle, MoreHorizontal } from "lucide-react";
-import { Friend } from "../../data/friends";
-import { badges as allBadges } from "../../data/badges";
+import { Friend } from "../../lib/friends";
+import { badgeDefinitions as allBadges } from "../../data/badges";
 import {
   DropdownMenu,
   DropdownMenuContent,
