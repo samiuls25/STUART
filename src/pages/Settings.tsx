@@ -33,7 +33,6 @@ import {
 } from "../components/ui/alert-dialog";
 import { Switch } from "../components/ui/switch";
 import { Input } from "../components/ui/input";
-import { friends } from "../data/friends";
 import { supabase } from "../lib/supabase";
 import { toast } from "../hooks/use-toast";
 
@@ -64,6 +63,7 @@ const Settings = () => {
     darkMode: typeof window !== 'undefined' && localStorage.getItem('theme') === 'dark',
   });
   const [saving, setSaving] = useState(false);
+  const [blockedUsers, setBlockedUsers] = useState<any[]>([]);
 
   const { user, signOut } = useAuth();
 
@@ -227,17 +227,17 @@ const Settings = () => {
     
     setSaving(true);
     try {
-      // Update user metadata with full_name
+      // Update user metadata
       const { error: authError } = await supabase.auth.updateUser({
         data: { full_name: settings.name },
       });
       
       if (authError) throw authError;
       
-      // Optionally save to a profiles table for additional persistence
+      // Save to profiles table (using 'name' column, not 'full_name')
       const { error: profileError } = await supabase.from("profiles").upsert({
         id: user.id,
-        full_name: settings.name,
+        name: settings.name,
         updated_at: new Date().toISOString(),
       }, { onConflict: "id" }).select();
       
@@ -328,7 +328,48 @@ const Settings = () => {
     );
   }
 
-  const blockedFriends = friends.filter((f) => f.isBlocked);
+  // Fetch blocked users from Supabase
+  useEffect(() => {
+    if (!user) return;
+
+    const fetchBlockedUsers = async () => {
+      try {
+        // Get blocked user IDs
+        const { data: blocks, error: blocksError } = await supabase
+          .from("blocked_users")
+          .select("blocked_user_id")
+          .eq("user_id", user.id);
+
+        if (blocksError) {
+          console.error("Error fetching blocked users:", blocksError);
+          return;
+        }
+
+        if (!blocks || blocks.length === 0) {
+          setBlockedUsers([]);
+          return;
+        }
+
+        // Get profiles of blocked users
+        const blockedIds = blocks.map(b => b.blocked_user_id);
+        const { data: profiles, error: profilesError } = await supabase
+          .from("profiles")
+          .select("id, name, email, avatar_url")
+          .in("id", blockedIds);
+
+        if (profilesError) {
+          console.error("Error fetching blocked profiles:", profilesError);
+          return;
+        }
+
+        setBlockedUsers(profiles || []);
+      } catch (error) {
+        console.error("Failed to fetch blocked users:", error);
+      }
+    };
+
+    fetchBlockedUsers();
+  }, [user]);
 
   const renderMain = () => (
     <motion.div
@@ -357,7 +398,7 @@ const Settings = () => {
       <SettingsItem
         icon={UserX}
         title="Blocked Users"
-        subtitle={`${blockedFriends.length} blocked`}
+        subtitle={`${blockedUsers.length} blocked`}
         onClick={() => setActiveSection("blocked")}
       />
 
@@ -725,20 +766,20 @@ const Settings = () => {
           Blocked Users
         </h2>
 
-        {blockedFriends.length > 0 ? (
+        {blockedUsers.length > 0 ? (
           <div className="space-y-3">
-            {blockedFriends.map((friend) => (
+            {blockedUsers.map((blockedUser) => (
               <div
-                key={friend.id}
+                key={blockedUser.id}
                 className="flex items-center justify-between p-3 rounded-xl bg-muted/50"
               >
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center">
                     <span className="font-medium text-muted-foreground">
-                      {friend.name.charAt(0)}
+                      {blockedUser.name?.charAt(0) || "?"}
                     </span>
                   </div>
-                  <span className="font-medium text-foreground">{friend.name}</span>
+                  <span className="font-medium text-foreground">{blockedUser.name || blockedUser.email}</span>
                 </div>
                 <button className="text-sm text-primary hover:underline">
                   Unblock
