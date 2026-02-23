@@ -310,25 +310,8 @@ const Settings = () => {
     }
   };
 
-  if (!user) {
-    return (
-      <div className="min-h-screen bg-background">
-        <Navbar />
-        <main className="pt-[72px]">
-          <div className="max-w-4xl mx-auto px-6 py-12">
-            <div className="bg-card rounded-2xl border border-border p-6 mb-6 text-center">
-              <h2 className="font-heading text-xl font-semibold text-foreground mb-2">You're not signed in</h2>
-              <p className="text-sm text-muted-foreground mb-4">Sign in to access your settings.</p>
-              <button onClick={() => setShowAuth(true)} className="btn-primary px-4 py-2">Sign In</button>
-            </div>
-          </div>
-        </main>
-        <AuthModal isOpen={showAuth} onClose={() => setShowAuth(false)} />
-      </div>
-    );
-  }
-
   // Fetch blocked users from Supabase
+  // MUST be called before any early returns (React hooks rule)
   useEffect(() => {
     if (!user) return;
 
@@ -370,6 +353,24 @@ const Settings = () => {
 
     fetchBlockedUsers();
   }, [user]);
+
+  if (!user) {
+    return (
+      <div className="min-h-screen bg-background">
+        <Navbar />
+        <main className="pt-[72px]">
+          <div className="max-w-4xl mx-auto px-6 py-12">
+            <div className="bg-card rounded-2xl border border-border p-6 mb-6 text-center">
+              <h2 className="font-heading text-xl font-semibold text-foreground mb-2">You're not signed in</h2>
+              <p className="text-sm text-muted-foreground mb-4">Sign in to access your settings.</p>
+              <button onClick={() => setShowAuth(true)} className="btn-primary px-4 py-2">Sign In</button>
+            </div>
+          </div>
+        </main>
+        <AuthModal isOpen={showAuth} onClose={() => setShowAuth(false)} />
+      </div>
+    );
+  }
 
   const renderMain = () => (
     <motion.div
