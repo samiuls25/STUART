@@ -8,7 +8,8 @@ import MapView from "../components/map/MapView";
 import EventDetailModal from "../components/events/EventDetailModel";
 import EmptyState from "../components/shared/EmptyState";
 // import { events, type Event } from "../data/events";
-import { type Event, fetchEvents } from "../data/events"; 
+import type { Event } from "../data/events"; // keep the Event type if it matches your table
+import { supabase } from "../lib/supabase";
 
 const MapPage = () => {
   const [selectedSegment, setSelectedSegment] = useState("All");
@@ -19,8 +20,22 @@ const MapPage = () => {
   const [events, setEvents] = useState<Event[]>([]);
 
   useEffect(() => {
-    fetchEvents().then(setEvents);
-  }, []);
+  const loadEvents = async () => {
+    const { data, error } = await supabase
+      .from("events")
+      .select("*")
+      .limit(200);
+
+    if (error) {
+      console.error("Supabase events fetch error:", error);
+      return;
+    }
+
+    setEvents((data ?? []) as Event[]);
+  };
+
+  loadEvents();
+}, []);
 
   const filteredEvents = useMemo(() => {
     return events.filter((event) => {
