@@ -5,9 +5,10 @@ import { moods } from "../../data/events";
 interface MoodSelectorProps {
   selectedMood: string | null;
   onMoodChange: (mood: string | null) => void;
+  onMoodSearch?: (label: string) => void;
 }
 
-const MoodSelector = ({ selectedMood, onMoodChange }: MoodSelectorProps) => {
+const MoodSelector = ({ selectedMood, onMoodChange, onMoodSearch }: MoodSelectorProps) => {
   return (
     <div className="flex flex-wrap gap-3">
       {moods.map((mood, index) => (
@@ -16,7 +17,13 @@ const MoodSelector = ({ selectedMood, onMoodChange }: MoodSelectorProps) => {
           initial={{ opacity: 0, scale: 0.9 }}
           animate={{ opacity: 1, scale: 1 }}
           transition={{ delay: index * 0.05 }}
-          onClick={() => onMoodChange(selectedMood === mood.id ? null : mood.id)}
+          onClick={() => {
+            const nextMood = selectedMood === mood.id ? null : mood.id;
+            onMoodChange(nextMood);
+            if (onMoodSearch) {
+              onMoodSearch(nextMood ? mood.label : "");
+            }
+          }}
           className={`group relative flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-all ${
             selectedMood === mood.id
               ? "bg-primary text-primary-foreground shadow-lg shadow-primary/25"

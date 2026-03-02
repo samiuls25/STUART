@@ -71,16 +71,18 @@ const Navbar = () => {
                 </div>
               </div>
 
-              <Link
-                to="/settings"
-                className="p-2 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
-              >
-                <Settings className="w-5 h-5" />
-              </Link>
+              {user && (
+                <Link
+                  to="/settings"
+                  className="p-2 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  <Settings className="w-5 h-5" />
+                </Link>
+              )}
 
               {user ? (
                 <div className="flex items-center gap-3">
-                  <span className="text-sm text-muted-foreground">
+                  <span className="text-sm text-muted-foreground max-w-[140px] truncate block" title={user.email}>
                     {user.email}
                   </span>
                   <button
