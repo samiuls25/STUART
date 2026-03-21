@@ -1,0 +1,236 @@
+[
+  {
+    "schemaname": "public",
+    "tablename": "badges",
+    "policyname": "Users can view badges of visible profiles",
+    "cmd": "SELECT",
+    "roles": "{public}",
+    "qual": "(EXISTS ( SELECT 1\n   FROM profiles\n  WHERE ((profiles.id = badges.user_id) AND ((profiles.profile_visibility = 'public'::text) OR ((profiles.profile_visibility = 'friends'::text) AND (EXISTS ( SELECT 1\n           FROM friendships\n          WHERE (((friendships.user_id = auth.uid()) AND (friendships.friend_id = profiles.id) AND (friendships.status = 'accepted'::text)) OR ((friendships.friend_id = auth.uid()) AND (friendships.user_id = profiles.id) AND (friendships.status = 'accepted'::text))))))) AND (profiles.show_badges = true))))",
+    "with_check": null
+  },
+  {
+    "schemaname": "public",
+    "tablename": "badges",
+    "policyname": "Users can view their own badges",
+    "cmd": "SELECT",
+    "roles": "{public}",
+    "qual": "(auth.uid() = user_id)",
+    "with_check": null
+  },
+  {
+    "schemaname": "public",
+    "tablename": "blocked_users",
+    "policyname": "Users can manage their own blocked list",
+    "cmd": "ALL",
+    "roles": "{public}",
+    "qual": "(auth.uid() = user_id)",
+    "with_check": "(auth.uid() = user_id)"
+  },
+  {
+    "schemaname": "public",
+    "tablename": "friendships",
+    "policyname": "Cannot create friendships with blocked users",
+    "cmd": "INSERT",
+    "roles": "{public}",
+    "qual": null,
+    "with_check": "(NOT (EXISTS ( SELECT 1\n   FROM blocked_users\n  WHERE (((blocked_users.user_id = auth.uid()) AND (blocked_users.blocked_user_id = friendships.friend_id)) OR ((blocked_users.user_id = friendships.friend_id) AND (blocked_users.blocked_user_id = auth.uid()))))))"
+  },
+  {
+    "schemaname": "public",
+    "tablename": "friendships",
+    "policyname": "Users can create friendships",
+    "cmd": "INSERT",
+    "roles": "{public}",
+    "qual": null,
+    "with_check": "(auth.uid() = user_id)"
+  },
+  {
+    "schemaname": "public",
+    "tablename": "friendships",
+    "policyname": "Users can delete own friendships",
+    "cmd": "DELETE",
+    "roles": "{public}",
+    "qual": "((auth.uid() = user_id) OR (auth.uid() = friend_id))",
+    "with_check": null
+  },
+  {
+    "schemaname": "public",
+    "tablename": "friendships",
+    "policyname": "Users can update own friendships",
+    "cmd": "UPDATE",
+    "roles": "{public}",
+    "qual": "((auth.uid() = user_id) OR (auth.uid() = friend_id))",
+    "with_check": null
+  },
+  {
+    "schemaname": "public",
+    "tablename": "friendships",
+    "policyname": "Users can view friendships they're part of",
+    "cmd": "SELECT",
+    "roles": "{public}",
+    "qual": "((auth.uid() = user_id) OR (auth.uid() = friend_id))",
+    "with_check": null
+  },
+  {
+    "schemaname": "public",
+    "tablename": "group_members",
+    "policyname": "Group admins can add members",
+    "cmd": "INSERT",
+    "roles": "{public}",
+    "qual": null,
+    "with_check": "((EXISTS ( SELECT 1\n   FROM group_members group_members_1\n  WHERE ((group_members_1.group_id = group_members_1.group_id) AND (group_members_1.user_id = auth.uid()) AND (group_members_1.role = 'admin'::text)))) OR (EXISTS ( SELECT 1\n   FROM groups\n  WHERE ((groups.id = group_members.group_id) AND (groups.owner_id = auth.uid())))))"
+  },
+  {
+    "schemaname": "public",
+    "tablename": "group_members",
+    "policyname": "Group admins can remove members",
+    "cmd": "DELETE",
+    "roles": "{public}",
+    "qual": "((EXISTS ( SELECT 1\n   FROM group_members group_members_1\n  WHERE ((group_members_1.group_id = group_members_1.group_id) AND (group_members_1.user_id = auth.uid()) AND (group_members_1.role = 'admin'::text)))) OR (auth.uid() = user_id))",
+    "with_check": null
+  },
+  {
+    "schemaname": "public",
+    "tablename": "group_members",
+    "policyname": "Users can view group members of groups they're in",
+    "cmd": "SELECT",
+    "roles": "{public}",
+    "qual": "is_group_member(group_id, auth.uid())",
+    "with_check": null
+  },
+  {
+    "schemaname": "public",
+    "tablename": "groups",
+    "policyname": "Group owners can delete their groups",
+    "cmd": "DELETE",
+    "roles": "{public}",
+    "qual": "(auth.uid() = owner_id)",
+    "with_check": null
+  },
+  {
+    "schemaname": "public",
+    "tablename": "groups",
+    "policyname": "Group owners can update their groups",
+    "cmd": "UPDATE",
+    "roles": "{public}",
+    "qual": "(auth.uid() = owner_id)",
+    "with_check": null
+  },
+  {
+    "schemaname": "public",
+    "tablename": "groups",
+    "policyname": "Users can create groups",
+    "cmd": "INSERT",
+    "roles": "{public}",
+    "qual": null,
+    "with_check": "(auth.uid() = owner_id)"
+  },
+  {
+    "schemaname": "public",
+    "tablename": "groups",
+    "policyname": "Users can view groups they're part of",
+    "cmd": "SELECT",
+    "roles": "{public}",
+    "qual": "((auth.uid() = owner_id) OR is_group_member(id, auth.uid()))",
+    "with_check": null
+  },
+  {
+    "schemaname": "public",
+    "tablename": "memories",
+    "policyname": "Users can delete their own memories",
+    "cmd": "DELETE",
+    "roles": "{public}",
+    "qual": "(auth.uid() = user_id)",
+    "with_check": null
+  },
+  {
+    "schemaname": "public",
+    "tablename": "memories",
+    "policyname": "Users can insert their own memories",
+    "cmd": "INSERT",
+    "roles": "{public}",
+    "qual": null,
+    "with_check": "(auth.uid() = user_id)"
+  },
+  {
+    "schemaname": "public",
+    "tablename": "memories",
+    "policyname": "Users can update their own memories",
+    "cmd": "UPDATE",
+    "roles": "{public}",
+    "qual": "(auth.uid() = user_id)",
+    "with_check": "(auth.uid() = user_id)"
+  },
+  {
+    "schemaname": "public",
+    "tablename": "memories",
+    "policyname": "Users can view memories of visible profiles",
+    "cmd": "SELECT",
+    "roles": "{public}",
+    "qual": "(EXISTS ( SELECT 1\n   FROM profiles\n  WHERE ((profiles.id = memories.user_id) AND ((profiles.profile_visibility = 'public'::text) OR ((profiles.profile_visibility = 'friends'::text) AND (EXISTS ( SELECT 1\n           FROM friendships\n          WHERE (((friendships.user_id = auth.uid()) AND (friendships.friend_id = profiles.id) AND (friendships.status = 'accepted'::text)) OR ((friendships.friend_id = auth.uid()) AND (friendships.user_id = profiles.id) AND (friendships.status = 'accepted'::text))))))) AND (profiles.show_memories = true))))",
+    "with_check": null
+  },
+  {
+    "schemaname": "public",
+    "tablename": "memories",
+    "policyname": "Users can view their own memories",
+    "cmd": "SELECT",
+    "roles": "{public}",
+    "qual": "(auth.uid() = user_id)",
+    "with_check": null
+  },
+  {
+    "schemaname": "public",
+    "tablename": "profiles",
+    "policyname": "Authenticated users can view all profiles",
+    "cmd": "SELECT",
+    "roles": "{public}",
+    "qual": "(auth.role() = 'authenticated'::text)",
+    "with_check": null
+  },
+  {
+    "schemaname": "public",
+    "tablename": "profiles",
+    "policyname": "Users can insert own profile",
+    "cmd": "INSERT",
+    "roles": "{public}",
+    "qual": null,
+    "with_check": "(auth.uid() = id)"
+  },
+  {
+    "schemaname": "public",
+    "tablename": "profiles",
+    "policyname": "Users can update own profile",
+    "cmd": "UPDATE",
+    "roles": "{public}",
+    "qual": "(auth.uid() = id)",
+    "with_check": null
+  },
+  {
+    "schemaname": "public",
+    "tablename": "saved_events",
+    "policyname": "Users can delete own saved events",
+    "cmd": "DELETE",
+    "roles": "{public}",
+    "qual": "(auth.uid() = user_id)",
+    "with_check": null
+  },
+  {
+    "schemaname": "public",
+    "tablename": "saved_events",
+    "policyname": "Users can insert own saved events",
+    "cmd": "INSERT",
+    "roles": "{public}",
+    "qual": null,
+    "with_check": "(auth.uid() = user_id)"
+  },
+  {
+    "schemaname": "public",
+    "tablename": "saved_events",
+    "policyname": "Users can view own saved events",
+    "cmd": "SELECT",
+    "roles": "{public}",
+    "qual": "(auth.uid() = user_id)",
+    "with_check": null
+  }
+]
