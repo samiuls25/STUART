@@ -488,6 +488,7 @@ const Hangouts = () => {
                       onRespond={handleRespond}
                       onViewDetails={handleViewDetails}
                       onOpenAvailability={handleOpenAvailabilityEditor}
+                      onDeleteHangout={handleDeleteHangout}
                       currentUserId={currentUserId}
                     />
                   </motion.div>
@@ -512,6 +513,7 @@ const Hangouts = () => {
                       onRespond={handleRespond}
                       onViewDetails={handleViewDetails}
                       onOpenAvailability={handleOpenAvailabilityEditor}
+                      onDeleteHangout={handleDeleteHangout}
                       currentUserId={currentUserId}
                     />
                   </motion.div>
@@ -536,6 +538,7 @@ const Hangouts = () => {
                       onRespond={handleRespond}
                       onViewDetails={handleViewDetails}
                       onOpenAvailability={handleOpenAvailabilityEditor}
+                      onDeleteHangout={handleDeleteHangout}
                       currentUserId={currentUserId}
                     />
                   </motion.div>

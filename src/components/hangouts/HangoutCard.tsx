@@ -1,6 +1,6 @@
 import React from "react";
 import { motion } from "framer-motion";
-import { MapPin, Clock, Users, Check, X, HelpCircle, ChevronRight } from "lucide-react";
+import { MapPin, Clock, Users, Check, X, HelpCircle, ChevronRight, Trash2 } from "lucide-react";
 import { Hangout, getFriendById, getActivityType } from "../../data/friends";
 import { format } from "date-fns";
 
@@ -9,6 +9,7 @@ interface HangoutCardProps {
   onRespond?: (hangout: Hangout, response: "yes" | "no" | "maybe") => void;
   onViewDetails?: (hangout: Hangout) => void;
   onOpenAvailability?: (hangout: Hangout) => void;
+  onDeleteHangout?: (hangout: Hangout) => void;
   variant?: "suggested" | "pending" | "confirmed";
   currentUserId?: string;
 }
@@ -18,6 +19,7 @@ const HangoutCard = ({
   onRespond,
   onViewDetails,
   onOpenAvailability,
+  onDeleteHangout,
   variant = "suggested",
   currentUserId,
 }: HangoutCardProps) => {
@@ -224,6 +226,19 @@ const HangoutCard = ({
             >
               <Clock className="w-4 h-4" />
               <span className="hidden sm:inline">Availability</span>
+            </button>
+          )}
+          {isCreator && (
+            <button
+              onClick={() => {
+                if (window.confirm("Delete this hangout? This action cannot be undone.")) {
+                  onDeleteHangout?.(hangout);
+                }
+              }}
+              className="flex items-center justify-center gap-1 py-2.5 px-3 rounded-xl bg-destructive/10 text-destructive hover:bg-destructive/20 transition-colors"
+            >
+              <Trash2 className="w-4 h-4" />
+              <span className="hidden sm:inline">Delete</span>
             </button>
           )}
         </div>

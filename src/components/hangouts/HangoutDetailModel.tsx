@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, MapPin, Clock, Calendar, Users, Check, HelpCircle, Sparkles, MessageCircle } from "lucide-react";
+import { X, MapPin, Clock, Calendar, Users, Check, HelpCircle, Sparkles, MessageCircle, Trash2 } from "lucide-react";
 import { Hangout, TimeRange, getFriendById, getActivityType } from "../../data/friends";
 import { format, parseISO } from "date-fns";
 import AvailabilityHeatmap from "../availability/AvailabilityHeatmap";
@@ -189,28 +189,28 @@ const HangoutDetailModal = ({
                   </span>
                 </div>
               </div>
-              <button
-                onClick={onClose}
-                className="p-2 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-              {isCreator && (
-                <div className="px-6 pt-4">
+              <div className="flex items-center gap-2">
+                {isCreator && (
                   <button
                     onClick={() => {
                       if (window.confirm("Delete this hangout? This action cannot be undone.")) {
                         onDeleteHangout?.(hangout);
                       }
                     }}
-                    className="text-sm text-destructive hover:underline"
+                    className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-destructive/10 text-destructive hover:bg-destructive/20 transition-colors text-sm font-medium"
                   >
-                    Delete Hangout
+                    <Trash2 className="w-4 h-4" />
+                    Delete
                   </button>
-                </div>
-              )}
+                )}
+                <button
+                  onClick={onClose}
+                  className="p-2 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
 
             {/* Content */}
             <div className="flex-1 overflow-y-auto p-6 space-y-6">
