@@ -209,7 +209,6 @@ const Hangouts = () => {
         description: "Your preferred slots were submitted.",
       });
       await loadHangouts();
-      setSelectedHangout(null);
     } catch (error) {
       if (isHangoutsSetupError(error)) {
         setSchemaMissing(true);
