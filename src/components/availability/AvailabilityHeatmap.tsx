@@ -91,7 +91,7 @@ const AvailabilityHeatmap = ({
 
           {/* Time slot rows */}
           {timeSlots.map((time) => (
-            <>
+            <React.Fragment key={`row-${time}`}>
               <div key={`label-${time}`} className="h-7 flex items-center justify-end pr-2">
                 <span className="text-[10px] text-muted-foreground">{time}</span>
               </div>
@@ -116,7 +116,7 @@ const AvailabilityHeatmap = ({
                   </motion.div>
                 );
               })}
-            </>
+            </React.Fragment>
           ))}
         </div>
       </div>

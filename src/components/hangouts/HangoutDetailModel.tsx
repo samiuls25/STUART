@@ -1,19 +1,31 @@
-import React from "react";
+import React, { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, MapPin, Clock, Calendar, Users, Check, HelpCircle, Sparkles, MessageCircle } from "lucide-react";
-import { Hangout, getFriendById, getActivityType } from "../../data/friends";
+import { Hangout, TimeRange, getFriendById, getActivityType } from "../../data/friends";
 import { format } from "date-fns";
+import AvailabilityHeatmap from "../availability/AvailabilityHeatmap";
 
 interface HangoutDetailModalProps {
   hangout: Hangout | null;
   isOpen: boolean;
   onClose: () => void;
   onRespond?: (hangout: Hangout, response: "yes" | "no" | "maybe") => void;
+  onSubmitAvailability?: (hangout: Hangout, availability: TimeRange[]) => void;
   currentUserId?: string;
 }
 
-const HangoutDetailModal = ({ hangout, isOpen, onClose, onRespond, currentUserId }: HangoutDetailModalProps) => {
+const HangoutDetailModal = ({
+  hangout,
+  isOpen,
+  onClose,
+  onRespond,
+  onSubmitAvailability,
+  currentUserId,
+}: HangoutDetailModalProps) => {
   if (!hangout) return null;
+
+  const [showAvailabilityEditor, setShowAvailabilityEditor] = useState(false);
+  const [availabilitySlots, setAvailabilitySlots] = useState<Record<string, number>>({});
 
   const viewerId = currentUserId || "current-user";
 
@@ -22,6 +34,38 @@ const HangoutDetailModal = ({ hangout, isOpen, onClose, onRespond, currentUserId
   const currentUserResponse = hangout.responses.find((r) => r.friendId === viewerId);
   const isCreator = hangout.createdBy === viewerId;
   const timeRange = hangout.confirmedTime || hangout.proposedTimeRange;
+  const canShareAvailability = currentUserResponse?.status === "invited" || currentUserResponse?.status === "pending-availability";
+
+  const toggleAvailabilitySlot = (key: string) => {
+    setAvailabilitySlots((prev) => {
+      const current = prev[key] || 0;
+      return { ...prev, [key]: current === 0 ? 1 : 0 };
+    });
+  };
+
+  const selectedAvailabilityCount = Object.values(availabilitySlots).filter((value) => value > 0).length;
+
+  const toNextHour = (time: string) => {
+    const [hoursRaw, minutesRaw] = time.split(":");
+    const hours = Number(hoursRaw);
+    const minutes = Number(minutesRaw);
+    const nextHours = (hours + 1) % 24;
+    return `${String(nextHours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+  };
+
+  const parseAvailabilitySlots = (): TimeRange[] => {
+    return Object.entries(availabilitySlots)
+      .filter(([, value]) => value > 0)
+      .map(([slotKey]) => {
+        const date = slotKey.slice(0, 10);
+        const time = slotKey.slice(11);
+        return {
+          start: `${date}T${time}:00`,
+          end: `${date}T${toNextHour(time)}:00`,
+          preference: "available",
+        };
+      });
+  };
 
   const statusConfig = {
     suggested: { label: "New Invite", color: "bg-primary/10 text-primary" },
@@ -193,6 +237,41 @@ const HangoutDetailModal = ({ hangout, isOpen, onClose, onRespond, currentUserId
                         );
                       })}
                   </div>
+                </div>
+              )}
+
+              {canShareAvailability && (
+                <div className="rounded-xl border border-border p-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <h4 className="font-heading font-semibold text-foreground">Share Your Availability</h4>
+                    <button
+                      onClick={() => setShowAvailabilityEditor((prev) => !prev)}
+                      className="text-sm text-primary hover:underline"
+                    >
+                      {showAvailabilityEditor ? "Hide" : "Add slots"}
+                    </button>
+                  </div>
+
+                  {showAvailabilityEditor && (
+                    <div className="space-y-3">
+                      <AvailabilityHeatmap
+                        startDate={timeRange.date}
+                        numDays={7}
+                        selectedSlots={availabilitySlots}
+                        onToggleSlot={toggleAvailabilitySlot}
+                      />
+                      <div className="flex items-center justify-between text-xs text-muted-foreground">
+                        <span>{selectedAvailabilityCount} slot{selectedAvailabilityCount !== 1 ? "s" : ""} selected</span>
+                        <button
+                          onClick={() => onSubmitAvailability?.(hangout, parseAvailabilitySlots())}
+                          disabled={selectedAvailabilityCount === 0}
+                          className="btn-primary px-3 py-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          Submit Availability
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>

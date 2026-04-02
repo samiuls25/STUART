@@ -1,5 +1,5 @@
 import { supabase } from "./supabase";
-import { Hangout } from "../data/friends";
+import { Hangout, TimeRange } from "../data/friends";
 
 interface HangoutRow {
   id: string;
@@ -145,7 +145,10 @@ export async function createHangout(input: CreateHangoutInput): Promise<void> {
 
   const uniqueInvites = [...new Set(input.invitedFriends)].filter((friendId) => friendId && friendId !== user.id);
 
-  if (uniqueInvites.length === 0) return;
+  if (uniqueInvites.length === 0) {
+    await syncHangoutStatus(insertedHangout.id);
+    return;
+  }
 
   const highlighted = new Set(input.highlightedFriends);
   const { error: inviteError } = await supabase.from("hangout_invites").insert(
@@ -159,6 +162,8 @@ export async function createHangout(input: CreateHangoutInput): Promise<void> {
   );
 
   if (inviteError) throw inviteError;
+
+  await syncHangoutStatus(insertedHangout.id);
 }
 
 export async function respondToHangout(hangoutId: string, response: "yes" | "no" | "maybe"): Promise<void> {
@@ -178,6 +183,82 @@ export async function respondToHangout(hangoutId: string, response: "yes" | "no"
     .eq("friend_id", user.id);
 
   if (error) throw error;
+
+  await syncHangoutStatus(hangoutId);
+}
+
+export async function submitHangoutAvailability(hangoutId: string, availability: TimeRange[]): Promise<void> {
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) throw new Error("You must be signed in to submit availability.");
+
+  const { error } = await supabase
+    .from("hangout_invites")
+    .update({
+      availability_submitted: availability,
+      response_status: "pending-availability",
+      responded_at: new Date().toISOString(),
+    })
+    .eq("hangout_id", hangoutId)
+    .eq("friend_id", user.id);
+
+  if (error) throw error;
+
+  await syncHangoutStatus(hangoutId);
+}
+
+async function syncHangoutStatus(hangoutId: string): Promise<void> {
+  const { data: inviteRows, error: inviteError } = await supabase
+    .from("hangout_invites")
+    .select("response_status")
+    .eq("hangout_id", hangoutId);
+
+  if (inviteError) throw inviteError;
+
+  const responses = inviteRows || [];
+  const hasYes = responses.some((row) => row.response_status === "yes");
+  const hasUnanswered = responses.some(
+    (row) => row.response_status === "invited" || row.response_status === "pending-availability"
+  );
+
+  let nextStatus: Hangout["status"] = "pending";
+  if (hasUnanswered) {
+    nextStatus = "suggested";
+  } else if (hasYes) {
+    nextStatus = "confirmed";
+  }
+
+  const updatePayload: {
+    status: Hangout["status"];
+    confirmed_date: string | null;
+    confirmed_start_time: string | null;
+    confirmed_end_time: string | null;
+  } = {
+    status: nextStatus,
+    confirmed_date: null,
+    confirmed_start_time: null,
+    confirmed_end_time: null,
+  };
+
+  if (nextStatus === "confirmed") {
+    const { data: hangoutRow, error: hangoutReadError } = await supabase
+      .from("hangouts")
+      .select("proposed_date, proposed_start_time, proposed_end_time")
+      .eq("id", hangoutId)
+      .single();
+
+    if (hangoutReadError) throw hangoutReadError;
+
+    updatePayload.confirmed_date = hangoutRow.proposed_date;
+    updatePayload.confirmed_start_time = hangoutRow.proposed_start_time;
+    updatePayload.confirmed_end_time = hangoutRow.proposed_end_time;
+  }
+
+  const { error: updateError } = await supabase.from("hangouts").update(updatePayload).eq("id", hangoutId);
+
+  if (updateError) throw updateError;
 }
 
 function mapRowToHangout(row: HangoutRow, invites: HangoutInviteRow[]): Hangout {

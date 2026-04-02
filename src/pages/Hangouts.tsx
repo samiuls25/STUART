@@ -7,17 +7,19 @@ import HangoutCard from "../components/hangouts/HangoutCard";
 import CreateHangoutModal from "../components/hangouts/CreateHangoutModal";
 import HangoutDetailModal from "../components/hangouts/HangoutDetailModel.tsx";
 import AuthModal from "../components/auth/AuthModal";
-import { hangouts, Hangout, setFriendsDirectory, Friend } from "../data/friends.ts";
+import { hangouts, Hangout, setFriendsDirectory, Friend, TimeRange } from "../data/friends.ts";
 import { format, isAfter, isBefore, parseISO, startOfDay, addWeeks } from "date-fns";
 import { Input } from "../components/ui/input.tsx";
 import { useAuth } from "../lib/AuthContext";
 import { useToast } from "../hooks/use-toast";
 import { getFriends } from "../lib/friends";
+import { supabase } from "../lib/supabase";
 import {
   createHangout,
   fetchHangoutsForCurrentUser,
   isHangoutsSetupError,
   respondToHangout,
+  submitHangoutAvailability,
 } from "../lib/hangouts";
 
 const Hangouts = () => {
@@ -58,6 +60,40 @@ const Hangouts = () => {
         isMuted: friend.isMuted,
         isBlocked: friend.isBlocked,
       }));
+
+      const participantIds = new Set<string>();
+      fetchedHangouts.forEach((hangout) => {
+        participantIds.add(hangout.createdBy);
+        hangout.responses.forEach((response) => participantIds.add(response.friendId));
+      });
+
+      const missingProfileIds = [...participantIds].filter(
+        (id) => !!id && !nextDirectory.some((friend) => friend.id === id)
+      );
+
+      if (missingProfileIds.length > 0) {
+        const { data: profiles, error: profilesError } = await supabase
+          .from("profiles")
+          .select("id, name, email, avatar_url")
+          .in("id", missingProfileIds);
+
+        if (!profilesError && profiles) {
+          profiles.forEach((profile) => {
+            nextDirectory.push({
+              id: profile.id,
+              name: profile.name || profile.email || "Unknown",
+              email: profile.email,
+              avatar_url: profile.avatar_url,
+              status: "offline",
+              badges: [],
+              mutualFriends: 0,
+              hangoutsTogether: 0,
+              isMuted: false,
+              isBlocked: false,
+            });
+          });
+        }
+      }
 
       setFriendsDirectory(nextDirectory);
       setHangoutsState(fetchedHangouts);
@@ -139,6 +175,7 @@ const Hangouts = () => {
         description: `Your response to ${hangout.title} was updated.`,
       });
       await loadHangouts();
+      setSelectedHangout(null);
     } catch (error) {
       if (isHangoutsSetupError(error)) {
         setSchemaMissing(true);
@@ -161,6 +198,35 @@ const Hangouts = () => {
 
   const handleViewDetails = (hangout: Hangout) => {
     setSelectedHangout(hangout);
+  };
+
+  const handleSubmitAvailability = async (hangout: Hangout, availability: TimeRange[]) => {
+    try {
+      await submitHangoutAvailability(hangout.id, availability);
+      toast({
+        title: "Availability shared",
+        description: "Your preferred slots were submitted.",
+      });
+      await loadHangouts();
+      setSelectedHangout(null);
+    } catch (error) {
+      if (isHangoutsSetupError(error)) {
+        setSchemaMissing(true);
+        toast({
+          title: "Hangouts schema is not set up",
+          description: "Run docs/db/hangouts_phase1.sql in Supabase first.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      console.error("Failed to submit availability", error);
+      toast({
+        title: "Could not submit availability",
+        description: "Please try again.",
+        variant: "destructive",
+      });
+    }
   };
 
   const handleCreate = async (hangout: Partial<Hangout>) => {
@@ -473,6 +539,7 @@ const Hangouts = () => {
         isOpen={!!selectedHangout}
         onClose={() => setSelectedHangout(null)}
         onRespond={handleRespond}
+        onSubmitAvailability={handleSubmitAvailability}
         currentUserId={currentUserId}
       />
     </div>
