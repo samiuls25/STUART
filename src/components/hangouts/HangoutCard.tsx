@@ -9,9 +9,11 @@ interface HangoutCardProps {
   onRespond?: (hangout: Hangout, response: "yes" | "no" | "maybe") => void;
   onViewDetails?: (hangout: Hangout) => void;
   variant?: "suggested" | "pending" | "confirmed";
+  currentUserId?: string;
 }
 
-const HangoutCard = ({ hangout, onRespond, onViewDetails, variant = "suggested" }: HangoutCardProps) => {
+const HangoutCard = ({ hangout, onRespond, onViewDetails, variant = "suggested", currentUserId }: HangoutCardProps) => {
+  const viewerId = currentUserId || "current-user";
   const activityType = getActivityType(hangout.activityType);
   const creator = getFriendById(hangout.createdBy);
   
@@ -20,8 +22,8 @@ const HangoutCard = ({ hangout, onRespond, onViewDetails, variant = "suggested" 
     (r) => r.status === "invited" || r.status === "pending-availability"
   ).length;
 
-  const currentUserResponse = hangout.responses.find((r) => r.friendId === "current-user");
-  const isCreator = hangout.createdBy === "current-user";
+  const currentUserResponse = hangout.responses.find((r) => r.friendId === viewerId);
+  const isCreator = hangout.createdBy === viewerId;
 
   const formatTimeRange = () => {
     const timeRange = hangout.confirmedTime || hangout.proposedTimeRange;

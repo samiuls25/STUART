@@ -9,15 +9,18 @@ interface HangoutDetailModalProps {
   isOpen: boolean;
   onClose: () => void;
   onRespond?: (hangout: Hangout, response: "yes" | "no" | "maybe") => void;
+  currentUserId?: string;
 }
 
-const HangoutDetailModal = ({ hangout, isOpen, onClose, onRespond }: HangoutDetailModalProps) => {
+const HangoutDetailModal = ({ hangout, isOpen, onClose, onRespond, currentUserId }: HangoutDetailModalProps) => {
   if (!hangout) return null;
+
+  const viewerId = currentUserId || "current-user";
 
   const activityType = getActivityType(hangout.activityType);
   const creator = getFriendById(hangout.createdBy);
-  const currentUserResponse = hangout.responses.find((r) => r.friendId === "current-user");
-  const isCreator = hangout.createdBy === "current-user";
+  const currentUserResponse = hangout.responses.find((r) => r.friendId === viewerId);
+  const isCreator = hangout.createdBy === viewerId;
   const timeRange = hangout.confirmedTime || hangout.proposedTimeRange;
 
   const statusConfig = {

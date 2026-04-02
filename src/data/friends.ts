@@ -1,3 +1,16 @@
+export interface Friend {
+  id: string;
+  name: string;
+  email?: string;
+  avatar_url?: string;
+  status?: "online" | "offline" | "busy" | "pending" | "accepted" | "blocked";
+  badges?: string[];
+  mutualFriends?: number;
+  hangoutsTogether?: number;
+  isMuted?: boolean;
+  isBlocked?: boolean;
+}
+
 export interface FriendRequest {
   id: string;
   from: {
@@ -69,10 +82,14 @@ export const activityTypes = [
 ] as const;
 
 // Mock data for development
-export const friends = []; // Empty - use Supabase data
+export const friends: Friend[] = []; // Runtime-filled with Supabase data
 export const friendRequests: FriendRequest[] = [];
 export const userAvailability: Availability[] = [];
 export const hangouts: Hangout[] = [];
+
+export const setFriendsDirectory = (nextFriends: Friend[]) => {
+  friends.splice(0, friends.length, ...nextFriends);
+};
 
 export const getFriendById = (id: string) => {
   return friends.find((f) => f.id === id);
