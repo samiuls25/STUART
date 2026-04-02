@@ -1,17 +1,32 @@
-import React from "react";
+import React, { useState } from "react";
 import { motion } from "framer-motion";
-import { MapPin, Clock, Users, Check, X, HelpCircle, ChevronRight } from "lucide-react";
+import { MapPin, Clock, Users, Check, X, HelpCircle, ChevronRight, Trash2 } from "lucide-react";
 import { Hangout, getFriendById, getActivityType } from "../../data/friends";
 import { format } from "date-fns";
+import ConfirmDeleteHangoutDialog from "./ConfirmDeleteHangoutDialog";
 
 interface HangoutCardProps {
   hangout: Hangout;
   onRespond?: (hangout: Hangout, response: "yes" | "no" | "maybe") => void;
   onViewDetails?: (hangout: Hangout) => void;
+  onOpenAvailability?: (hangout: Hangout) => void;
+  onDeleteHangout?: (hangout: Hangout) => void;
   variant?: "suggested" | "pending" | "confirmed";
+  currentUserId?: string;
 }
 
-const HangoutCard = ({ hangout, onRespond, onViewDetails, variant = "suggested" }: HangoutCardProps) => {
+const HangoutCard = ({
+  hangout,
+  onRespond,
+  onViewDetails,
+  onOpenAvailability,
+  onDeleteHangout,
+  variant = "suggested",
+  currentUserId,
+}: HangoutCardProps) => {
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+
+  const viewerId = currentUserId || "current-user";
   const activityType = getActivityType(hangout.activityType);
   const creator = getFriendById(hangout.createdBy);
   
@@ -20,8 +35,19 @@ const HangoutCard = ({ hangout, onRespond, onViewDetails, variant = "suggested" 
     (r) => r.status === "invited" || r.status === "pending-availability"
   ).length;
 
-  const currentUserResponse = hangout.responses.find((r) => r.friendId === "current-user");
-  const isCreator = hangout.createdBy === "current-user";
+  const currentUserResponse = hangout.responses.find((r) => r.friendId === viewerId);
+  const isCreator = hangout.createdBy === viewerId;
+  const canShowMyStatus = !!currentUserResponse;
+  const canRespondOnCard = !!currentUserResponse;
+  const canOpenAvailabilityOnCard = !!currentUserResponse;
+
+  const myStatus = {
+    invited: { label: "Invited", className: "bg-muted text-muted-foreground" },
+    yes: { label: "You: Going", className: "bg-green-500/10 text-green-700" },
+    maybe: { label: "You: Maybe", className: "bg-amber-500/10 text-amber-700" },
+    no: { label: "You: No", className: "bg-destructive/10 text-destructive" },
+    "pending-availability": { label: "You: Shared Availability", className: "bg-primary/10 text-primary" },
+  };
 
   const formatTimeRange = () => {
     const timeRange = hangout.confirmedTime || hangout.proposedTimeRange;
@@ -67,12 +93,19 @@ const HangoutCard = ({ hangout, onRespond, onViewDetails, variant = "suggested" 
             </div>
           </div>
 
-          <button
-            onClick={() => onViewDetails?.(hangout)}
-            className="p-2 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors flex-shrink-0"
-          >
-            <ChevronRight className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-2 flex-shrink-0">
+            {canShowMyStatus && currentUserResponse && (
+              <span className={`text-[11px] px-2 py-1 rounded-full font-medium ${myStatus[currentUserResponse.status].className}`}>
+                {myStatus[currentUserResponse.status].label}
+              </span>
+            )}
+            <button
+              onClick={() => onViewDetails?.(hangout)}
+              className="p-2 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <ChevronRight className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
         {/* Description */}
@@ -150,30 +183,83 @@ const HangoutCard = ({ hangout, onRespond, onViewDetails, variant = "suggested" 
         </div>
       </div>
 
-      {/* Actions - Only for suggested hangouts where user hasn't responded */}
-      {variant === "suggested" && currentUserResponse?.status === "invited" && (
-        <div className="p-4 pt-2 border-t border-border flex items-center gap-2">
-          <button
-            onClick={() => onRespond?.(hangout, "yes")}
-            className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl bg-green-500/10 text-green-600 hover:bg-green-500/20 font-medium transition-colors"
-          >
-            <Check className="w-4 h-4" />
-            I'm in!
-          </button>
-          <button
-            onClick={() => onRespond?.(hangout, "maybe")}
-            className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl bg-muted text-muted-foreground hover:bg-muted/80 font-medium transition-colors"
-          >
-            <HelpCircle className="w-4 h-4" />
-            Maybe
-          </button>
-          <button
-            onClick={() => onRespond?.(hangout, "no")}
-            className="p-2.5 rounded-xl hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"
-          >
-            <X className="w-5 h-5" />
-          </button>
+      {/* Actions */}
+      {(canRespondOnCard || canOpenAvailabilityOnCard) && (
+        <div className="p-4 pt-2 border-t border-border flex flex-wrap items-center gap-2">
+          {canRespondOnCard && (
+            <div className="grid flex-1 min-w-[220px] grid-cols-3 gap-2">
+              <button
+                onClick={() => onRespond?.(hangout, "yes")}
+                className={`flex items-center justify-center gap-2 py-2.5 rounded-xl font-medium transition-colors ${
+                  currentUserResponse?.status === "yes"
+                    ? "bg-green-500/20 text-green-700"
+                    : "bg-green-500/10 text-green-600 hover:bg-green-500/20"
+                }`}
+              >
+                <Check className="w-4 h-4" />
+                I'm in!
+              </button>
+              <button
+                onClick={() => onRespond?.(hangout, "maybe")}
+                className={`flex items-center justify-center gap-2 py-2.5 rounded-xl font-medium transition-colors ${
+                  currentUserResponse?.status === "maybe"
+                    ? "bg-amber-500/20 text-amber-700"
+                    : "bg-muted text-muted-foreground hover:bg-muted/80"
+                }`}
+              >
+                <HelpCircle className="w-4 h-4" />
+                Maybe
+              </button>
+              <button
+                onClick={() => onRespond?.(hangout, "no")}
+                className={`flex items-center justify-center gap-1 py-2.5 px-3 rounded-xl font-medium transition-colors ${
+                  currentUserResponse?.status === "no"
+                    ? "bg-destructive/20 text-destructive"
+                    : "bg-muted text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                }`}
+              >
+                <X className="w-4 h-4" /> No
+              </button>
+            </div>
+          )}
+          {(canOpenAvailabilityOnCard || isCreator) && (
+            <>
+              <div className="hidden sm:block h-7 w-px bg-border" />
+              <div className="ml-auto flex items-center gap-2">
+                {canOpenAvailabilityOnCard && (
+                  <button
+                    onClick={() => onOpenAvailability?.(hangout)}
+                    className="flex items-center justify-center gap-1 py-2.5 px-3 rounded-xl bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
+                  >
+                    <Clock className="w-4 h-4" />
+                    <span className="hidden sm:inline">Availability</span>
+                  </button>
+                )}
+                {canOpenAvailabilityOnCard && isCreator && (
+                  <span className="hidden sm:inline text-muted-foreground/60 font-medium">|</span>
+                )}
+                {isCreator && (
+                  <button
+                    onClick={() => setShowDeleteConfirm(true)}
+                    className="flex items-center justify-center gap-1 py-2.5 px-3 rounded-xl bg-destructive/10 text-destructive hover:bg-destructive/20 transition-colors"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    <span className="hidden sm:inline">Delete</span>
+                  </button>
+                )}
+              </div>
+            </>
+          )}
         </div>
+      )}
+
+      {isCreator && (
+        <ConfirmDeleteHangoutDialog
+          open={showDeleteConfirm}
+          onOpenChange={setShowDeleteConfirm}
+          hangoutTitle={hangout.title}
+          onConfirm={() => onDeleteHangout?.(hangout)}
+        />
       )}
     </motion.div>
   );

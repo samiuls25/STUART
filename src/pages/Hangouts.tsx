@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import React from "react";
 import { motion } from "framer-motion";
 import { Plus, Calendar, Clock, Users, ChevronRight, Sparkles, Filter, X } from "lucide-react";
@@ -6,18 +6,131 @@ import Navbar from "../components/layout/Navbar.tsx";
 import HangoutCard from "../components/hangouts/HangoutCard";
 import CreateHangoutModal from "../components/hangouts/CreateHangoutModal";
 import HangoutDetailModal from "../components/hangouts/HangoutDetailModel.tsx";
-import { hangouts, Hangout } from "../data/friends.ts";
+import AuthModal from "../components/auth/AuthModal";
+import { hangouts, Hangout, setFriendsDirectory, Friend, TimeRange } from "../data/friends.ts";
 import { format, isAfter, isBefore, parseISO, startOfDay, addWeeks } from "date-fns";
 import { Input } from "../components/ui/input.tsx";
+import { useAuth } from "../lib/AuthContext";
+import { useToast } from "../hooks/use-toast";
+import { getFriends } from "../lib/friends";
+import { supabase } from "../lib/supabase";
+import {
+  createHangout,
+  deleteHangout,
+  fetchHangoutsForCurrentUser,
+  isHangoutsSetupError,
+  respondToHangout,
+  submitHangoutAvailability,
+} from "../lib/hangouts";
 
 const Hangouts = () => {
+  const { user } = useAuth();
+  const { toast } = useToast();
+
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showAuthModal, setShowAuthModal] = useState(false);
   const [selectedHangout, setSelectedHangout] = useState<Hangout | null>(null);
+  const [openAvailabilityEditor, setOpenAvailabilityEditor] = useState(false);
   const [showDateFilter, setShowDateFilter] = useState(false);
   const [filterFrom, setFilterFrom] = useState("");
   const [filterTo, setFilterTo] = useState("");
+  const [hangoutsState, setHangoutsState] = useState<Hangout[]>(hangouts);
+  const [loadingHangouts, setLoadingHangouts] = useState(true);
+  const [schemaMissing, setSchemaMissing] = useState(false);
 
   const today = startOfDay(new Date());
+  const currentUserId = user?.id;
+
+  const loadHangouts = async () => {
+    setLoadingHangouts(true);
+
+    try {
+      const [friendsData, fetchedHangouts] = await Promise.all([
+        getFriends(),
+        fetchHangoutsForCurrentUser(),
+      ]);
+
+      const nextDirectory: Friend[] = friendsData.map((friend) => ({
+        id: friend.id,
+        name: friend.name,
+        email: friend.email,
+        avatar_url: friend.avatar_url,
+        status: friend.status,
+        badges: friend.badges,
+        mutualFriends: friend.mutualFriends,
+        hangoutsTogether: friend.hangoutsTogether,
+        isMuted: friend.isMuted,
+        isBlocked: friend.isBlocked,
+      }));
+
+      const participantIds = new Set<string>();
+      fetchedHangouts.forEach((hangout) => {
+        participantIds.add(hangout.createdBy);
+        hangout.responses.forEach((response) => participantIds.add(response.friendId));
+      });
+
+      const missingProfileIds = [...participantIds].filter(
+        (id) => !!id && !nextDirectory.some((friend) => friend.id === id)
+      );
+
+      if (missingProfileIds.length > 0) {
+        const { data: profiles, error: profilesError } = await supabase
+          .from("profiles")
+          .select("id, name, email, avatar_url")
+          .in("id", missingProfileIds);
+
+        if (!profilesError && profiles) {
+          profiles.forEach((profile) => {
+            nextDirectory.push({
+              id: profile.id,
+              name: profile.name || profile.email || "Unknown",
+              email: profile.email,
+              avatar_url: profile.avatar_url,
+              status: "offline",
+              badges: [],
+              mutualFriends: 0,
+              hangoutsTogether: 0,
+              isMuted: false,
+              isBlocked: false,
+            });
+          });
+        }
+      }
+
+      setFriendsDirectory(nextDirectory);
+      setHangoutsState(fetchedHangouts);
+      setSelectedHangout((prev) => {
+        if (!prev) return prev;
+        return fetchedHangouts.find((hangout) => hangout.id === prev.id) || null;
+      });
+      setSchemaMissing(false);
+    } catch (error) {
+      if (isHangoutsSetupError(error)) {
+        setSchemaMissing(true);
+        setHangoutsState(hangouts);
+      } else {
+        console.error("Failed to load hangouts", error);
+        toast({
+          title: "Could not load hangouts",
+          description: "Please try again in a moment.",
+          variant: "destructive",
+        });
+      }
+    } finally {
+      setLoadingHangouts(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!user) {
+      setHangoutsState([]);
+      setLoadingHangouts(false);
+      setSchemaMissing(false);
+      return;
+    }
+
+    loadHangouts();
+  }, [user?.id]);
 
   const isInDateRange = (h: Hangout) => {
     if (!filterFrom && !filterTo) return true;
@@ -27,30 +140,32 @@ const Hangouts = () => {
     return true;
   };
 
-  const suggestedHangouts = hangouts.filter(
+  const suggestedHangouts = hangoutsState.filter(
     (h) =>
       h.status === "suggested" &&
-      h.createdBy !== "current-user" &&
-      h.responses.find((r) => r.friendId === "current-user")?.status === "invited" &&
+      !!currentUserId &&
+      h.createdBy !== currentUserId &&
+      h.responses.find((r) => r.friendId === currentUserId)?.status === "invited" &&
       isInDateRange(h)
   );
 
-  const pendingHangouts = hangouts.filter(
+  const pendingHangouts = hangoutsState.filter(
     (h) =>
       (h.status === "pending" || h.status === "suggested") &&
-      (h.createdBy === "current-user" ||
-        h.responses.find((r) => r.friendId === "current-user")?.status !== "invited") &&
+      (!!currentUserId &&
+        (h.createdBy === currentUserId ||
+          h.responses.find((r) => r.friendId === currentUserId)?.status !== "invited")) &&
       isInDateRange(h)
   );
 
-  const confirmedHangouts = hangouts.filter(
+  const confirmedHangouts = hangoutsState.filter(
     (h) =>
       h.status === "confirmed" &&
       isAfter(parseISO(h.confirmedTime?.date || h.proposedTimeRange.date), today) &&
       isInDateRange(h)
   );
 
-  const pastHangouts = hangouts.filter(
+  const pastHangouts = hangoutsState.filter(
     (h) =>
       (h.status === "completed" ||
         (h.status === "confirmed" &&
@@ -58,16 +173,158 @@ const Hangouts = () => {
       isInDateRange(h)
   );
 
-  const handleRespond = (hangout: Hangout, response: "yes" | "no" | "maybe") => {
-    console.log("Respond to hangout:", hangout.title, "with:", response);
+  const handleRespond = async (hangout: Hangout, response: "yes" | "no" | "maybe") => {
+    try {
+      await respondToHangout(hangout.id, response);
+      toast({
+        title: "Response saved",
+        description: `Your response to ${hangout.title} was updated.`,
+      });
+      await loadHangouts();
+      setSelectedHangout(null);
+    } catch (error) {
+      if (isHangoutsSetupError(error)) {
+        setSchemaMissing(true);
+        toast({
+          title: "Hangouts schema is not set up",
+          description: "Run docs/db/hangouts_phase1.sql in Supabase first.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      console.error("Failed to respond to hangout", error);
+      toast({
+        title: "Could not update response",
+        description: "Please try again.",
+        variant: "destructive",
+      });
+    }
   };
 
   const handleViewDetails = (hangout: Hangout) => {
+    setOpenAvailabilityEditor(false);
     setSelectedHangout(hangout);
   };
 
-  const handleCreate = (hangout: Partial<Hangout>) => {
-    console.log("Create hangout:", hangout);
+  const handleOpenAvailabilityEditor = (hangout: Hangout) => {
+    setOpenAvailabilityEditor(true);
+    setSelectedHangout(hangout);
+  };
+
+  const handleSubmitAvailability = async (hangout: Hangout, availability: TimeRange[]) => {
+    try {
+      await submitHangoutAvailability(hangout.id, availability);
+      toast({
+        title: "Availability shared",
+        description: "Your preferred slots were submitted.",
+      });
+      await loadHangouts();
+    } catch (error) {
+      if (isHangoutsSetupError(error)) {
+        setSchemaMissing(true);
+        toast({
+          title: "Hangouts schema is not set up",
+          description: "Run docs/db/hangouts_phase1.sql in Supabase first.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      console.error("Failed to submit availability", error);
+      toast({
+        title: "Could not submit availability",
+        description: "Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleDeleteHangout = async (hangout: Hangout) => {
+    try {
+      await deleteHangout(hangout.id);
+      toast({
+        title: "Hangout deleted",
+        description: `${hangout.title} was removed.`,
+      });
+      await loadHangouts();
+      setSelectedHangout(null);
+      setOpenAvailabilityEditor(false);
+      setOpenAvailabilityEditor(false);
+    } catch (error) {
+      if (isHangoutsSetupError(error)) {
+        setSchemaMissing(true);
+        toast({
+          title: "Hangouts schema is not set up",
+          description: "Run docs/db/hangouts_phase1.sql in Supabase first.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      console.error("Failed to delete hangout", error);
+      toast({
+        title: "Could not delete hangout",
+        description: "Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleCreate = async (hangout: Partial<Hangout> & { creatorAvailability?: TimeRange[] }) => {
+    if (!user) {
+      toast({
+        title: "Sign in required",
+        description: "Please sign in to create a hangout.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!hangout.title || !hangout.activityType || !hangout.proposedTimeRange) {
+      toast({
+        title: "Missing hangout details",
+        description: "Please complete title, activity type, and time before creating.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      await createHangout({
+        title: hangout.title,
+        description: hangout.description,
+        activityType: hangout.activityType,
+        proposedTimeRange: hangout.proposedTimeRange,
+        location: hangout.location,
+        invitedFriends: hangout.invitedFriends || [],
+        highlightedFriends: hangout.highlightedFriends || [],
+        creatorAvailability: hangout.creatorAvailability,
+      });
+
+      toast({
+        title: "Hangout created",
+        description: "Your invites were sent.",
+      });
+      await loadHangouts();
+    } catch (error) {
+      if (isHangoutsSetupError(error)) {
+        setSchemaMissing(true);
+        toast({
+          title: "Hangouts schema is not set up",
+          description: "Run docs/db/hangouts_phase1.sql in Supabase first.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      console.error("Failed to create hangout", error);
+      toast({
+        title: "Could not create hangout",
+        description: "Please try again.",
+        variant: "destructive",
+      });
+    }
   };
 
   const clearFilters = () => {
@@ -81,6 +338,29 @@ const Hangouts = () => {
   };
 
   const hasActiveFilter = filterFrom || filterTo;
+
+  if (!user) {
+    return (
+      <div className="min-h-screen bg-background">
+        <Navbar />
+        <main className="pt-[72px]">
+          <div className="max-w-4xl mx-auto px-6 py-16 text-center">
+            <div className="w-20 h-20 rounded-2xl bg-primary/10 flex items-center justify-center mx-auto mb-6">
+              <Users className="w-10 h-10 text-primary" />
+            </div>
+            <h1 className="font-heading text-3xl font-bold text-foreground mb-3">Hangouts</h1>
+            <p className="text-muted-foreground mb-8 max-w-xl mx-auto">
+              Sign in to plan hangouts, invite friends, and track responses.
+            </p>
+            <button onClick={() => setShowAuthModal(true)} className="btn-primary px-6 py-3">
+              Sign In To Continue
+            </button>
+          </div>
+        </main>
+        <AuthModal isOpen={showAuthModal} onClose={() => setShowAuthModal(false)} />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background">
@@ -170,6 +450,18 @@ const Hangouts = () => {
             </motion.div>
           )}
 
+          {schemaMissing && (
+            <div className="mb-6 rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-700">
+              Hangouts backend is not initialized yet. Run docs/db/hangouts_phase1.sql in Supabase, then refresh this page.
+            </div>
+          )}
+
+          {loadingHangouts && (
+            <div className="mb-6 rounded-xl border border-border bg-card p-4 text-sm text-muted-foreground">
+              Loading hangouts...
+            </div>
+          )}
+
           {/* Suggested Hangouts */}
           {suggestedHangouts.length > 0 && (
             <motion.section
@@ -190,7 +482,15 @@ const Hangouts = () => {
               <div className="space-y-4">
                 {suggestedHangouts.map((hangout, index) => (
                   <motion.div key={hangout.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.05 }}>
-                    <HangoutCard hangout={hangout} variant="suggested" onRespond={handleRespond} onViewDetails={handleViewDetails} />
+                    <HangoutCard
+                      hangout={hangout}
+                      variant="suggested"
+                      onRespond={handleRespond}
+                      onViewDetails={handleViewDetails}
+                      onOpenAvailability={handleOpenAvailabilityEditor}
+                      onDeleteHangout={handleDeleteHangout}
+                      currentUserId={currentUserId}
+                    />
                   </motion.div>
                 ))}
               </div>
@@ -207,7 +507,15 @@ const Hangouts = () => {
               <div className="space-y-4">
                 {pendingHangouts.map((hangout, index) => (
                   <motion.div key={hangout.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.05 }}>
-                    <HangoutCard hangout={hangout} variant="pending" onViewDetails={handleViewDetails} />
+                    <HangoutCard
+                      hangout={hangout}
+                      variant="pending"
+                      onRespond={handleRespond}
+                      onViewDetails={handleViewDetails}
+                      onOpenAvailability={handleOpenAvailabilityEditor}
+                      onDeleteHangout={handleDeleteHangout}
+                      currentUserId={currentUserId}
+                    />
                   </motion.div>
                 ))}
               </div>
@@ -224,7 +532,15 @@ const Hangouts = () => {
               <div className="space-y-4">
                 {confirmedHangouts.map((hangout, index) => (
                   <motion.div key={hangout.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.05 }}>
-                    <HangoutCard hangout={hangout} variant="confirmed" onViewDetails={handleViewDetails} />
+                    <HangoutCard
+                      hangout={hangout}
+                      variant="confirmed"
+                      onRespond={handleRespond}
+                      onViewDetails={handleViewDetails}
+                      onOpenAvailability={handleOpenAvailabilityEditor}
+                      onDeleteHangout={handleDeleteHangout}
+                      currentUserId={currentUserId}
+                    />
                   </motion.div>
                 ))}
               </div>
@@ -269,7 +585,19 @@ const Hangouts = () => {
       </main>
 
       <CreateHangoutModal isOpen={showCreateModal} onClose={() => setShowCreateModal(false)} onCreate={handleCreate} />
-      <HangoutDetailModal hangout={selectedHangout} isOpen={!!selectedHangout} onClose={() => setSelectedHangout(null)} onRespond={handleRespond} />
+      <HangoutDetailModal
+        hangout={selectedHangout}
+        isOpen={!!selectedHangout}
+        onClose={() => {
+          setSelectedHangout(null);
+          setOpenAvailabilityEditor(false);
+        }}
+        onRespond={handleRespond}
+        onSubmitAvailability={handleSubmitAvailability}
+        onDeleteHangout={handleDeleteHangout}
+        initialShowAvailability={openAvailabilityEditor}
+        currentUserId={currentUserId}
+      />
     </div>
   );
 };
