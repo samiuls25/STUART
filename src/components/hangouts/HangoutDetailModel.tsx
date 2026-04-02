@@ -38,7 +38,7 @@ const HangoutDetailModal = ({
   const currentUserResponse = hangout.responses.find((r) => r.friendId === viewerId);
   const isCreator = hangout.createdBy === viewerId;
   const timeRange = hangout.confirmedTime || hangout.proposedTimeRange;
-  const canRespond = !!currentUserResponse && !isCreator;
+  const canRespond = !!currentUserResponse;
   const canShareAvailability = !!currentUserResponse && currentUserResponse.status !== "no";
 
   const toggleAvailabilitySlot = (key: string) => {

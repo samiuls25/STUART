@@ -99,6 +99,10 @@ const Hangouts = () => {
 
       setFriendsDirectory(nextDirectory);
       setHangoutsState(fetchedHangouts);
+      setSelectedHangout((prev) => {
+        if (!prev) return prev;
+        return fetchedHangouts.find((hangout) => hangout.id === prev.id) || null;
+      });
       setSchemaMissing(false);
     } catch (error) {
       if (isHangoutsSetupError(error)) {

@@ -33,7 +33,7 @@ const HangoutCard = ({
   const currentUserResponse = hangout.responses.find((r) => r.friendId === viewerId);
   const isCreator = hangout.createdBy === viewerId;
   const canShowMyStatus = !!currentUserResponse;
-  const canRespondOnCard = !!currentUserResponse && !isCreator;
+  const canRespondOnCard = !!currentUserResponse;
   const canOpenAvailabilityOnCard = !!currentUserResponse;
 
   const myStatus = {
