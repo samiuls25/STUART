@@ -136,6 +136,78 @@
   },
   {
     "schemaname": "public",
+    "tablename": "hangout_invites",
+    "policyname": "Creators can delete invites",
+    "cmd": "DELETE",
+    "roles": "{public}",
+    "qual": "is_hangout_creator(hangout_id, auth.uid())",
+    "with_check": null
+  },
+  {
+    "schemaname": "public",
+    "tablename": "hangout_invites",
+    "policyname": "Creators can insert invites",
+    "cmd": "INSERT",
+    "roles": "{public}",
+    "qual": null,
+    "with_check": "is_hangout_creator(hangout_id, auth.uid())"
+  },
+  {
+    "schemaname": "public",
+    "tablename": "hangout_invites",
+    "policyname": "Invitees and creators can update invites",
+    "cmd": "UPDATE",
+    "roles": "{public}",
+    "qual": "((friend_id = auth.uid()) OR is_hangout_creator(hangout_id, auth.uid()))",
+    "with_check": "((friend_id = auth.uid()) OR is_hangout_creator(hangout_id, auth.uid()))"
+  },
+  {
+    "schemaname": "public",
+    "tablename": "hangout_invites",
+    "policyname": "Users can view related hangout invites",
+    "cmd": "SELECT",
+    "roles": "{public}",
+    "qual": "((friend_id = auth.uid()) OR is_hangout_creator(hangout_id, auth.uid()))",
+    "with_check": null
+  },
+  {
+    "schemaname": "public",
+    "tablename": "hangouts",
+    "policyname": "Creators can delete their own hangouts",
+    "cmd": "DELETE",
+    "roles": "{public}",
+    "qual": "(created_by = auth.uid())",
+    "with_check": null
+  },
+  {
+    "schemaname": "public",
+    "tablename": "hangouts",
+    "policyname": "Creators can update their own hangouts",
+    "cmd": "UPDATE",
+    "roles": "{public}",
+    "qual": "(created_by = auth.uid())",
+    "with_check": "(created_by = auth.uid())"
+  },
+  {
+    "schemaname": "public",
+    "tablename": "hangouts",
+    "policyname": "Users can create their own hangouts",
+    "cmd": "INSERT",
+    "roles": "{public}",
+    "qual": null,
+    "with_check": "(created_by = auth.uid())"
+  },
+  {
+    "schemaname": "public",
+    "tablename": "hangouts",
+    "policyname": "Users can view related hangouts",
+    "cmd": "SELECT",
+    "roles": "{public}",
+    "qual": "((created_by = auth.uid()) OR is_hangout_invitee(id, auth.uid()))",
+    "with_check": null
+  },
+  {
+    "schemaname": "public",
     "tablename": "memories",
     "policyname": "Users can delete their own memories",
     "cmd": "DELETE",
