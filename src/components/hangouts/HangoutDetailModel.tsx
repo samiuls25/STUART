@@ -1,8 +1,8 @@
-import React, { useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, MapPin, Clock, Calendar, Users, Check, HelpCircle, Sparkles, MessageCircle } from "lucide-react";
 import { Hangout, TimeRange, getFriendById, getActivityType } from "../../data/friends";
-import { format } from "date-fns";
+import { format, parseISO } from "date-fns";
 import AvailabilityHeatmap from "../availability/AvailabilityHeatmap";
 
 interface HangoutDetailModalProps {
@@ -11,6 +11,7 @@ interface HangoutDetailModalProps {
   onClose: () => void;
   onRespond?: (hangout: Hangout, response: "yes" | "no" | "maybe") => void;
   onSubmitAvailability?: (hangout: Hangout, availability: TimeRange[]) => void;
+  onDeleteHangout?: (hangout: Hangout) => void;
   currentUserId?: string;
 }
 
@@ -20,6 +21,7 @@ const HangoutDetailModal = ({
   onClose,
   onRespond,
   onSubmitAvailability,
+  onDeleteHangout,
   currentUserId,
 }: HangoutDetailModalProps) => {
   if (!hangout) return null;
@@ -34,7 +36,8 @@ const HangoutDetailModal = ({
   const currentUserResponse = hangout.responses.find((r) => r.friendId === viewerId);
   const isCreator = hangout.createdBy === viewerId;
   const timeRange = hangout.confirmedTime || hangout.proposedTimeRange;
-  const canShareAvailability = currentUserResponse?.status === "invited" || currentUserResponse?.status === "pending-availability";
+  const canRespond = !!currentUserResponse && !isCreator;
+  const canShareAvailability = !!currentUserResponse && !isCreator;
 
   const toggleAvailabilitySlot = (key: string) => {
     setAvailabilitySlots((prev) => {
@@ -66,6 +69,70 @@ const HangoutDetailModal = ({
         };
       });
   };
+
+  const toSlotKey = (slot: TimeRange): string | null => {
+    if (!slot.start) return null;
+    try {
+      const dt = parseISO(slot.start);
+      return `${format(dt, "yyyy-MM-dd")}-${format(dt, "HH:mm")}`;
+    } catch {
+      return null;
+    }
+  };
+
+  const buildSlotMapFromRanges = (ranges: TimeRange[] | undefined): Record<string, number> => {
+    if (!ranges) return {};
+    const next: Record<string, number> = {};
+    ranges.forEach((slot) => {
+      const key = toSlotKey(slot);
+      if (key) next[key] = 1;
+    });
+    return next;
+  };
+
+  useEffect(() => {
+    setAvailabilitySlots(buildSlotMapFromRanges(currentUserResponse?.availabilitySubmitted));
+  }, [hangout.id, currentUserResponse?.availabilitySubmitted]);
+
+  const friendAvailabilityForEditor = useMemo(() => {
+    const map: Record<string, string[]> = {};
+    hangout.responses
+      .filter((response) => response.friendId !== viewerId)
+      .forEach((response) => {
+        if (!response.availabilitySubmitted?.length) return;
+        const friend = getFriendById(response.friendId);
+        const friendName = friend?.name || "Unknown";
+        const keys = response.availabilitySubmitted
+          .map((slot) => toSlotKey(slot))
+          .filter((slot): slot is string => !!slot);
+        if (keys.length > 0) map[friendName] = keys;
+      });
+    return map;
+  }, [hangout.responses, viewerId]);
+
+  const submittedFriendAvailability = useMemo(() => {
+    const map: Record<string, string[]> = {};
+    hangout.responses.forEach((response) => {
+      if (!response.availabilitySubmitted?.length) return;
+      const friend = getFriendById(response.friendId);
+      const friendName = friend?.name || "Unknown";
+      const keys = response.availabilitySubmitted
+        .map((slot) => toSlotKey(slot))
+        .filter((slot): slot is string => !!slot);
+      if (keys.length > 0) map[friendName] = keys;
+    });
+    return map;
+  }, [hangout.responses]);
+
+  const submittedAggregateSlots = useMemo(() => {
+    const aggregate: Record<string, number> = {};
+    Object.values(submittedFriendAvailability).forEach((keys) => {
+      keys.forEach((key) => {
+        aggregate[key] = Math.min((aggregate[key] || 0) + 1, 3);
+      });
+    });
+    return aggregate;
+  }, [submittedFriendAvailability]);
 
   const statusConfig = {
     suggested: { label: "New Invite", color: "bg-primary/10 text-primary" },
@@ -122,6 +189,21 @@ const HangoutDetailModal = ({
                 <X className="w-5 h-5" />
               </button>
             </div>
+
+              {isCreator && (
+                <div className="px-6 pt-4">
+                  <button
+                    onClick={() => {
+                      if (window.confirm("Delete this hangout? This action cannot be undone.")) {
+                        onDeleteHangout?.(hangout);
+                      }
+                    }}
+                    className="text-sm text-destructive hover:underline"
+                  >
+                    Delete Hangout
+                  </button>
+                </div>
+              )}
 
             {/* Content */}
             <div className="flex-1 overflow-y-auto p-6 space-y-6">
@@ -218,24 +300,15 @@ const HangoutDetailModal = ({
               {hangout.responses.some((r) => r.availabilitySubmitted?.length) && (
                 <div>
                   <h4 className="font-heading font-semibold text-foreground mb-3">Submitted Availability</h4>
-                  <div className="space-y-2">
-                    {hangout.responses
-                      .filter((r) => r.availabilitySubmitted?.length)
-                      .map((response) => {
-                        const friend = getFriendById(response.friendId);
-                        return (
-                          <div key={response.friendId} className="p-3 rounded-xl bg-muted/30">
-                            <p className="text-sm font-medium text-foreground mb-1">{friend?.name}</p>
-                            <div className="flex flex-wrap gap-2">
-                              {response.availabilitySubmitted?.map((slot, idx) => (
-                                <span key={idx} className="text-xs px-2 py-1 rounded-full bg-primary/10 text-primary">
-                                  {slot.start} – {slot.end} ({slot.preference})
-                                </span>
-                              ))}
-                            </div>
-                          </div>
-                        );
-                      })}
+                  <div className="rounded-xl border border-border p-3 bg-muted/20">
+                    <AvailabilityHeatmap
+                      startDate={timeRange.date}
+                      numDays={7}
+                      selectedSlots={submittedAggregateSlots}
+                      onToggleSlot={() => {}}
+                      friendAvailability={submittedFriendAvailability}
+                      readOnly
+                    />
                   </div>
                 </div>
               )}
@@ -259,6 +332,7 @@ const HangoutDetailModal = ({
                         numDays={7}
                         selectedSlots={availabilitySlots}
                         onToggleSlot={toggleAvailabilitySlot}
+                        friendAvailability={friendAvailabilityForEditor}
                       />
                       <div className="flex items-center justify-between text-xs text-muted-foreground">
                         <span>{selectedAvailabilityCount} slot{selectedAvailabilityCount !== 1 ? "s" : ""} selected</span>
@@ -277,23 +351,35 @@ const HangoutDetailModal = ({
             </div>
 
             {/* Footer - respond actions */}
-            {currentUserResponse?.status === "invited" && (
+            {canRespond && (
               <div className="p-6 border-t border-border flex items-center gap-2">
                 <button
                   onClick={() => onRespond?.(hangout, "yes")}
-                  className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl bg-green-500/10 text-green-600 hover:bg-green-500/20 font-medium transition-colors"
+                  className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl font-medium transition-colors ${
+                    currentUserResponse?.status === "yes"
+                      ? "bg-green-500/20 text-green-700"
+                      : "bg-green-500/10 text-green-600 hover:bg-green-500/20"
+                  }`}
                 >
                   <Check className="w-4 h-4" /> I'm in!
                 </button>
                 <button
                   onClick={() => onRespond?.(hangout, "maybe")}
-                  className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl bg-muted text-muted-foreground hover:bg-muted/80 font-medium transition-colors"
+                  className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl font-medium transition-colors ${
+                    currentUserResponse?.status === "maybe"
+                      ? "bg-amber-500/20 text-amber-700"
+                      : "bg-muted text-muted-foreground hover:bg-muted/80"
+                  }`}
                 >
                   <HelpCircle className="w-4 h-4" /> Maybe
                 </button>
                 <button
                   onClick={() => onRespond?.(hangout, "no")}
-                  className="p-2.5 rounded-xl hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"
+                  className={`p-2.5 rounded-xl transition-colors ${
+                    currentUserResponse?.status === "no"
+                      ? "bg-destructive/20 text-destructive"
+                      : "hover:bg-destructive/10 text-muted-foreground hover:text-destructive"
+                  }`}
                 >
                   <X className="w-5 h-5" />
                 </button>

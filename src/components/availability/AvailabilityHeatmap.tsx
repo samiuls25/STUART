@@ -10,6 +10,7 @@ interface AvailabilityHeatmapProps {
   selectedSlots: Record<string, number>; // "date-time" -> heat level 0-3
   onToggleSlot: (key: string) => void;
   friendAvailability?: Record<string, string[]>; // friendName -> slot keys
+  readOnly?: boolean;
 }
 
 const DEFAULT_TIME_SLOTS = [
@@ -24,6 +25,7 @@ const AvailabilityHeatmap = ({
   selectedSlots,
   onToggleSlot,
   friendAvailability,
+  readOnly = false,
 }: AvailabilityHeatmapProps) => {
   const [isDragging, setIsDragging] = useState(false);
   const [dragMode, setDragMode] = useState<"select" | "deselect">("select");
@@ -39,6 +41,7 @@ const AvailabilityHeatmap = ({
   };
 
   const handleMouseDown = (key: string) => {
+    if (readOnly) return;
     setIsDragging(true);
     const isSelected = (selectedSlots[key] || 0) > 0;
     setDragMode(isSelected ? "deselect" : "select");
@@ -46,6 +49,7 @@ const AvailabilityHeatmap = ({
   };
 
   const handleMouseEnter = (key: string) => {
+    if (readOnly) return;
     if (!isDragging) return;
     const current = selectedSlots[key] || 0;
     if (dragMode === "select" && current === 0) onToggleSlot(key);
@@ -63,7 +67,7 @@ const AvailabilityHeatmap = ({
   return (
     <div className="select-none" onMouseUp={handleMouseUp} onMouseLeave={handleMouseUp}>
       <div className="flex items-center gap-2 mb-3 text-xs text-muted-foreground">
-        <span>Click & drag to select your availability</span>
+        <span>{readOnly ? "Availability overview" : "Click & drag to select your availability"}</span>
         <div className="flex items-center gap-1 ml-auto">
           <div className="w-3 h-3 rounded-sm bg-muted/30 border border-border" />
           <span>Free</span>
@@ -106,7 +110,7 @@ const AvailabilityHeatmap = ({
                     whileHover={{ scale: 1.1 }}
                     onMouseDown={() => handleMouseDown(key)}
                     onMouseEnter={() => handleMouseEnter(key)}
-                    className={`h-7 mx-0.5 rounded-sm cursor-pointer border border-border/30 transition-colors relative ${heatColors[level]}`}
+                    className={`h-7 mx-0.5 rounded-sm border border-border/30 transition-colors relative ${readOnly ? "cursor-default" : "cursor-pointer"} ${heatColors[level]}`}
                   >
                     {overlapCount > 0 && (
                       <span className="absolute inset-0 flex items-center justify-center text-[9px] font-bold text-primary-foreground">

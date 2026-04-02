@@ -16,6 +16,7 @@ import { getFriends } from "../lib/friends";
 import { supabase } from "../lib/supabase";
 import {
   createHangout,
+  deleteHangout,
   fetchHangoutsForCurrentUser,
   isHangoutsSetupError,
   respondToHangout,
@@ -229,7 +230,36 @@ const Hangouts = () => {
     }
   };
 
-  const handleCreate = async (hangout: Partial<Hangout>) => {
+  const handleDeleteHangout = async (hangout: Hangout) => {
+    try {
+      await deleteHangout(hangout.id);
+      toast({
+        title: "Hangout deleted",
+        description: `${hangout.title} was removed.`,
+      });
+      await loadHangouts();
+      setSelectedHangout(null);
+    } catch (error) {
+      if (isHangoutsSetupError(error)) {
+        setSchemaMissing(true);
+        toast({
+          title: "Hangouts schema is not set up",
+          description: "Run docs/db/hangouts_phase1.sql in Supabase first.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      console.error("Failed to delete hangout", error);
+      toast({
+        title: "Could not delete hangout",
+        description: "Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleCreate = async (hangout: Partial<Hangout> & { creatorAvailability?: TimeRange[] }) => {
     if (!user) {
       toast({
         title: "Sign in required",
@@ -257,6 +287,7 @@ const Hangouts = () => {
         location: hangout.location,
         invitedFriends: hangout.invitedFriends || [],
         highlightedFriends: hangout.highlightedFriends || [],
+        creatorAvailability: hangout.creatorAvailability,
       });
 
       toast({
@@ -540,6 +571,7 @@ const Hangouts = () => {
         onClose={() => setSelectedHangout(null)}
         onRespond={handleRespond}
         onSubmitAvailability={handleSubmitAvailability}
+        onDeleteHangout={handleDeleteHangout}
         currentUserId={currentUserId}
       />
     </div>

@@ -45,6 +45,7 @@ export interface CreateHangoutInput {
   };
   invitedFriends: string[];
   highlightedFriends: string[];
+  creatorAvailability?: TimeRange[];
 }
 
 const setupIssueCodes = new Set(["42P01", "PGRST205", "42P17"]);
@@ -145,21 +146,24 @@ export async function createHangout(input: CreateHangoutInput): Promise<void> {
 
   const uniqueInvites = [...new Set(input.invitedFriends)].filter((friendId) => friendId && friendId !== user.id);
 
-  if (uniqueInvites.length === 0) {
-    await syncHangoutStatus(insertedHangout.id);
-    return;
-  }
-
-  const highlighted = new Set(input.highlightedFriends);
-  const { error: inviteError } = await supabase.from("hangout_invites").insert(
-    uniqueInvites.map((friendId) => ({
+  const inviteRows = [
+    {
+      hangout_id: insertedHangout.id,
+      friend_id: user.id,
+      is_highlighted: false,
+      response_status: "yes" as const,
+      availability_submitted: input.creatorAvailability || [],
+    },
+    ...uniqueInvites.map((friendId) => ({
       hangout_id: insertedHangout.id,
       friend_id: friendId,
-      is_highlighted: highlighted.has(friendId),
-      response_status: "invited",
+      is_highlighted: new Set(input.highlightedFriends).has(friendId),
+      response_status: "invited" as const,
       availability_submitted: [],
-    }))
-  );
+    })),
+  ];
+
+  const { error: inviteError } = await supabase.from("hangout_invites").insert(inviteRows);
 
   if (inviteError) throw inviteError;
 
@@ -198,7 +202,6 @@ export async function submitHangoutAvailability(hangoutId: string, availability:
     .from("hangout_invites")
     .update({
       availability_submitted: availability,
-      response_status: "pending-availability",
       responded_at: new Date().toISOString(),
     })
     .eq("hangout_id", hangoutId)
@@ -207,6 +210,22 @@ export async function submitHangoutAvailability(hangoutId: string, availability:
   if (error) throw error;
 
   await syncHangoutStatus(hangoutId);
+}
+
+export async function deleteHangout(hangoutId: string): Promise<void> {
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) throw new Error("You must be signed in to delete a hangout.");
+
+  const { error } = await supabase
+    .from("hangouts")
+    .delete()
+    .eq("id", hangoutId)
+    .eq("created_by", user.id);
+
+  if (error) throw error;
 }
 
 async function syncHangoutStatus(hangoutId: string): Promise<void> {
@@ -219,9 +238,7 @@ async function syncHangoutStatus(hangoutId: string): Promise<void> {
 
   const responses = inviteRows || [];
   const hasYes = responses.some((row) => row.response_status === "yes");
-  const hasUnanswered = responses.some(
-    (row) => row.response_status === "invited" || row.response_status === "pending-availability"
-  );
+  const hasUnanswered = responses.some((row) => row.response_status === "invited");
 
   let nextStatus: Hangout["status"] = "pending";
   if (hasUnanswered) {

@@ -11,7 +11,7 @@ import AvailabilityHeatmap from ".././availability/AvailabilityHeatmap.tsx";
 interface CreateHangoutModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onCreate?: (hangout: Partial<Hangout>) => void;
+  onCreate?: (hangout: Partial<Hangout> & { creatorAvailability?: TimeRange[] }) => void;
 }
 
 const CreateHangoutModal = ({ isOpen, onClose, onCreate }: CreateHangoutModalProps) => {
@@ -54,14 +54,42 @@ const CreateHangoutModal = ({ isOpen, onClose, onCreate }: CreateHangoutModalPro
   };
 
   const handleCreate = () => {
-    const hangout: Partial<Hangout> = {
+    const sortedHeatmapKeys = Object.entries(heatmapSlots)
+      .filter(([, value]) => value > 0)
+      .map(([key]) => key)
+      .sort();
+
+    const creatorAvailability: TimeRange[] = sortedHeatmapKeys.map((slotKey) => {
+      const slotDate = slotKey.slice(0, 10);
+      const slotTime = slotKey.slice(11);
+      const [hoursRaw, minutesRaw] = slotTime.split(":");
+      const nextHour = String((Number(hoursRaw) + 1) % 24).padStart(2, "0");
+      const nextMinute = String(Number(minutesRaw)).padStart(2, "0");
+
+      return {
+        start: `${slotDate}T${slotTime}:00`,
+        end: `${slotDate}T${nextHour}:${nextMinute}:00`,
+        preference: "available",
+      };
+    });
+
+    const derivedStartTime =
+      schedulingMode === "heatmap"
+        ? (sortedHeatmapKeys[0]?.slice(11) || startTime)
+        : startTime;
+    const derivedEndTime =
+      schedulingMode === "heatmap"
+        ? (creatorAvailability[creatorAvailability.length - 1]?.end.slice(11, 16) || endTime)
+        : endTime;
+
+    const hangout: Partial<Hangout> & { creatorAvailability?: TimeRange[] } = {
       title,
       description,
       activityType: activityType as Hangout["activityType"],
       proposedTimeRange: {
         date,
-        startTime,
-        endTime,
+        startTime: derivedStartTime,
+        endTime: derivedEndTime,
       },
       location: locationName
         ? {
@@ -72,6 +100,7 @@ const CreateHangoutModal = ({ isOpen, onClose, onCreate }: CreateHangoutModalPro
       invitedFriends: selectedFriends,
       highlightedFriends,
       status: "pending",
+      creatorAvailability,
     };
     onCreate?.(hangout);
     onClose();
