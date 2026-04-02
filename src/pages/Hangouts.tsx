@@ -30,6 +30,7 @@ const Hangouts = () => {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [selectedHangout, setSelectedHangout] = useState<Hangout | null>(null);
+  const [openAvailabilityEditor, setOpenAvailabilityEditor] = useState(false);
   const [showDateFilter, setShowDateFilter] = useState(false);
   const [filterFrom, setFilterFrom] = useState("");
   const [filterTo, setFilterTo] = useState("");
@@ -198,6 +199,12 @@ const Hangouts = () => {
   };
 
   const handleViewDetails = (hangout: Hangout) => {
+    setOpenAvailabilityEditor(false);
+    setSelectedHangout(hangout);
+  };
+
+  const handleOpenAvailabilityEditor = (hangout: Hangout) => {
+    setOpenAvailabilityEditor(true);
     setSelectedHangout(hangout);
   };
 
@@ -238,6 +245,8 @@ const Hangouts = () => {
       });
       await loadHangouts();
       setSelectedHangout(null);
+      setOpenAvailabilityEditor(false);
+      setOpenAvailabilityEditor(false);
     } catch (error) {
       if (isHangoutsSetupError(error)) {
         setSchemaMissing(true);
@@ -474,6 +483,7 @@ const Hangouts = () => {
                       variant="suggested"
                       onRespond={handleRespond}
                       onViewDetails={handleViewDetails}
+                      onOpenAvailability={handleOpenAvailabilityEditor}
                       currentUserId={currentUserId}
                     />
                   </motion.div>
@@ -495,7 +505,9 @@ const Hangouts = () => {
                     <HangoutCard
                       hangout={hangout}
                       variant="pending"
+                      onRespond={handleRespond}
                       onViewDetails={handleViewDetails}
+                      onOpenAvailability={handleOpenAvailabilityEditor}
                       currentUserId={currentUserId}
                     />
                   </motion.div>
@@ -517,7 +529,9 @@ const Hangouts = () => {
                     <HangoutCard
                       hangout={hangout}
                       variant="confirmed"
+                      onRespond={handleRespond}
                       onViewDetails={handleViewDetails}
+                      onOpenAvailability={handleOpenAvailabilityEditor}
                       currentUserId={currentUserId}
                     />
                   </motion.div>
@@ -567,10 +581,14 @@ const Hangouts = () => {
       <HangoutDetailModal
         hangout={selectedHangout}
         isOpen={!!selectedHangout}
-        onClose={() => setSelectedHangout(null)}
+        onClose={() => {
+          setSelectedHangout(null);
+          setOpenAvailabilityEditor(false);
+        }}
         onRespond={handleRespond}
         onSubmitAvailability={handleSubmitAvailability}
         onDeleteHangout={handleDeleteHangout}
+        initialShowAvailability={openAvailabilityEditor}
         currentUserId={currentUserId}
       />
     </div>

@@ -12,6 +12,7 @@ interface HangoutDetailModalProps {
   onRespond?: (hangout: Hangout, response: "yes" | "no" | "maybe") => void;
   onSubmitAvailability?: (hangout: Hangout, availability: TimeRange[]) => void;
   onDeleteHangout?: (hangout: Hangout) => void;
+  initialShowAvailability?: boolean;
   currentUserId?: string;
 }
 
@@ -22,6 +23,7 @@ const HangoutDetailModal = ({
   onRespond,
   onSubmitAvailability,
   onDeleteHangout,
+  initialShowAvailability,
   currentUserId,
 }: HangoutDetailModalProps) => {
   if (!hangout) return null;
@@ -37,7 +39,7 @@ const HangoutDetailModal = ({
   const isCreator = hangout.createdBy === viewerId;
   const timeRange = hangout.confirmedTime || hangout.proposedTimeRange;
   const canRespond = !!currentUserResponse && !isCreator;
-  const canShareAvailability = !!currentUserResponse && !isCreator;
+  const canShareAvailability = !!currentUserResponse && !isCreator && currentUserResponse.status !== "no";
 
   const toggleAvailabilitySlot = (key: string) => {
     setAvailabilitySlots((prev) => {
@@ -94,10 +96,14 @@ const HangoutDetailModal = ({
     setAvailabilitySlots(buildSlotMapFromRanges(currentUserResponse?.availabilitySubmitted));
   }, [hangout.id, currentUserResponse?.availabilitySubmitted]);
 
+  useEffect(() => {
+    setShowAvailabilityEditor(!!initialShowAvailability);
+  }, [hangout.id, initialShowAvailability]);
+
   const friendAvailabilityForEditor = useMemo(() => {
     const map: Record<string, string[]> = {};
     hangout.responses
-      .filter((response) => response.friendId !== viewerId)
+      .filter((response) => response.friendId !== viewerId && response.status !== "no")
       .forEach((response) => {
         if (!response.availabilitySubmitted?.length) return;
         const friend = getFriendById(response.friendId);
@@ -113,6 +119,7 @@ const HangoutDetailModal = ({
   const submittedFriendAvailability = useMemo(() => {
     const map: Record<string, string[]> = {};
     hangout.responses.forEach((response) => {
+      if (response.status === "no") return;
       if (!response.availabilitySubmitted?.length) return;
       const friend = getFriendById(response.friendId);
       const friendName = friend?.name || "Unknown";
@@ -375,13 +382,13 @@ const HangoutDetailModal = ({
                 </button>
                 <button
                   onClick={() => onRespond?.(hangout, "no")}
-                  className={`p-2.5 rounded-xl transition-colors ${
+                  className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl font-medium transition-colors ${
                     currentUserResponse?.status === "no"
                       ? "bg-destructive/20 text-destructive"
-                      : "hover:bg-destructive/10 text-muted-foreground hover:text-destructive"
+                      : "bg-muted text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
                   }`}
                 >
-                  <X className="w-5 h-5" />
+                  <X className="w-4 h-4" /> No
                 </button>
               </div>
             )}

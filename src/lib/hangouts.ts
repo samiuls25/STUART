@@ -177,12 +177,22 @@ export async function respondToHangout(hangoutId: string, response: "yes" | "no"
 
   if (!user) throw new Error("You must be signed in to respond.");
 
+  const responseUpdate: {
+    response_status: "yes" | "no" | "maybe";
+    responded_at: string;
+    availability_submitted?: TimeRange[];
+  } = {
+    response_status: response,
+    responded_at: new Date().toISOString(),
+  };
+
+  if (response === "no") {
+    responseUpdate.availability_submitted = [];
+  }
+
   const { error } = await supabase
     .from("hangout_invites")
-    .update({
-      response_status: response,
-      responded_at: new Date().toISOString(),
-    })
+    .update(responseUpdate)
     .eq("hangout_id", hangoutId)
     .eq("friend_id", user.id);
 
