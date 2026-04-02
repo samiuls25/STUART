@@ -4,6 +4,7 @@ import { X, MapPin, Clock, Calendar, Users, Check, HelpCircle, Sparkles, Message
 import { Hangout, TimeRange, getFriendById, getActivityType } from "../../data/friends";
 import { format, parseISO } from "date-fns";
 import AvailabilityHeatmap from "../availability/AvailabilityHeatmap";
+import ConfirmDeleteHangoutDialog from "./ConfirmDeleteHangoutDialog";
 
 interface HangoutDetailModalProps {
   hangout: Hangout | null;
@@ -29,6 +30,7 @@ const HangoutDetailModal = ({
   if (!hangout) return null;
 
   const [showAvailabilityEditor, setShowAvailabilityEditor] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [availabilitySlots, setAvailabilitySlots] = useState<Record<string, number>>({});
 
   const viewerId = currentUserId || "current-user";
@@ -189,27 +191,12 @@ const HangoutDetailModal = ({
                   </span>
                 </div>
               </div>
-              <div className="flex items-center gap-2">
-                {isCreator && (
-                  <button
-                    onClick={() => {
-                      if (window.confirm("Delete this hangout? This action cannot be undone.")) {
-                        onDeleteHangout?.(hangout);
-                      }
-                    }}
-                    className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-destructive/10 text-destructive hover:bg-destructive/20 transition-colors text-sm font-medium"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                    Delete
-                  </button>
-                )}
-                <button
-                  onClick={onClose}
-                  className="p-2 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
+              <button
+                onClick={onClose}
+                className="p-2 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
             </div>
 
             {/* Content */}
@@ -355,6 +342,24 @@ const HangoutDetailModal = ({
                   )}
                 </div>
               )}
+
+              {isCreator && (
+                <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <h4 className="font-heading font-semibold text-foreground">Danger Zone</h4>
+                      <p className="text-xs text-muted-foreground mt-1">Deleting removes this hangout and all submitted responses/availability.</p>
+                    </div>
+                    <button
+                      onClick={() => setShowDeleteConfirm(true)}
+                      className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-destructive/10 text-destructive hover:bg-destructive/20 transition-colors text-sm font-medium"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                      Delete Hangout
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Footer - respond actions */}
@@ -394,6 +399,15 @@ const HangoutDetailModal = ({
             )}
           </motion.div>
           </div>
+
+          {isCreator && (
+            <ConfirmDeleteHangoutDialog
+              open={showDeleteConfirm}
+              onOpenChange={setShowDeleteConfirm}
+              hangoutTitle={hangout.title}
+              onConfirm={() => onDeleteHangout?.(hangout)}
+            />
+          )}
         </>
       )}
     </AnimatePresence>

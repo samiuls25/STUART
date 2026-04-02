@@ -1,8 +1,9 @@
-import React from "react";
+import React, { useState } from "react";
 import { motion } from "framer-motion";
 import { MapPin, Clock, Users, Check, X, HelpCircle, ChevronRight, Trash2 } from "lucide-react";
 import { Hangout, getFriendById, getActivityType } from "../../data/friends";
 import { format } from "date-fns";
+import ConfirmDeleteHangoutDialog from "./ConfirmDeleteHangoutDialog";
 
 interface HangoutCardProps {
   hangout: Hangout;
@@ -23,6 +24,8 @@ const HangoutCard = ({
   variant = "suggested",
   currentUserId,
 }: HangoutCardProps) => {
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+
   const viewerId = currentUserId || "current-user";
   const activityType = getActivityType(hangout.activityType);
   const creator = getFriendById(hangout.createdBy);
@@ -182,12 +185,12 @@ const HangoutCard = ({
 
       {/* Actions */}
       {(canRespondOnCard || canOpenAvailabilityOnCard) && (
-        <div className="p-4 pt-2 border-t border-border flex items-center gap-2">
+        <div className="p-4 pt-2 border-t border-border flex flex-wrap items-center gap-2">
           {canRespondOnCard && (
-            <>
+            <div className="grid flex-1 min-w-[220px] grid-cols-3 gap-2">
               <button
                 onClick={() => onRespond?.(hangout, "yes")}
-                className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl font-medium transition-colors ${
+                className={`flex items-center justify-center gap-2 py-2.5 rounded-xl font-medium transition-colors ${
                   currentUserResponse?.status === "yes"
                     ? "bg-green-500/20 text-green-700"
                     : "bg-green-500/10 text-green-600 hover:bg-green-500/20"
@@ -198,7 +201,7 @@ const HangoutCard = ({
               </button>
               <button
                 onClick={() => onRespond?.(hangout, "maybe")}
-                className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl font-medium transition-colors ${
+                className={`flex items-center justify-center gap-2 py-2.5 rounded-xl font-medium transition-colors ${
                   currentUserResponse?.status === "maybe"
                     ? "bg-amber-500/20 text-amber-700"
                     : "bg-muted text-muted-foreground hover:bg-muted/80"
@@ -217,31 +220,46 @@ const HangoutCard = ({
               >
                 <X className="w-4 h-4" /> No
               </button>
+            </div>
+          )}
+          {(canOpenAvailabilityOnCard || isCreator) && (
+            <>
+              <div className="hidden sm:block h-7 w-px bg-border" />
+              <div className="ml-auto flex items-center gap-2">
+                {canOpenAvailabilityOnCard && (
+                  <button
+                    onClick={() => onOpenAvailability?.(hangout)}
+                    className="flex items-center justify-center gap-1 py-2.5 px-3 rounded-xl bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
+                  >
+                    <Clock className="w-4 h-4" />
+                    <span className="hidden sm:inline">Availability</span>
+                  </button>
+                )}
+                {canOpenAvailabilityOnCard && isCreator && (
+                  <span className="hidden sm:inline text-muted-foreground/60 font-medium">|</span>
+                )}
+                {isCreator && (
+                  <button
+                    onClick={() => setShowDeleteConfirm(true)}
+                    className="flex items-center justify-center gap-1 py-2.5 px-3 rounded-xl bg-destructive/10 text-destructive hover:bg-destructive/20 transition-colors"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    <span className="hidden sm:inline">Delete</span>
+                  </button>
+                )}
+              </div>
             </>
           )}
-          {canOpenAvailabilityOnCard && (
-            <button
-              onClick={() => onOpenAvailability?.(hangout)}
-              className="flex items-center justify-center gap-1 py-2.5 px-3 rounded-xl bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
-            >
-              <Clock className="w-4 h-4" />
-              <span className="hidden sm:inline">Availability</span>
-            </button>
-          )}
-          {isCreator && (
-            <button
-              onClick={() => {
-                if (window.confirm("Delete this hangout? This action cannot be undone.")) {
-                  onDeleteHangout?.(hangout);
-                }
-              }}
-              className="flex items-center justify-center gap-1 py-2.5 px-3 rounded-xl bg-destructive/10 text-destructive hover:bg-destructive/20 transition-colors"
-            >
-              <Trash2 className="w-4 h-4" />
-              <span className="hidden sm:inline">Delete</span>
-            </button>
-          )}
         </div>
+      )}
+
+      {isCreator && (
+        <ConfirmDeleteHangoutDialog
+          open={showDeleteConfirm}
+          onOpenChange={setShowDeleteConfirm}
+          hangoutTitle={hangout.title}
+          onConfirm={() => onDeleteHangout?.(hangout)}
+        />
       )}
     </motion.div>
   );
