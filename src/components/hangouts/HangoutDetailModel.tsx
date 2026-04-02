@@ -39,7 +39,7 @@ const HangoutDetailModal = ({
   const isCreator = hangout.createdBy === viewerId;
   const timeRange = hangout.confirmedTime || hangout.proposedTimeRange;
   const canRespond = !!currentUserResponse && !isCreator;
-  const canShareAvailability = !!currentUserResponse && !isCreator && currentUserResponse.status !== "no";
+  const canShareAvailability = !!currentUserResponse && currentUserResponse.status !== "no";
 
   const toggleAvailabilitySlot = (key: string) => {
     setAvailabilitySlots((prev) => {

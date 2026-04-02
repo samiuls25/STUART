@@ -32,7 +32,9 @@ const HangoutCard = ({
 
   const currentUserResponse = hangout.responses.find((r) => r.friendId === viewerId);
   const isCreator = hangout.createdBy === viewerId;
-  const canActOnCard = !!currentUserResponse && !isCreator;
+  const canShowMyStatus = !!currentUserResponse;
+  const canRespondOnCard = !!currentUserResponse && !isCreator;
+  const canOpenAvailabilityOnCard = !!currentUserResponse;
 
   const myStatus = {
     invited: { label: "Invited", className: "bg-muted text-muted-foreground" },
@@ -87,7 +89,7 @@ const HangoutCard = ({
           </div>
 
           <div className="flex items-center gap-2 flex-shrink-0">
-            {canActOnCard && currentUserResponse && (
+            {canShowMyStatus && currentUserResponse && (
               <span className={`text-[11px] px-2 py-1 rounded-full font-medium ${myStatus[currentUserResponse.status].className}`}>
                 {myStatus[currentUserResponse.status].label}
               </span>
@@ -177,47 +179,53 @@ const HangoutCard = ({
       </div>
 
       {/* Actions */}
-      {canActOnCard && (
+      {(canRespondOnCard || canOpenAvailabilityOnCard) && (
         <div className="p-4 pt-2 border-t border-border flex items-center gap-2">
-          <button
-            onClick={() => onRespond?.(hangout, "yes")}
-            className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl font-medium transition-colors ${
-              currentUserResponse?.status === "yes"
-                ? "bg-green-500/20 text-green-700"
-                : "bg-green-500/10 text-green-600 hover:bg-green-500/20"
-            }`}
-          >
-            <Check className="w-4 h-4" />
-            I'm in!
-          </button>
-          <button
-            onClick={() => onRespond?.(hangout, "maybe")}
-            className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl font-medium transition-colors ${
-              currentUserResponse?.status === "maybe"
-                ? "bg-amber-500/20 text-amber-700"
-                : "bg-muted text-muted-foreground hover:bg-muted/80"
-            }`}
-          >
-            <HelpCircle className="w-4 h-4" />
-            Maybe
-          </button>
-          <button
-            onClick={() => onRespond?.(hangout, "no")}
-            className={`flex items-center justify-center gap-1 py-2.5 px-3 rounded-xl font-medium transition-colors ${
-              currentUserResponse?.status === "no"
-                ? "bg-destructive/20 text-destructive"
-                : "bg-muted text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-            }`}
-          >
-            <X className="w-4 h-4" /> No
-          </button>
-          <button
-            onClick={() => onOpenAvailability?.(hangout)}
-            className="flex items-center justify-center gap-1 py-2.5 px-3 rounded-xl bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
-          >
-            <Clock className="w-4 h-4" />
-            <span className="hidden sm:inline">Availability</span>
-          </button>
+          {canRespondOnCard && (
+            <>
+              <button
+                onClick={() => onRespond?.(hangout, "yes")}
+                className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl font-medium transition-colors ${
+                  currentUserResponse?.status === "yes"
+                    ? "bg-green-500/20 text-green-700"
+                    : "bg-green-500/10 text-green-600 hover:bg-green-500/20"
+                }`}
+              >
+                <Check className="w-4 h-4" />
+                I'm in!
+              </button>
+              <button
+                onClick={() => onRespond?.(hangout, "maybe")}
+                className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl font-medium transition-colors ${
+                  currentUserResponse?.status === "maybe"
+                    ? "bg-amber-500/20 text-amber-700"
+                    : "bg-muted text-muted-foreground hover:bg-muted/80"
+                }`}
+              >
+                <HelpCircle className="w-4 h-4" />
+                Maybe
+              </button>
+              <button
+                onClick={() => onRespond?.(hangout, "no")}
+                className={`flex items-center justify-center gap-1 py-2.5 px-3 rounded-xl font-medium transition-colors ${
+                  currentUserResponse?.status === "no"
+                    ? "bg-destructive/20 text-destructive"
+                    : "bg-muted text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                }`}
+              >
+                <X className="w-4 h-4" /> No
+              </button>
+            </>
+          )}
+          {canOpenAvailabilityOnCard && (
+            <button
+              onClick={() => onOpenAvailability?.(hangout)}
+              className="flex items-center justify-center gap-1 py-2.5 px-3 rounded-xl bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
+            >
+              <Clock className="w-4 h-4" />
+              <span className="hidden sm:inline">Availability</span>
+            </button>
+          )}
         </div>
       )}
     </motion.div>
