@@ -167,7 +167,7 @@
     "policyname": "Users can view related hangout invites",
     "cmd": "SELECT",
     "roles": "{public}",
-    "qual": "((friend_id = auth.uid()) OR is_hangout_creator(hangout_id, auth.uid()))",
+    "qual": "(is_hangout_invitee(hangout_id, auth.uid()) OR is_hangout_creator(hangout_id, auth.uid()))",
     "with_check": null
   },
   {
