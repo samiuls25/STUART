@@ -1,4 +1,6 @@
+import argparse
 import os
+import re
 from dotenv import load_dotenv
 import requests
 from supabase import create_client
@@ -20,6 +22,34 @@ supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 
 DEFAULT_EVENT_TIMEZONE = "America/New_York"
 DEFAULT_EVENT_DURATION_HOURS = 3
+EVENT_DELETE_CHUNK_SIZE = 200
+PAST_EVENT_RETENTION_DAYS = int(os.getenv("EVENT_PAST_RETENTION_DAYS", "2"))
+
+
+def normalize_label(value: str | None):
+    if not value:
+        return ""
+
+    normalized = value.lower()
+    normalized = re.sub(r"\((?:new york|ny|nyc)\)", "", normalized)
+    normalized = re.sub(r"\b(?:new york|nyc|ny)\b", "", normalized)
+    normalized = re.sub(r"[^a-z0-9]+", " ", normalized)
+    normalized = re.sub(r"\s+", " ", normalized).strip()
+    return normalized
+
+
+def has_usable_ticketmaster_image(images):
+    if not images:
+        return False
+
+    for image in images:
+        url = image.get("url", "")
+        is_fallback = bool(image.get("fallback", False))
+        width = image.get("width", 0) or 0
+        if url and not is_fallback and width >= 500:
+            return True
+
+    return False
 
 def extract_genres(event):
     classifications = event.get("classifications", [])
@@ -35,11 +65,21 @@ def extract_genres(event):
 def pick_hero_image(images):
     if not images:
         return ""
+
+    valid_images = [
+        image
+        for image in images
+        if image.get("url") and not bool(image.get("fallback", False)) and (image.get("width", 0) or 0) >= 500
+    ]
+
+    if not valid_images:
+        return ""
+
     for ratio in ["16_9", "3_2"]:
-        for img in images:
+        for img in valid_images:
             if img.get("ratio") == ratio and img.get("width", 0) > 500:
                 return img.get("url", "")
-    return images[0].get("url", "")
+    return valid_images[0].get("url", "")
 
 def get_price(event):
     price_ranges = event.get("priceRanges", [])
@@ -149,17 +189,131 @@ def transform_event(event):
         "source": "ticketmaster",
     }
 
+
+def parse_event_date(value: str | None):
+    if not value:
+        return None
+    try:
+        return datetime.strptime(value, "%Y-%m-%d").date()
+    except ValueError:
+        return None
+
+
+def should_keep_active_event(event_date: str | None):
+    parsed_date = parse_event_date(event_date)
+    if not parsed_date:
+        return False
+
+    today = datetime.now(ZoneInfo(DEFAULT_EVENT_TIMEZONE)).date()
+    return parsed_date >= today
+
+
+def fetch_all_rows(table_name: str, columns: str):
+    rows = []
+    offset = 0
+    page_size = 1000
+
+    while True:
+        result = (
+            supabase.table(table_name)
+            .select(columns)
+            .range(offset, offset + page_size - 1)
+            .execute()
+        )
+        page = result.data or []
+        rows.extend(page)
+
+        if len(page) < page_size:
+            break
+        offset += page_size
+
+    return rows
+
+
+def get_protected_event_ids():
+    protected_ids = set()
+
+    for table_name in ["saved_events", "memories", "event_views", "user_event_recommendations"]:
+        rows = fetch_all_rows(table_name, "event_id")
+        for row in rows:
+            event_id = row.get("event_id")
+            if event_id:
+                protected_ids.add(event_id)
+
+    return protected_ids
+
+
+def prune_events_catalog(dry_run: bool = False):
+    all_events = fetch_all_rows("events", "id,date,ticket_url")
+    protected_ids = get_protected_event_ids()
+    cutoff_date = datetime.now(ZoneInfo(DEFAULT_EVENT_TIMEZONE)).date() - timedelta(days=PAST_EVENT_RETENTION_DAYS)
+
+    deletable_event_ids = []
+    stale_count = 0
+    missing_ticket_url_count = 0
+
+    for event in all_events:
+        event_id = event.get("id")
+        if not event_id or event_id in protected_ids:
+            continue
+
+        event_date = parse_event_date(event.get("date"))
+        missing_ticket_url = not (event.get("ticket_url") or "").strip()
+        too_old = event_date is None or event_date < cutoff_date
+
+        if missing_ticket_url:
+            missing_ticket_url_count += 1
+        if too_old:
+            stale_count += 1
+
+        if missing_ticket_url or too_old:
+            deletable_event_ids.append(event_id)
+
+    print(
+        "Prune scan: "
+        f"total={len(all_events)} protected={len(protected_ids)} "
+        f"candidate_missing_ticket_url={missing_ticket_url_count} "
+        f"candidate_stale={stale_count} "
+        f"candidate_delete={len(deletable_event_ids)}"
+    )
+
+    if not deletable_event_ids:
+        print("Prune complete: no deletable events found")
+        return
+
+    if dry_run:
+        print("Prune dry-run: no rows deleted")
+        return
+
+    for i in range(0, len(deletable_event_ids), EVENT_DELETE_CHUNK_SIZE):
+        chunk = deletable_event_ids[i : i + EVENT_DELETE_CHUNK_SIZE]
+        supabase.table("events").delete().in_("id", chunk).execute()
+
+    print(
+        f"Prune complete: deleted {len(deletable_event_ids)} events "
+        f"(protected refs kept: {len(protected_ids)})"
+    )
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="Sync and prune Ticketmaster events")
+    parser.add_argument("--size", type=int, default=50, help="Ticketmaster page size for sync")
+    parser.add_argument("--prune-only", action="store_true", help="Skip fetch/sync and only run prune")
+    parser.add_argument("--skip-prune", action="store_true", help="Skip prune step after sync")
+    parser.add_argument("--dry-run-prune", action="store_true", help="Run prune in dry-run mode")
+    return parser.parse_args()
+
 def deduplicate_events(events):
-    """Remove duplicate events based on name + date + venue"""
+    """Remove duplicate events based on normalized title + date + normalized venue."""
     seen = set()
     unique = []
     
     for event in events:
         # Create a unique key based on name, date, and venue
         key = (
-            event.get("name", "").lower().strip(),
+            normalize_label(event.get("name", "")),
             event.get("date"),
-            event.get("venue", "").lower().strip()
+            normalize_label(event.get("venue", "")),
         )
         
         if key not in seen:
@@ -171,10 +325,21 @@ def deduplicate_events(events):
     return unique
 
 def sync_to_supabase(events):
-    transformed = [transform_event(e) for e in events]
+    transformed = [transform_event(e) for e in events if has_usable_ticketmaster_image(e.get("images", []))]
     
     # Filter out any with missing required fields
-    transformed = [e for e in transformed if e["name"] and e["date"] and e["external_id"]]
+    transformed = [
+        e
+        for e in transformed
+        if (
+            e["name"]
+            and e["date"]
+            and e["external_id"]
+            and e.get("hero_image")
+            and (e.get("ticket_url") or "").strip()
+            and should_keep_active_event(e.get("date"))
+        )
+    ]
     
     # Deduplicate before inserting
     transformed = deduplicate_events(transformed)
@@ -191,8 +356,22 @@ def sync_to_supabase(events):
     return result
 
 if __name__ == "__main__":
+    args = parse_args()
+
+    if args.prune_only:
+        print("Running prune-only mode...")
+        prune_events_catalog(dry_run=args.dry_run_prune)
+        print("Done!")
+        raise SystemExit(0)
+
     print("Fetching events from Ticketmaster...")
-    events = fetch_ticketmaster_events(size=50)
+    events = fetch_ticketmaster_events(size=args.size)
     print(f"Found {len(events)} events")
     sync_to_supabase(events)
+
+    if args.skip_prune:
+        print("Skipping prune step (--skip-prune)")
+    else:
+        prune_events_catalog(dry_run=args.dry_run_prune)
+
     print("Done!")
