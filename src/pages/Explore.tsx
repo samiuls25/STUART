@@ -28,6 +28,9 @@ const searchPlaceholders = [
   "family-friendly activities",
 ];
 
+const INITIAL_VISIBLE_EVENTS = 24;
+const LOAD_MORE_STEP = 24;
+
 const Explore = () => {
   const { user, loading: authLoading } = useAuth();
   const [selectedSegment, setSelectedSegment] = useState<string>("All");
@@ -44,6 +47,7 @@ const Explore = () => {
   const [loading, setLoading] = useState(true);
   const [userLocation, setUserLocation] = useState<{ lat: number; lon: number } | null>(null);
   const [searchResults, setSearchResults] = useState<Event[] | null>(null);
+  const [visibleEventCount, setVisibleEventCount] = useState(INITIAL_VISIBLE_EVENTS);
 
   useEffect(() => {
     if (authLoading) {
@@ -67,6 +71,18 @@ const Explore = () => {
       isMounted = false;
     };
   }, [authLoading, user?.id]);
+
+  useEffect(() => {
+    setVisibleEventCount(INITIAL_VISIBLE_EVENTS);
+  }, [
+    searchQuery,
+    selectedSegment,
+    selectedGenre,
+    selectedPrice,
+    selectedTime,
+    selectedDistance,
+    selectedMood,
+  ]);
 
   useEffect(() => {
     if (!navigator.geolocation) return;
@@ -192,10 +208,12 @@ const Explore = () => {
     });
   };
 
-  const recommendationCount = events.filter((event) => event.isRecommended).length;
-  const topRecommendationScore = events
-    .filter((event) => event.isRecommended)
-    .reduce((max, event) => Math.max(max, event.recommendationScore ?? 0), 0);
+  const visibleEvents = filteredEvents.slice(0, visibleEventCount);
+  const hasMoreEvents = filteredEvents.length > visibleEventCount;
+
+  const handleLoadMore = () => {
+    setVisibleEventCount((prev) => prev + LOAD_MORE_STEP);
+  };
 
   if (loading) {
     return (
@@ -299,12 +317,6 @@ const Explore = () => {
 
         {/* Content Sections */}
         <section className="max-w-7xl mx-auto px-6 py-8">
-          {import.meta.env.DEV && (
-            <div className="mb-4 rounded-lg border border-dashed border-primary/40 bg-primary/5 px-3 py-2 text-xs text-primary">
-              rec-debug: authLoading={String(authLoading)} userId={user?.id ?? "none"} recommendedCount={recommendationCount} topScore={topRecommendationScore}
-            </div>
-          )}
-
           {/* Plan Builder */}
           <PlanBuilderCard onBuildPlan={handleBuildPlan} />
           
@@ -322,21 +334,37 @@ const Explore = () => {
           </div>
           
           {filteredEvents.length > 0 ? (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ duration: 0.4, delay: 0.2 }}
-              className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5"
-            >
-              {filteredEvents.map((event, index) => (
-                <EventCardGrid
-                  key={event.id}
-                  event={event}
-                  onClick={handleEventClick}
-                  index={index}
-                />
-              ))}
-            </motion.div>
+            <>
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ duration: 0.4, delay: 0.2 }}
+                className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5"
+              >
+                {visibleEvents.map((event, index) => (
+                  <EventCardGrid
+                    key={event.id}
+                    event={event}
+                    onClick={handleEventClick}
+                    index={index}
+                  />
+                ))}
+              </motion.div>
+
+              {hasMoreEvents && (
+                <div className="mt-8 flex flex-col items-center gap-3">
+                  <button
+                    onClick={handleLoadMore}
+                    className="btn-secondary px-5 py-2.5"
+                  >
+                    Load More Events
+                  </button>
+                  <p className="text-xs text-muted-foreground">
+                    Showing {visibleEvents.length} of {filteredEvents.length}
+                  </p>
+                </div>
+              )}
+            </>
           ) : (
             <div className="mt-8">
               <EmptyState onSearchArea={handleSearchArea} />
