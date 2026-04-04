@@ -9,12 +9,40 @@ import { getSavedEventIds, unsaveEvent } from "../lib/SavedEvents";
 import { useAuth } from "../lib/AuthContext";
 import { toast } from "../hooks/use-toast";
 
+type SavedView = "upcoming" | "past";
+
+const parseSavedEventDate = (value: string) => {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return null;
+  }
+  return parsed;
+};
+
+const isPastEvent = (event: Event) => {
+  const eventDate = parseSavedEventDate(event.date);
+  if (!eventDate) return false;
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  eventDate.setHours(0, 0, 0, 0);
+  return eventDate < today;
+};
+
+const compareByDateAsc = (a: Event, b: Event) => {
+  const aDate = parseSavedEventDate(a.date);
+  const bDate = parseSavedEventDate(b.date);
+  if (!aDate || !bDate) return 0;
+  return aDate.getTime() - bDate.getTime();
+};
+
 const Saved = () => {
   const { user } = useAuth();
   const [events, setEvents] = useState<Event[]>([]);
   const [savedEventIds, setSavedEventIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [detailEvent, setDetailEvent] = useState<Event | null>(null);
+  const [savedView, setSavedView] = useState<SavedView>("upcoming");
 
   useEffect(() => {
     if (!user) {
@@ -41,6 +69,13 @@ const Saved = () => {
   };
 
   const savedEvents = events.filter((e) => savedEventIds.includes(e.id));
+  const upcomingSavedEvents = savedEvents
+    .filter((event) => !isPastEvent(event))
+    .sort(compareByDateAsc);
+  const pastSavedEvents = savedEvents
+    .filter((event) => isPastEvent(event))
+    .sort((a, b) => compareByDateAsc(b, a));
+  const activeSavedEvents = savedView === "upcoming" ? upcomingSavedEvents : pastSavedEvents;
 
   if (loading) {
     return (
@@ -86,17 +121,45 @@ const Saved = () => {
           {savedEvents.length === 0 ? (
             <EmptySavedState />
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {savedEvents.map((event, index) => (
-                <SavedEventCard
-                  key={event.id}
-                  event={event}
-                  index={index}
-                  onUnsave={() => handleUnsave(event.id)}
-                  onClick={() => setDetailEvent(event)}
+            <>
+              <div className="mb-6 flex items-center gap-3">
+                <button
+                  onClick={() => setSavedView("upcoming")}
+                  className={`btn-secondary px-4 py-2 ${savedView === "upcoming" ? "bg-primary text-primary-foreground" : ""}`}
+                >
+                  Upcoming ({upcomingSavedEvents.length})
+                </button>
+                <button
+                  onClick={() => setSavedView("past")}
+                  className={`btn-secondary px-4 py-2 ${savedView === "past" ? "bg-primary text-primary-foreground" : ""}`}
+                >
+                  Past ({pastSavedEvents.length})
+                </button>
+              </div>
+
+              {activeSavedEvents.length === 0 ? (
+                <EmptySavedState
+                  title={savedView === "upcoming" ? "No upcoming saved events" : "No past saved events"}
+                  description={
+                    savedView === "upcoming"
+                      ? "You can move events here by saving upcoming events from Explore."
+                      : "Past events you saved will appear here automatically."
+                  }
                 />
-              ))}
-            </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {activeSavedEvents.map((event, index) => (
+                    <SavedEventCard
+                      key={event.id}
+                      event={event}
+                      index={index}
+                      onUnsave={() => handleUnsave(event.id)}
+                      onClick={() => setDetailEvent(event)}
+                    />
+                  ))}
+                </div>
+              )}
+            </>
           )}
         </div>
       </main>
@@ -161,7 +224,13 @@ const SavedEventCard = ({ event, onUnsave, index, onClick }: SavedEventCardProps
   );
 };
 
-const EmptySavedState = () => {
+const EmptySavedState = ({
+  title = "No saved events",
+  description = "Start exploring and save events you're interested in",
+}: {
+  title?: string;
+  description?: string;
+}) => {
   return (
     <motion.div
       initial={{ opacity: 0, scale: 0.95 }}
@@ -172,10 +241,10 @@ const EmptySavedState = () => {
         <Heart className="w-10 h-10 text-muted-foreground" />
       </div>
       <h3 className="font-heading text-xl font-semibold text-foreground mb-2">
-        No saved events
+        {title}
       </h3>
       <p className="text-muted-foreground mb-6 max-w-md mx-auto">
-        Start exploring and save events you're interested in
+        {description}
       </p>
       <a href="/" className="btn-primary inline-block">
         Explore Events
