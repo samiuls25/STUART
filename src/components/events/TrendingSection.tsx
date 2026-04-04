@@ -9,6 +9,13 @@ interface TrendingSectionProps {
 }
 
 const TrendingSection = ({ events, onEventClick }: TrendingSectionProps) => {
+  const toScoreLabel = (score?: number) => {
+    if (typeof score !== "number" || Number.isNaN(score) || score <= 0) {
+      return "Recommended";
+    }
+    return `Score ${Math.round(score)}`;
+  };
+
   const trendingEvents = events
     .filter((e) => e.isTrending)
     .sort((a, b) => (a.trendingRank || 99) - (b.trendingRank || 99))
@@ -34,7 +41,7 @@ const TrendingSection = ({ events, onEventClick }: TrendingSectionProps) => {
     if ((event.recommendationScore ?? 0) > 0) {
       signals.push({
         icon: <Sparkles className="w-3 h-3" />,
-        label: `${event.recommendationScore}% match`,
+        label: toScoreLabel(event.recommendationScore),
       });
     }
 

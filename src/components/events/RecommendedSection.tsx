@@ -9,6 +9,13 @@ interface RecommendedSectionProps {
 }
 
 const RecommendedSection = ({ events, onEventClick }: RecommendedSectionProps) => {
+  const toScoreLabel = (score?: number) => {
+    if (typeof score !== "number" || Number.isNaN(score) || score <= 0) {
+      return "Recommended";
+    }
+    return `Score ${Math.round(score)}`;
+  };
+
   const recommendedEvents = events
     .filter((e) => e.isRecommended)
     .sort((a, b) => (b.recommendationScore || 0) - (a.recommendationScore || 0))
@@ -52,7 +59,7 @@ const RecommendedSection = ({ events, onEventClick }: RecommendedSectionProps) =
                 {/* Score Badge */}
                 <div className="absolute top-1 right-1 flex items-center gap-0.5 px-1.5 py-0.5 bg-primary text-primary-foreground text-[10px] font-bold rounded-full">
                   <Star className="w-2.5 h-2.5 fill-current" />
-                  {event.recommendationScore}%
+                  {toScoreLabel(event.recommendationScore)}
                 </div>
               </div>
               
@@ -66,7 +73,7 @@ const RecommendedSection = ({ events, onEventClick }: RecommendedSectionProps) =
                 </p>
                 
                 {/* Recommendation Reasons */}
-                {event.recommendationReasons && (
+                {event.recommendationReasons && event.recommendationReasons.length > 0 && (
                   <div className="mt-2 space-y-1">
                     <p className="text-[10px] text-muted-foreground uppercase tracking-wider flex items-center gap-1">
                       <Info className="w-3 h-3" />

@@ -334,6 +334,13 @@ const EventCardGrid = ({
   const { user } = useAuth();
   const [isSaved, setIsSaved] = useState(false);
 
+  const toScoreLabel = (score?: number) => {
+    if (typeof score !== "number" || Number.isNaN(score) || score <= 0) {
+      return "RECOMMENDED";
+    }
+    return `SCORE ${Math.round(score)}`;
+  };
+
   useEffect(() => {
     if (user) {
       getSavedEventIds().then((savedIds) => {
@@ -401,7 +408,7 @@ const EventCardGrid = ({
           )}
           {event.isRecommended && (
             <span className="px-2 py-0.5 bg-primary/90 text-primary-foreground text-[10px] font-bold rounded-full backdrop-blur-sm">
-              ★ {event.recommendationScore}% MATCH
+              ★ {toScoreLabel(event.recommendationScore)}
             </span>
           )}
         </div>
