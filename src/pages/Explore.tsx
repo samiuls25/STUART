@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from "react";
 import { motion } from "framer-motion";
-import { Search, Sparkles, X, Heart, MapPin } from "lucide-react";
+import { Search, Sparkles, X, Heart, MapPin, ArrowUp } from "lucide-react";
 import React from "react";
 import Fuse from "fuse.js";
 import Navbar from "../components/layout/Navbar.tsx";
@@ -221,6 +221,15 @@ const Explore = () => {
     setCurrentPage((prev) => Math.min(totalPages, prev + 1));
   };
 
+  const scrollToEventsTop = () => {
+    const allEventsAnchor = document.getElementById("all-events-anchor");
+    if (allEventsAnchor) {
+      allEventsAnchor.scrollIntoView({ behavior: "smooth", block: "start" });
+      return;
+    }
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
@@ -334,7 +343,7 @@ const Explore = () => {
           />
 
           {/* All Events Grid */}
-          <div className="mt-6 mb-4">
+          <div id="all-events-anchor" className="mt-6 mb-4">
             <h2 className="font-heading text-lg font-semibold text-foreground">
               All Events
             </h2>
@@ -392,6 +401,13 @@ const Explore = () => {
                     className="btn-secondary px-5 py-2.5"
                   >
                     Jump To Last Page
+                  </button>
+                  <button
+                    onClick={scrollToEventsTop}
+                    className="btn-secondary px-5 py-2.5 inline-flex items-center gap-2"
+                  >
+                    <ArrowUp className="w-4 h-4" />
+                    Top
                   </button>
                   <p className="text-xs text-muted-foreground">
                     Showing {startIndex + 1}-{Math.min(endIndex, filteredEvents.length)} of {filteredEvents.length}
