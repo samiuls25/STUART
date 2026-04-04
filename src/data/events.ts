@@ -25,6 +25,7 @@ export interface Event {
     trendingRank?: number;
     happeningNow?: boolean;
     isTonight?: boolean;
+    additionalTimes?: string[];
   }
   
   // export const events: Event[] = [
@@ -367,6 +368,83 @@ interface UserRecommendationRow {
   recommendation_score: number;
   recommendation_reasons: string[] | null;
 }
+
+const normalizeEventKeyPart = (value?: string) => {
+  if (!value) return "";
+  return value
+    .toLowerCase()
+    .replace(/\((new york|ny|nyc)\)/gi, "")
+    .replace(/\b(new york|ny|nyc)\b/gi, "")
+    .replace(/[^a-z0-9]+/gi, " ")
+    .trim();
+};
+
+const buildConsolidationKey = (event: Event) => {
+  return [
+    normalizeEventKeyPart(event.name),
+    event.date,
+    normalizeEventKeyPart(event.venue),
+  ].join("|");
+};
+
+const consolidateEvents = (events: Event[]) => {
+  const grouped = new Map<string, Event[]>();
+
+  for (const event of events) {
+    const key = buildConsolidationKey(event);
+    const existing = grouped.get(key);
+    if (existing) {
+      existing.push(event);
+    } else {
+      grouped.set(key, [event]);
+    }
+  }
+
+  return Array.from(grouped.values()).map((group) => {
+    if (group.length === 1) {
+      return group[0];
+    }
+
+    const sortedByPriority = [...group].sort((a, b) => {
+      const scoreDiff = (b.recommendationScore ?? 0) - (a.recommendationScore ?? 0);
+      if (scoreDiff !== 0) return scoreDiff;
+
+      const aRank = a.trendingRank && a.trendingRank > 0 ? a.trendingRank : Number.MAX_SAFE_INTEGER;
+      const bRank = b.trendingRank && b.trendingRank > 0 ? b.trendingRank : Number.MAX_SAFE_INTEGER;
+      if (aRank !== bRank) return aRank - bRank;
+
+      return (a.time || "").localeCompare(b.time || "");
+    });
+
+    const primary = sortedByPriority[0];
+    const uniqueTimes = Array.from(new Set(group.map((event) => event.time).filter(Boolean))).sort();
+
+    const bestRecommendation = [...group].sort(
+      (a, b) => (b.recommendationScore ?? 0) - (a.recommendationScore ?? 0)
+    )[0];
+
+    const minTrendingRank = group
+      .map((event) => event.trendingRank)
+      .filter((rank): rank is number => typeof rank === "number" && rank > 0)
+      .reduce((min, rank) => Math.min(min, rank), Number.MAX_SAFE_INTEGER);
+
+    const baseTime = primary.time || uniqueTimes[0] || "TBA";
+
+    return {
+      ...primary,
+      time:
+        uniqueTimes.length > 1
+          ? `${baseTime} (+${uniqueTimes.length - 1} more)`
+          : baseTime,
+      additionalTimes: uniqueTimes.filter((time) => time !== baseTime),
+      isRecommended: group.some((event) => Boolean(event.isRecommended)),
+      recommendationScore: bestRecommendation.recommendationScore ?? 0,
+      recommendationReasons: bestRecommendation.recommendationReasons ?? [],
+      isTrending: group.some((event) => Boolean(event.isTrending)),
+      trendingRank: minTrendingRank === Number.MAX_SAFE_INTEGER ? 0 : minTrendingRank,
+    };
+  });
+};
  
 export async function fetchEvents(userId?: string): Promise<Event[]> {
   const {
@@ -419,7 +497,7 @@ export async function fetchEvents(userId?: string): Promise<Event[]> {
 
   const hasAuthenticatedUser = Boolean(effectiveUserId);
 
-  return allEvents.map((e: any) => ({
+  const mappedEvents = allEvents.map((e: any) => ({
     id: e.id,
     name: e.name,
     heroImage: e.hero_image || e.heroImage || "",
@@ -452,4 +530,6 @@ export async function fetchEvents(userId?: string): Promise<Event[]> {
     happeningNow: e.happening_now ?? e.happeningNow ?? false,
     isTonight: e.is_tonight ?? e.isTonight ?? false,
   }));
+
+  return consolidateEvents(mappedEvents);
 }
