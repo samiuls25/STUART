@@ -1,6 +1,6 @@
 import { motion } from "framer-motion";
 import React from "react";
-import { TrendingUp, Flame, Users, Bookmark } from "lucide-react";
+import { TrendingUp, Flame, Clock3, Sparkles } from "lucide-react";
 import type { Event } from "../../data/events";
 
 interface TrendingSectionProps {
@@ -15,6 +15,36 @@ const TrendingSection = ({ events, onEventClick }: TrendingSectionProps) => {
     .slice(0, 5);
 
   if (trendingEvents.length === 0) return null;
+
+  const getTrendSignals = (event: Event) => {
+    const signals: Array<{ icon: React.ReactNode; label: string }> = [];
+
+    if (event.happeningNow) {
+      signals.push({
+        icon: <Clock3 className="w-3 h-3" />,
+        label: "Happening now",
+      });
+    } else if (event.isTonight) {
+      signals.push({
+        icon: <Clock3 className="w-3 h-3" />,
+        label: "Tonight",
+      });
+    }
+
+    if ((event.recommendationScore ?? 0) > 0) {
+      signals.push({
+        icon: <Sparkles className="w-3 h-3" />,
+        label: `${event.recommendationScore}% match`,
+      });
+    }
+
+    signals.push({
+      icon: <TrendingUp className="w-3 h-3" />,
+      label: `Rank #${event.trendingRank ?? "-"}`,
+    });
+
+    return signals.slice(0, 2);
+  };
 
   return (
     <div className="mb-8">
@@ -51,16 +81,17 @@ const TrendingSection = ({ events, onEventClick }: TrendingSectionProps) => {
                 #{event.trendingRank}
               </div>
               
-              {/* Social Proof */}
-              <div className="absolute bottom-2 left-2 flex items-center gap-3 text-xs text-white/90">
-                <span className="flex items-center gap-1">
-                  <Users className="w-3 h-3" />
-                  2.4k interested
-                </span>
-                <span className="flex items-center gap-1">
-                  <Bookmark className="w-3 h-3" />
-                  890 saved
-                </span>
+              {/* Trend Signals */}
+              <div className="absolute bottom-2 left-2 flex flex-wrap gap-1.5 text-[11px] text-white/95">
+                {getTrendSignals(event).map((signal, signalIndex) => (
+                  <span
+                    key={`${event.id}-signal-${signalIndex}`}
+                    className="inline-flex items-center gap-1 rounded-full bg-black/40 px-2 py-1 backdrop-blur-sm"
+                  >
+                    {signal.icon}
+                    {signal.label}
+                  </span>
+                ))}
               </div>
             </div>
             
