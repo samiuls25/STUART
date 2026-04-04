@@ -1,3 +1,4 @@
+import argparse
 import os
 import re
 from dotenv import load_dotenv
@@ -22,7 +23,7 @@ supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 DEFAULT_EVENT_TIMEZONE = "America/New_York"
 DEFAULT_EVENT_DURATION_HOURS = 3
 EVENT_DELETE_CHUNK_SIZE = 200
-PAST_EVENT_RETENTION_DAYS = 2
+PAST_EVENT_RETENTION_DAYS = int(os.getenv("EVENT_PAST_RETENTION_DAYS", "2"))
 
 
 def normalize_label(value: str | None):
@@ -242,12 +243,14 @@ def get_protected_event_ids():
     return protected_ids
 
 
-def prune_events_catalog():
+def prune_events_catalog(dry_run: bool = False):
     all_events = fetch_all_rows("events", "id,date,ticket_url")
     protected_ids = get_protected_event_ids()
     cutoff_date = datetime.now(ZoneInfo(DEFAULT_EVENT_TIMEZONE)).date() - timedelta(days=PAST_EVENT_RETENTION_DAYS)
 
     deletable_event_ids = []
+    stale_count = 0
+    missing_ticket_url_count = 0
 
     for event in all_events:
         event_id = event.get("id")
@@ -258,11 +261,28 @@ def prune_events_catalog():
         missing_ticket_url = not (event.get("ticket_url") or "").strip()
         too_old = event_date is None or event_date < cutoff_date
 
+        if missing_ticket_url:
+            missing_ticket_url_count += 1
+        if too_old:
+            stale_count += 1
+
         if missing_ticket_url or too_old:
             deletable_event_ids.append(event_id)
 
+    print(
+        "Prune scan: "
+        f"total={len(all_events)} protected={len(protected_ids)} "
+        f"candidate_missing_ticket_url={missing_ticket_url_count} "
+        f"candidate_stale={stale_count} "
+        f"candidate_delete={len(deletable_event_ids)}"
+    )
+
     if not deletable_event_ids:
         print("Prune complete: no deletable events found")
+        return
+
+    if dry_run:
+        print("Prune dry-run: no rows deleted")
         return
 
     for i in range(0, len(deletable_event_ids), EVENT_DELETE_CHUNK_SIZE):
@@ -273,6 +293,15 @@ def prune_events_catalog():
         f"Prune complete: deleted {len(deletable_event_ids)} events "
         f"(protected refs kept: {len(protected_ids)})"
     )
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="Sync and prune Ticketmaster events")
+    parser.add_argument("--size", type=int, default=50, help="Ticketmaster page size for sync")
+    parser.add_argument("--prune-only", action="store_true", help="Skip fetch/sync and only run prune")
+    parser.add_argument("--skip-prune", action="store_true", help="Skip prune step after sync")
+    parser.add_argument("--dry-run-prune", action="store_true", help="Run prune in dry-run mode")
+    return parser.parse_args()
 
 def deduplicate_events(events):
     """Remove duplicate events based on normalized title + date + normalized venue."""
@@ -327,9 +356,22 @@ def sync_to_supabase(events):
     return result
 
 if __name__ == "__main__":
+    args = parse_args()
+
+    if args.prune_only:
+        print("Running prune-only mode...")
+        prune_events_catalog(dry_run=args.dry_run_prune)
+        print("Done!")
+        raise SystemExit(0)
+
     print("Fetching events from Ticketmaster...")
-    events = fetch_ticketmaster_events(size=50)
+    events = fetch_ticketmaster_events(size=args.size)
     print(f"Found {len(events)} events")
     sync_to_supabase(events)
-    prune_events_catalog()
+
+    if args.skip_prune:
+        print("Skipping prune step (--skip-prune)")
+    else:
+        prune_events_catalog(dry_run=args.dry_run_prune)
+
     print("Done!")
