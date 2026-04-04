@@ -227,25 +227,33 @@ const Explore = () => {
     setCurrentPage((prev) => Math.min(totalPages, prev + 1));
   };
 
-  const goToPage = (value: string) => {
+  const handlePageInputChange = (value: string) => {
     setPageInput(value);
-    if (value.trim() === "") {
+  };
+
+  const commitPageInput = () => {
+    if (pageInput.trim() === "") {
+      setPageInput(String(safePage));
       return;
     }
 
-    const parsed = Number(value);
+    const parsed = Number(pageInput);
     if (!Number.isInteger(parsed)) {
+      setPageInput(String(safePage));
       return;
     }
 
     const clamped = Math.max(1, Math.min(totalPages, parsed));
     setCurrentPage(clamped);
+    setPageInput(String(clamped));
   };
 
   const scrollToEventsTop = () => {
-    const allEventsAnchor = document.getElementById("all-events-anchor");
-    if (allEventsAnchor) {
-      allEventsAnchor.scrollIntoView({ behavior: "smooth", block: "start" });
+    const filtersAnchor = document.getElementById("filters-anchor");
+    if (filtersAnchor) {
+      const navOffset = 88;
+      const top = filtersAnchor.getBoundingClientRect().top + window.scrollY - navOffset;
+      window.scrollTo({ top: Math.max(top, 0), behavior: "smooth" });
       return;
     }
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -347,21 +355,23 @@ const Explore = () => {
           <RecommendedSection events={events} onEventClick={handleEventClick} />
 
           {/* Filters */}
-          <FilterBar
-            selectedSegment={selectedSegment}
-            selectedGenre={selectedGenre}
-            selectedPrice={selectedPrice}
-            selectedTime={selectedTime}
-            selectedDistance={selectedDistance}
-            onSegmentChange={setSelectedSegment}
-            onGenreChange={setSelectedGenre}
-            onPriceChange={setSelectedPrice}
-            onTimeChange={setSelectedTime}
-            onDistanceChange={setSelectedDistance}
-            onSearchArea={handleSearchArea}
-            eventCount={filteredEvents.length}
-            showAdvancedFilters={true}
-          />
+          <div id="filters-anchor">
+            <FilterBar
+              selectedSegment={selectedSegment}
+              selectedGenre={selectedGenre}
+              selectedPrice={selectedPrice}
+              selectedTime={selectedTime}
+              selectedDistance={selectedDistance}
+              onSegmentChange={setSelectedSegment}
+              onGenreChange={setSelectedGenre}
+              onPriceChange={setSelectedPrice}
+              onTimeChange={setSelectedTime}
+              onDistanceChange={setSelectedDistance}
+              onSearchArea={handleSearchArea}
+              eventCount={filteredEvents.length}
+              showAdvancedFilters={true}
+            />
+          </div>
 
           {/* All Events Grid */}
           <div id="all-events-anchor" className="mt-6 mb-4">
@@ -392,13 +402,6 @@ const Explore = () => {
                 <div className="mt-8 flex flex-col items-center gap-3">
                   <div className="flex items-center gap-3">
                     <button
-                      onClick={() => setCurrentPage(1)}
-                      disabled={safePage <= 1}
-                      className="btn-secondary px-4 py-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      First
-                    </button>
-                    <button
                       onClick={goToPrevPage}
                       disabled={safePage <= 1}
                       className="btn-secondary px-4 py-2 disabled:opacity-50 disabled:cursor-not-allowed"
@@ -412,7 +415,12 @@ const Explore = () => {
                         min={1}
                         max={totalPages}
                         value={pageInput}
-                        onChange={(e) => goToPage(e.target.value)}
+                        onChange={(e) => handlePageInputChange(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            commitPageInput();
+                          }
+                        }}
                         onBlur={() => setPageInput(String(safePage))}
                         className="w-16 rounded-md border border-border bg-card px-2 py-1 text-center text-foreground"
                       />
@@ -426,20 +434,31 @@ const Explore = () => {
                       Next
                     </button>
                   </div>
-                  <button
-                    onClick={() => setCurrentPage(totalPages)}
-                    disabled={safePage >= totalPages}
-                    className="btn-secondary px-5 py-2.5"
-                  >
-                    Jump To Last Page
-                  </button>
-                  <button
-                    onClick={scrollToEventsTop}
-                    className="btn-secondary px-5 py-2.5 inline-flex items-center gap-2"
-                  >
-                    <ArrowUp className="w-4 h-4" />
-                    Top
-                  </button>
+                  <div className="w-full flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <button
+                        onClick={() => setCurrentPage(1)}
+                        disabled={safePage <= 1}
+                        className="btn-secondary px-5 py-2.5 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        Jump to First Page
+                      </button>
+                      <button
+                        onClick={() => setCurrentPage(totalPages)}
+                        disabled={safePage >= totalPages}
+                        className="btn-secondary px-5 py-2.5 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        Jump To Last Page
+                      </button>
+                    </div>
+                    <button
+                      onClick={scrollToEventsTop}
+                      aria-label="Scroll to filters"
+                      className="h-10 w-10 inline-flex items-center justify-center rounded-full border border-border bg-card text-foreground hover:bg-muted transition-colors"
+                    >
+                      <ArrowUp className="w-4 h-4" />
+                    </button>
+                  </div>
                   <p className="text-xs text-muted-foreground">
                     Showing {startIndex + 1}-{Math.min(endIndex, filteredEvents.length)} of {filteredEvents.length}
                   </p>
