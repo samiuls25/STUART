@@ -28,8 +28,7 @@ const searchPlaceholders = [
   "family-friendly activities",
 ];
 
-const INITIAL_VISIBLE_EVENTS = 24;
-const LOAD_MORE_STEP = 24;
+const EVENTS_PER_PAGE = 24;
 
 const Explore = () => {
   const { user, loading: authLoading } = useAuth();
@@ -47,7 +46,7 @@ const Explore = () => {
   const [loading, setLoading] = useState(true);
   const [userLocation, setUserLocation] = useState<{ lat: number; lon: number } | null>(null);
   const [searchResults, setSearchResults] = useState<Event[] | null>(null);
-  const [visibleEventCount, setVisibleEventCount] = useState(INITIAL_VISIBLE_EVENTS);
+  const [currentPage, setCurrentPage] = useState(1);
 
   useEffect(() => {
     if (authLoading) {
@@ -73,7 +72,7 @@ const Explore = () => {
   }, [authLoading, user?.id]);
 
   useEffect(() => {
-    setVisibleEventCount(INITIAL_VISIBLE_EVENTS);
+    setCurrentPage(1);
   }, [
     searchQuery,
     selectedSegment,
@@ -208,11 +207,18 @@ const Explore = () => {
     });
   };
 
-  const visibleEvents = filteredEvents.slice(0, visibleEventCount);
-  const hasMoreEvents = filteredEvents.length > visibleEventCount;
+  const totalPages = Math.max(1, Math.ceil(filteredEvents.length / EVENTS_PER_PAGE));
+  const safePage = Math.min(currentPage, totalPages);
+  const startIndex = (safePage - 1) * EVENTS_PER_PAGE;
+  const endIndex = startIndex + EVENTS_PER_PAGE;
+  const pagedEvents = filteredEvents.slice(startIndex, endIndex);
 
-  const handleLoadMore = () => {
-    setVisibleEventCount((prev) => prev + LOAD_MORE_STEP);
+  const goToPrevPage = () => {
+    setCurrentPage((prev) => Math.max(1, prev - 1));
+  };
+
+  const goToNextPage = () => {
+    setCurrentPage((prev) => Math.min(totalPages, prev + 1));
   };
 
   if (loading) {
@@ -291,13 +297,26 @@ const Explore = () => {
           </div>
         </motion.section>
 
-        {/* Weather + Filters */}
+        {/* Weather */}
         <section className="max-w-7xl mx-auto px-6">
           <div className="flex items-center gap-4 mb-6">
             <WeatherIndicator className="flex-shrink-0" />
             <div className="flex-1" />
           </div>
+        </section>
+
+        {/* Content Sections */}
+        <section className="max-w-7xl mx-auto px-6 py-8">
+          {/* Plan Builder */}
+          <PlanBuilderCard onBuildPlan={handleBuildPlan} />
           
+          {/* Trending Section */}
+          <TrendingSection events={filteredEvents} onEventClick={handleEventClick} />
+          
+          {/* Recommended Section */}
+          <RecommendedSection events={events} onEventClick={handleEventClick} />
+
+          {/* Filters */}
           <FilterBar
             selectedSegment={selectedSegment}
             selectedGenre={selectedGenre}
@@ -313,21 +332,9 @@ const Explore = () => {
             eventCount={filteredEvents.length}
             showAdvancedFilters={true}
           />
-        </section>
-
-        {/* Content Sections */}
-        <section className="max-w-7xl mx-auto px-6 py-8">
-          {/* Plan Builder */}
-          <PlanBuilderCard onBuildPlan={handleBuildPlan} />
-          
-          {/* Trending Section */}
-          <TrendingSection events={filteredEvents} onEventClick={handleEventClick} />
-          
-          {/* Recommended Section */}
-          <RecommendedSection events={events} onEventClick={handleEventClick} />
 
           {/* All Events Grid */}
-          <div className="mb-4">
+          <div className="mt-6 mb-4">
             <h2 className="font-heading text-lg font-semibold text-foreground">
               All Events
             </h2>
@@ -341,26 +348,46 @@ const Explore = () => {
                 transition={{ duration: 0.4, delay: 0.2 }}
                 className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5"
               >
-                {visibleEvents.map((event, index) => (
+                {pagedEvents.map((event, index) => (
                   <EventCardGrid
                     key={event.id}
                     event={event}
                     onClick={handleEventClick}
-                    index={index}
+                    index={startIndex + index}
                   />
                 ))}
               </motion.div>
 
-              {hasMoreEvents && (
+              {totalPages > 1 && (
                 <div className="mt-8 flex flex-col items-center gap-3">
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={goToPrevPage}
+                      disabled={safePage <= 1}
+                      className="btn-secondary px-4 py-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      Previous
+                    </button>
+                    <span className="text-sm text-muted-foreground">
+                      Page {safePage} of {totalPages}
+                    </span>
+                    <button
+                      onClick={goToNextPage}
+                      disabled={safePage >= totalPages}
+                      className="btn-secondary px-4 py-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      Next
+                    </button>
+                  </div>
                   <button
-                    onClick={handleLoadMore}
+                    onClick={() => setCurrentPage(totalPages)}
+                    disabled={safePage >= totalPages}
                     className="btn-secondary px-5 py-2.5"
                   >
-                    Load More Events
+                    Jump To Last Page
                   </button>
                   <p className="text-xs text-muted-foreground">
-                    Showing {visibleEvents.length} of {filteredEvents.length}
+                    Showing {startIndex + 1}-{Math.min(endIndex, filteredEvents.length)} of {filteredEvents.length}
                   </p>
                 </div>
               )}
