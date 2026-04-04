@@ -387,6 +387,38 @@ const buildConsolidationKey = (event: Event) => {
   ].join("|");
 };
 
+const PLACEHOLDER_IMAGE_MIN_ROWS = 60;
+const PLACEHOLDER_IMAGE_MIN_UNIQUE_NAMES = 25;
+
+const filterLikelyPlaceholderImageEvents = (events: Event[]) => {
+  const imageStats = new Map<string, { count: number; names: Set<string> }>();
+
+  for (const event of events) {
+    if (!event.heroImage) continue;
+
+    const existing = imageStats.get(event.heroImage) ?? { count: 0, names: new Set<string>() };
+    existing.count += 1;
+    existing.names.add(normalizeEventKeyPart(event.name));
+    imageStats.set(event.heroImage, existing);
+  }
+
+  const placeholderImages = new Set<string>();
+  for (const [url, stats] of imageStats.entries()) {
+    if (
+      stats.count >= PLACEHOLDER_IMAGE_MIN_ROWS
+      && stats.names.size >= PLACEHOLDER_IMAGE_MIN_UNIQUE_NAMES
+    ) {
+      placeholderImages.add(url);
+    }
+  }
+
+  if (placeholderImages.size === 0) {
+    return events;
+  }
+
+  return events.filter((event) => !placeholderImages.has(event.heroImage));
+};
+
 const consolidateEvents = (events: Event[]) => {
   const grouped = new Map<string, Event[]>();
 
@@ -531,5 +563,6 @@ export async function fetchEvents(userId?: string): Promise<Event[]> {
     isTonight: e.is_tonight ?? e.isTonight ?? false,
   }));
 
-  return consolidateEvents(mappedEvents);
+  const filteredByImageQuality = filterLikelyPlaceholderImageEvents(mappedEvents);
+  return consolidateEvents(filteredByImageQuality);
 }
