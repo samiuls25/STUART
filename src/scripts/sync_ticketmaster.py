@@ -21,6 +21,8 @@ supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 
 DEFAULT_EVENT_TIMEZONE = "America/New_York"
 DEFAULT_EVENT_DURATION_HOURS = 3
+EVENT_DELETE_CHUNK_SIZE = 200
+PAST_EVENT_RETENTION_DAYS = 2
 
 
 def normalize_label(value: str | None):
@@ -186,6 +188,92 @@ def transform_event(event):
         "source": "ticketmaster",
     }
 
+
+def parse_event_date(value: str | None):
+    if not value:
+        return None
+    try:
+        return datetime.strptime(value, "%Y-%m-%d").date()
+    except ValueError:
+        return None
+
+
+def should_keep_active_event(event_date: str | None):
+    parsed_date = parse_event_date(event_date)
+    if not parsed_date:
+        return False
+
+    today = datetime.now(ZoneInfo(DEFAULT_EVENT_TIMEZONE)).date()
+    return parsed_date >= today
+
+
+def fetch_all_rows(table_name: str, columns: str):
+    rows = []
+    offset = 0
+    page_size = 1000
+
+    while True:
+        result = (
+            supabase.table(table_name)
+            .select(columns)
+            .range(offset, offset + page_size - 1)
+            .execute()
+        )
+        page = result.data or []
+        rows.extend(page)
+
+        if len(page) < page_size:
+            break
+        offset += page_size
+
+    return rows
+
+
+def get_protected_event_ids():
+    protected_ids = set()
+
+    for table_name in ["saved_events", "memories", "event_views", "user_event_recommendations"]:
+        rows = fetch_all_rows(table_name, "event_id")
+        for row in rows:
+            event_id = row.get("event_id")
+            if event_id:
+                protected_ids.add(event_id)
+
+    return protected_ids
+
+
+def prune_events_catalog():
+    all_events = fetch_all_rows("events", "id,date,ticket_url")
+    protected_ids = get_protected_event_ids()
+    cutoff_date = datetime.now(ZoneInfo(DEFAULT_EVENT_TIMEZONE)).date() - timedelta(days=PAST_EVENT_RETENTION_DAYS)
+
+    deletable_event_ids = []
+
+    for event in all_events:
+        event_id = event.get("id")
+        if not event_id or event_id in protected_ids:
+            continue
+
+        event_date = parse_event_date(event.get("date"))
+        missing_ticket_url = not (event.get("ticket_url") or "").strip()
+        too_old = event_date is None or event_date < cutoff_date
+
+        if missing_ticket_url or too_old:
+            deletable_event_ids.append(event_id)
+
+    if not deletable_event_ids:
+        print("Prune complete: no deletable events found")
+        return
+
+    for i in range(0, len(deletable_event_ids), EVENT_DELETE_CHUNK_SIZE):
+        chunk = deletable_event_ids[i : i + EVENT_DELETE_CHUNK_SIZE]
+        supabase.table("events").delete().in_("id", chunk).execute()
+
+    print(
+        f"Prune complete: deleted {len(deletable_event_ids)} events "
+        f"(protected refs kept: {len(protected_ids)})"
+    )
+
 def deduplicate_events(events):
     """Remove duplicate events based on normalized title + date + normalized venue."""
     seen = set()
@@ -214,7 +302,14 @@ def sync_to_supabase(events):
     transformed = [
         e
         for e in transformed
-        if e["name"] and e["date"] and e["external_id"] and e.get("hero_image")
+        if (
+            e["name"]
+            and e["date"]
+            and e["external_id"]
+            and e.get("hero_image")
+            and (e.get("ticket_url") or "").strip()
+            and should_keep_active_event(e.get("date"))
+        )
     ]
     
     # Deduplicate before inserting
@@ -236,4 +331,5 @@ if __name__ == "__main__":
     events = fetch_ticketmaster_events(size=50)
     print(f"Found {len(events)} events")
     sync_to_supabase(events)
+    prune_events_catalog()
     print("Done!")
