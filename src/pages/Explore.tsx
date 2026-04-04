@@ -47,6 +47,7 @@ const Explore = () => {
   const [userLocation, setUserLocation] = useState<{ lat: number; lon: number } | null>(null);
   const [searchResults, setSearchResults] = useState<Event[] | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
+  const [pageInput, setPageInput] = useState("1");
 
   useEffect(() => {
     if (authLoading) {
@@ -73,6 +74,7 @@ const Explore = () => {
 
   useEffect(() => {
     setCurrentPage(1);
+    setPageInput("1");
   }, [
     searchQuery,
     selectedSegment,
@@ -213,12 +215,31 @@ const Explore = () => {
   const endIndex = startIndex + EVENTS_PER_PAGE;
   const pagedEvents = filteredEvents.slice(startIndex, endIndex);
 
+  useEffect(() => {
+    setPageInput(String(safePage));
+  }, [safePage]);
+
   const goToPrevPage = () => {
     setCurrentPage((prev) => Math.max(1, prev - 1));
   };
 
   const goToNextPage = () => {
     setCurrentPage((prev) => Math.min(totalPages, prev + 1));
+  };
+
+  const goToPage = (value: string) => {
+    setPageInput(value);
+    if (value.trim() === "") {
+      return;
+    }
+
+    const parsed = Number(value);
+    if (!Number.isInteger(parsed)) {
+      return;
+    }
+
+    const clamped = Math.max(1, Math.min(totalPages, parsed));
+    setCurrentPage(clamped);
   };
 
   const scrollToEventsTop = () => {
@@ -384,9 +405,19 @@ const Explore = () => {
                     >
                       Previous
                     </button>
-                    <span className="text-sm text-muted-foreground">
-                      Page {safePage} of {totalPages}
-                    </span>
+                    <div className="text-sm text-muted-foreground flex items-center gap-2">
+                      <span>Page</span>
+                      <input
+                        type="number"
+                        min={1}
+                        max={totalPages}
+                        value={pageInput}
+                        onChange={(e) => goToPage(e.target.value)}
+                        onBlur={() => setPageInput(String(safePage))}
+                        className="w-16 rounded-md border border-border bg-card px-2 py-1 text-center text-foreground"
+                      />
+                      <span>of {totalPages}</span>
+                    </div>
                     <button
                       onClick={goToNextPage}
                       disabled={safePage >= totalPages}
