@@ -374,11 +374,28 @@ export async function fetchEvents(userId?: string): Promise<Event[]> {
   } = await supabase.auth.getSession();
   const effectiveUserId = session?.user?.id ?? userId;
 
-  const { data, error } = await supabase
-    .from("events")
-    .select("*")
-    .order("date", { ascending: true });
-  if (error) throw error;
+  const allEvents: any[] = [];
+  const pageSize = 1000;
+  let offset = 0;
+
+  while (true) {
+    const { data, error } = await supabase
+      .from("events")
+      .select("*")
+      .order("date", { ascending: true })
+      .range(offset, offset + pageSize - 1);
+
+    if (error) throw error;
+
+    const rows = data ?? [];
+    allEvents.push(...rows);
+
+    if (rows.length < pageSize) {
+      break;
+    }
+
+    offset += pageSize;
+  }
 
   const recommendationMap = new Map<string, UserRecommendationRow>();
   if (effectiveUserId) {
@@ -402,7 +419,7 @@ export async function fetchEvents(userId?: string): Promise<Event[]> {
 
   const hasAuthenticatedUser = Boolean(effectiveUserId);
 
-  return (data ?? []).map((e: any) => ({
+  return allEvents.map((e: any) => ({
     id: e.id,
     name: e.name,
     heroImage: e.hero_image || e.heroImage || "",
