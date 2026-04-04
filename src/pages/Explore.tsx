@@ -434,8 +434,9 @@ const Explore = () => {
                       Next
                     </button>
                   </div>
-                  <div className="w-full flex items-center justify-between">
-                    <div className="flex items-center gap-3">
+                  <div className="w-full grid grid-cols-[1fr_auto_1fr] items-center gap-3">
+                    <div />
+                    <div className="flex items-center gap-3 justify-center">
                       <button
                         onClick={() => setCurrentPage(1)}
                         disabled={safePage <= 1}
@@ -451,13 +452,15 @@ const Explore = () => {
                         Jump To Last Page
                       </button>
                     </div>
-                    <button
-                      onClick={scrollToEventsTop}
-                      aria-label="Scroll to filters"
-                      className="h-10 w-10 inline-flex items-center justify-center rounded-full border border-border bg-card text-foreground hover:bg-muted transition-colors"
-                    >
-                      <ArrowUp className="w-4 h-4" />
-                    </button>
+                    <div className="flex justify-end">
+                      <button
+                        onClick={scrollToEventsTop}
+                        aria-label="Scroll to filters"
+                        className="h-10 w-10 inline-flex items-center justify-center rounded-full border border-border bg-card text-foreground hover:bg-muted transition-colors"
+                      >
+                        <ArrowUp className="w-4 h-4" />
+                      </button>
+                    </div>
                   </div>
                   <p className="text-xs text-muted-foreground">
                     Showing {startIndex + 1}-{Math.min(endIndex, filteredEvents.length)} of {filteredEvents.length}
