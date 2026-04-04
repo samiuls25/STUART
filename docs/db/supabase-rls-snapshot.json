@@ -28,6 +28,33 @@
   },
   {
     "schemaname": "public",
+    "tablename": "event_views",
+    "policyname": "Users can delete own event views",
+    "cmd": "DELETE",
+    "roles": "{authenticated}",
+    "qual": "(user_id = auth.uid())",
+    "with_check": null
+  },
+  {
+    "schemaname": "public",
+    "tablename": "event_views",
+    "policyname": "Users can insert own event views",
+    "cmd": "INSERT",
+    "roles": "{authenticated}",
+    "qual": null,
+    "with_check": "(user_id = auth.uid())"
+  },
+  {
+    "schemaname": "public",
+    "tablename": "event_views",
+    "policyname": "Users can view own event views",
+    "cmd": "SELECT",
+    "roles": "{authenticated}",
+    "qual": "(user_id = auth.uid())",
+    "with_check": null
+  },
+  {
+    "schemaname": "public",
     "tablename": "friendships",
     "policyname": "Cannot create friendships with blocked users",
     "cmd": "INSERT",
@@ -303,6 +330,15 @@
     "cmd": "SELECT",
     "roles": "{public}",
     "qual": "(auth.uid() = user_id)",
+    "with_check": null
+  },
+  {
+    "schemaname": "public",
+    "tablename": "user_event_recommendations",
+    "policyname": "Users can view own recommendations",
+    "cmd": "SELECT",
+    "roles": "{authenticated}",
+    "qual": "(user_id = auth.uid())",
     "with_check": null
   }
 ]
