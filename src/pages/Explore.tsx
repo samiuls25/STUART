@@ -353,7 +353,7 @@ const Explore = () => {
                     key={event.id}
                     event={event}
                     onClick={handleEventClick}
-                    index={startIndex + index}
+                    index={index}
                   />
                 ))}
               </motion.div>
