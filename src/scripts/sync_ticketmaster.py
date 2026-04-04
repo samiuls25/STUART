@@ -2,7 +2,8 @@ import os
 from dotenv import load_dotenv
 import requests
 from supabase import create_client
-from datetime import datetime
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 # Load environment variables from .env
 load_dotenv()
@@ -16,6 +17,9 @@ if not all([TM_API_KEY, SUPABASE_URL, SUPABASE_SERVICE_KEY]):
     raise ValueError("Missing required environment variables")
 
 supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+
+DEFAULT_EVENT_TIMEZONE = "America/New_York"
+DEFAULT_EVENT_DURATION_HOURS = 3
 
 def extract_genres(event):
     classifications = event.get("classifications", [])
@@ -65,10 +69,57 @@ def fetch_ticketmaster_events(city="New York", size=20, page=0):
     data = response.json()
     return data.get("_embedded", {}).get("events", [])
 
+
+def parse_local_time(local_time: str | None):
+    if not local_time or local_time == "TBA":
+        return None
+
+    for fmt in ("%H:%M:%S", "%H:%M"):
+        try:
+            return datetime.strptime(local_time, fmt).time()
+        except ValueError:
+            continue
+    return None
+
+
+def compute_temporal_flags(local_date: str | None, local_time: str | None, timezone_name: str | None):
+    if not local_date:
+        return False, False
+
+    tz_name = timezone_name or DEFAULT_EVENT_TIMEZONE
+    try:
+        tz = ZoneInfo(tz_name)
+    except Exception:
+        tz = ZoneInfo(DEFAULT_EVENT_TIMEZONE)
+
+    try:
+        event_date = datetime.strptime(local_date, "%Y-%m-%d").date()
+    except ValueError:
+        return False, False
+
+    now = datetime.now(tz)
+    is_tonight = event_date == now.date()
+
+    parsed_time = parse_local_time(local_time)
+    if not parsed_time:
+        return False, is_tonight
+
+    event_start = datetime.combine(event_date, parsed_time, tzinfo=tz)
+    event_end = event_start + timedelta(hours=DEFAULT_EVENT_DURATION_HOURS)
+    happening_now = event_start <= now <= event_end
+
+    return happening_now, is_tonight
+
 def transform_event(event):
     genres = extract_genres(event)
     venue_data = event.get("_embedded", {}).get("venues", [{}])[0]
     dates = event.get("dates", {}).get("start", {})
+    event_timezone = dates.get("timezone") or venue_data.get("timezone") or DEFAULT_EVENT_TIMEZONE
+    happening_now, is_tonight = compute_temporal_flags(
+        dates.get("localDate"),
+        dates.get("localTime"),
+        event_timezone,
+    )
     price_display, price_level = get_price(event)
 
     lat = venue_data.get("location", {}).get("latitude")
@@ -93,8 +144,8 @@ def transform_event(event):
         "tags": [genres.get("segment", "").lower(), genres.get("genre", "").lower()],
         "is_recommended": False,
         "is_trending": False,
-        "happening_now": False,
-        "is_tonight": False,
+        "happening_now": happening_now,
+        "is_tonight": is_tonight,
         "source": "ticketmaster",
     }
 

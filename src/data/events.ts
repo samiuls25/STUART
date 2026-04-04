@@ -361,14 +361,42 @@ export interface Event {
 
 // export async fetcher
 import { supabase } from "../lib/supabase";
+
+interface UserRecommendationRow {
+  event_id: string;
+  recommendation_score: number;
+  recommendation_reasons: string[] | null;
+}
  
 export async function fetchEvents(): Promise<Event[]> {
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
   const { data, error } = await supabase
     .from("events")
     .select("*")
     .order("date", { ascending: true });
   console.log("Supabase fetchEvents data:", data, "error:", error);
   if (error) throw error;
+
+  const recommendationMap = new Map<string, UserRecommendationRow>();
+  const eventIds = (data ?? []).map((event: any) => event.id).filter(Boolean);
+
+  if (user?.id && eventIds.length > 0) {
+    const { data: recommendationRows, error: recommendationError } = await supabase
+      .from("user_event_recommendations")
+      .select("event_id,recommendation_score,recommendation_reasons")
+      .eq("user_id", user.id)
+      .in("event_id", eventIds);
+
+    if (!recommendationError && recommendationRows) {
+      (recommendationRows as UserRecommendationRow[]).forEach((row) => {
+        recommendationMap.set(row.event_id, row);
+      });
+    }
+  }
+
   return (data ?? []).map((e: any) => ({
     id: e.id,
     name: e.name,
@@ -388,9 +416,20 @@ export async function fetchEvents(): Promise<Event[]> {
     travelTime: e.travel_time ?? e.travelTime ?? 10,
     tags: e.tags ?? [],
     priceLevel: e.price_level ?? e.priceLevel ?? "$", // <-- use snake_case first
-    isRecommended: e.is_recommended ?? e.isRecommended ?? false,
-    recommendationScore: e.recommendation_score ?? e.recommendationScore ?? 0,
-    recommendationReasons: e.recommendation_reasons ?? e.recommendationReasons ?? [],
+    isRecommended:
+      recommendationMap.get(e.id)?.recommendation_score !== undefined
+        ? (recommendationMap.get(e.id)?.recommendation_score || 0) > 0
+        : e.is_recommended ?? e.isRecommended ?? false,
+    recommendationScore:
+      recommendationMap.get(e.id)?.recommendation_score ??
+      e.recommendation_score ??
+      e.recommendationScore ??
+      0,
+    recommendationReasons:
+      recommendationMap.get(e.id)?.recommendation_reasons ??
+      e.recommendation_reasons ??
+      e.recommendationReasons ??
+      [],
     isTrending: e.is_trending ?? e.isTrending ?? false,
     trendingRank: e.trending_rank ?? e.trendingRank ?? 0,
     happeningNow: e.happening_now ?? e.happeningNow ?? false,

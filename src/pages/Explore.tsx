@@ -16,6 +16,7 @@ import PlanBuilderCard from "../components/shared/PlanBuilderCard.tsx";
 import { type Event, fetchEvents } from "../data/events";
 import { toast } from "../hooks/use-toast.ts";
 import { saveEvent, unsaveEvent, getSavedEventIds } from "../lib/SavedEvents";
+import { trackEventView } from "../lib/eventIntelligence";
 import { useAuth } from "../lib/AuthContext";
 import { parseEventDate, isThisWeekend, isThisWeek, distanceMiles } from "../lib/eventFilters";
 
@@ -154,6 +155,7 @@ const Explore = () => {
 
   const handleEventClick = (event: Event) => {
     setDetailEvent(event);
+    void trackEventView(event.id, "explore-card");
   };
 
   const handleSearchArea = () => {
