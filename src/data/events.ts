@@ -370,28 +370,38 @@ interface UserRecommendationRow {
  
 export async function fetchEvents(): Promise<Event[]> {
   const {
-    data: { user },
-  } = await supabase.auth.getUser();
+    data: { session },
+  } = await supabase.auth.getSession();
+  const user = session?.user ?? null;
 
   const { data, error } = await supabase
     .from("events")
     .select("*")
     .order("date", { ascending: true });
-  console.log("Supabase fetchEvents data:", data, "error:", error);
   if (error) throw error;
 
   const recommendationMap = new Map<string, UserRecommendationRow>();
-  const eventIds = (data ?? []).map((event: any) => event.id).filter(Boolean);
+  const eventIds = Array.from(
+    new Set((data ?? []).map((event: any) => event.id).filter(Boolean))
+  );
 
   if (user?.id && eventIds.length > 0) {
-    const { data: recommendationRows, error: recommendationError } = await supabase
-      .from("user_event_recommendations")
-      .select("event_id,recommendation_score,recommendation_reasons")
-      .eq("user_id", user.id)
-      .in("event_id", eventIds);
+    // PostgREST GET queries can exceed URL limits with large IN lists, so fetch in chunks.
+    const chunkSize = 100;
+    for (let i = 0; i < eventIds.length; i += chunkSize) {
+      const eventIdsChunk = eventIds.slice(i, i + chunkSize);
+      const { data: recommendationRows, error: recommendationError } = await supabase
+        .from("user_event_recommendations")
+        .select("event_id,recommendation_score,recommendation_reasons")
+        .eq("user_id", user.id)
+        .in("event_id", eventIdsChunk);
 
-    if (!recommendationError && recommendationRows) {
-      (recommendationRows as UserRecommendationRow[]).forEach((row) => {
+      if (recommendationError) {
+        console.error("Error fetching recommendation chunk:", recommendationError);
+        continue;
+      }
+
+      (recommendationRows as UserRecommendationRow[] | null)?.forEach((row) => {
         recommendationMap.set(row.event_id, row);
       });
     }
