@@ -8,7 +8,9 @@
         "build": "vite build",
         "build:dev": "vite build --mode development",
         "lint": "eslint .",
-        "preview": "vite preview"
+        "preview": "vite preview",
+        "events:sync": "python3 src/scripts/sync_ticketmaster.py",
+        "events:intelligence": "python3 src/scripts/recompute_event_intelligence.py"
     },
     "dependencies": {
         "@fontsource/inter": "^5.2.8",

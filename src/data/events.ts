@@ -361,15 +361,65 @@ export interface Event {
 
 // export async fetcher
 import { supabase } from "../lib/supabase";
+
+interface UserRecommendationRow {
+  event_id: string;
+  recommendation_score: number;
+  recommendation_reasons: string[] | null;
+}
  
-export async function fetchEvents(): Promise<Event[]> {
-  const { data, error } = await supabase
-    .from("events")
-    .select("*")
-    .order("date", { ascending: true });
-  console.log("Supabase fetchEvents data:", data, "error:", error);
-  if (error) throw error;
-  return (data ?? []).map((e: any) => ({
+export async function fetchEvents(userId?: string): Promise<Event[]> {
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  const effectiveUserId = session?.user?.id ?? userId;
+
+  const allEvents: any[] = [];
+  const pageSize = 1000;
+  let offset = 0;
+
+  while (true) {
+    const { data, error } = await supabase
+      .from("events")
+      .select("*")
+      .order("date", { ascending: true })
+      .range(offset, offset + pageSize - 1);
+
+    if (error) throw error;
+
+    const rows = data ?? [];
+    allEvents.push(...rows);
+
+    if (rows.length < pageSize) {
+      break;
+    }
+
+    offset += pageSize;
+  }
+
+  const recommendationMap = new Map<string, UserRecommendationRow>();
+  if (effectiveUserId) {
+    const { data: recommendationRows, error: recommendationError } = await supabase
+      .from("user_event_recommendations")
+      .select("event_id,recommendation_score,recommendation_reasons")
+      .eq("user_id", effectiveUserId);
+
+    if (recommendationError) {
+      console.error("Error fetching recommendations:", recommendationError);
+    } else {
+      (recommendationRows as UserRecommendationRow[] | null)?.forEach((row) => {
+        recommendationMap.set(row.event_id, row);
+      });
+
+      if ((recommendationRows?.length ?? 0) === 0) {
+        console.warn("No personalized recommendations found for user", effectiveUserId);
+      }
+    }
+  }
+
+  const hasAuthenticatedUser = Boolean(effectiveUserId);
+
+  return allEvents.map((e: any) => ({
     id: e.id,
     name: e.name,
     heroImage: e.hero_image || e.heroImage || "",
@@ -388,9 +438,15 @@ export async function fetchEvents(): Promise<Event[]> {
     travelTime: e.travel_time ?? e.travelTime ?? 10,
     tags: e.tags ?? [],
     priceLevel: e.price_level ?? e.priceLevel ?? "$", // <-- use snake_case first
-    isRecommended: e.is_recommended ?? e.isRecommended ?? false,
-    recommendationScore: e.recommendation_score ?? e.recommendationScore ?? 0,
-    recommendationReasons: e.recommendation_reasons ?? e.recommendationReasons ?? [],
+    isRecommended: hasAuthenticatedUser
+      ? (recommendationMap.get(e.id)?.recommendation_score ?? 0) > 0
+      : false,
+    recommendationScore: hasAuthenticatedUser
+      ? recommendationMap.get(e.id)?.recommendation_score ?? 0
+      : 0,
+    recommendationReasons: hasAuthenticatedUser
+      ? recommendationMap.get(e.id)?.recommendation_reasons ?? []
+      : [],
     isTrending: e.is_trending ?? e.isTrending ?? false,
     trendingRank: e.trending_rank ?? e.trendingRank ?? 0,
     happeningNow: e.happening_now ?? e.happeningNow ?? false,

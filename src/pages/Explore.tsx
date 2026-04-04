@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from "react";
 import { motion } from "framer-motion";
-import { Search, Sparkles, X, Heart, MapPin } from "lucide-react";
+import { Search, Sparkles, X, Heart, MapPin, ArrowUp } from "lucide-react";
 import React from "react";
 import Fuse from "fuse.js";
 import Navbar from "../components/layout/Navbar.tsx";
@@ -16,6 +16,7 @@ import PlanBuilderCard from "../components/shared/PlanBuilderCard.tsx";
 import { type Event, fetchEvents } from "../data/events";
 import { toast } from "../hooks/use-toast.ts";
 import { saveEvent, unsaveEvent, getSavedEventIds } from "../lib/SavedEvents";
+import { trackEventView } from "../lib/eventIntelligence";
 import { useAuth } from "../lib/AuthContext";
 import { parseEventDate, isThisWeekend, isThisWeek, distanceMiles } from "../lib/eventFilters";
 
@@ -27,7 +28,10 @@ const searchPlaceholders = [
   "family-friendly activities",
 ];
 
+const EVENTS_PER_PAGE = 24;
+
 const Explore = () => {
+  const { user, loading: authLoading } = useAuth();
   const [selectedSegment, setSelectedSegment] = useState<string>("All");
   const [selectedGenre, setSelectedGenre] = useState<string>("All");
   const [selectedPrice, setSelectedPrice] = useState<string>("All");
@@ -42,12 +46,44 @@ const Explore = () => {
   const [loading, setLoading] = useState(true);
   const [userLocation, setUserLocation] = useState<{ lat: number; lon: number } | null>(null);
   const [searchResults, setSearchResults] = useState<Event[] | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageInput, setPageInput] = useState("1");
 
   useEffect(() => {
-    fetchEvents()
-      .then((data) => setEvents(data))
-      .finally(() => setLoading(false));
-  }, []);
+    if (authLoading) {
+      return;
+    }
+
+    let isMounted = true;
+    setLoading(true);
+
+    fetchEvents(user?.id)
+      .then((data) => {
+        if (!isMounted) return;
+        setEvents(data);
+      })
+      .finally(() => {
+        if (!isMounted) return;
+        setLoading(false);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [authLoading, user?.id]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+    setPageInput("1");
+  }, [
+    searchQuery,
+    selectedSegment,
+    selectedGenre,
+    selectedPrice,
+    selectedTime,
+    selectedDistance,
+    selectedMood,
+  ]);
 
   useEffect(() => {
     if (!navigator.geolocation) return;
@@ -154,6 +190,7 @@ const Explore = () => {
 
   const handleEventClick = (event: Event) => {
     setDetailEvent(event);
+    void trackEventView(event.id, "explore-card");
   };
 
   const handleSearchArea = () => {
@@ -170,6 +207,56 @@ const Explore = () => {
       title: "Building your perfect plan...",
       description: "STUART is creating a personalized itinerary for you.",
     });
+  };
+
+  const totalPages = Math.max(1, Math.ceil(filteredEvents.length / EVENTS_PER_PAGE));
+  const safePage = Math.min(currentPage, totalPages);
+  const startIndex = (safePage - 1) * EVENTS_PER_PAGE;
+  const endIndex = startIndex + EVENTS_PER_PAGE;
+  const pagedEvents = filteredEvents.slice(startIndex, endIndex);
+
+  useEffect(() => {
+    setPageInput(String(safePage));
+  }, [safePage]);
+
+  const goToPrevPage = () => {
+    setCurrentPage((prev) => Math.max(1, prev - 1));
+  };
+
+  const goToNextPage = () => {
+    setCurrentPage((prev) => Math.min(totalPages, prev + 1));
+  };
+
+  const handlePageInputChange = (value: string) => {
+    setPageInput(value);
+  };
+
+  const commitPageInput = () => {
+    if (pageInput.trim() === "") {
+      setPageInput(String(safePage));
+      return;
+    }
+
+    const parsed = Number(pageInput);
+    if (!Number.isInteger(parsed)) {
+      setPageInput(String(safePage));
+      return;
+    }
+
+    const clamped = Math.max(1, Math.min(totalPages, parsed));
+    setCurrentPage(clamped);
+    setPageInput(String(clamped));
+  };
+
+  const scrollToEventsTop = () => {
+    const filtersAnchor = document.getElementById("filters-anchor");
+    if (filtersAnchor) {
+      const navOffset = 88;
+      const top = filtersAnchor.getBoundingClientRect().top + window.scrollY - navOffset;
+      window.scrollTo({ top: Math.max(top, 0), behavior: "smooth" });
+      return;
+    }
+    window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   if (loading) {
@@ -248,28 +335,12 @@ const Explore = () => {
           </div>
         </motion.section>
 
-        {/* Weather + Filters */}
+        {/* Weather */}
         <section className="max-w-7xl mx-auto px-6">
           <div className="flex items-center gap-4 mb-6">
             <WeatherIndicator className="flex-shrink-0" />
             <div className="flex-1" />
           </div>
-          
-          <FilterBar
-            selectedSegment={selectedSegment}
-            selectedGenre={selectedGenre}
-            selectedPrice={selectedPrice}
-            selectedTime={selectedTime}
-            selectedDistance={selectedDistance}
-            onSegmentChange={setSelectedSegment}
-            onGenreChange={setSelectedGenre}
-            onPriceChange={setSelectedPrice}
-            onTimeChange={setSelectedTime}
-            onDistanceChange={setSelectedDistance}
-            onSearchArea={handleSearchArea}
-            eventCount={filteredEvents.length}
-            showAdvancedFilters={true}
-          />
         </section>
 
         {/* Content Sections */}
@@ -281,31 +352,122 @@ const Explore = () => {
           <TrendingSection events={filteredEvents} onEventClick={handleEventClick} />
           
           {/* Recommended Section */}
-          <RecommendedSection events={filteredEvents} onEventClick={handleEventClick} />
+          <RecommendedSection events={events} onEventClick={handleEventClick} />
+
+          {/* Filters */}
+          <div id="filters-anchor">
+            <FilterBar
+              selectedSegment={selectedSegment}
+              selectedGenre={selectedGenre}
+              selectedPrice={selectedPrice}
+              selectedTime={selectedTime}
+              selectedDistance={selectedDistance}
+              onSegmentChange={setSelectedSegment}
+              onGenreChange={setSelectedGenre}
+              onPriceChange={setSelectedPrice}
+              onTimeChange={setSelectedTime}
+              onDistanceChange={setSelectedDistance}
+              onSearchArea={handleSearchArea}
+              eventCount={filteredEvents.length}
+              showAdvancedFilters={true}
+            />
+          </div>
 
           {/* All Events Grid */}
-          <div className="mb-4">
+          <div id="all-events-anchor" className="mt-6 mb-4">
             <h2 className="font-heading text-lg font-semibold text-foreground">
               All Events
             </h2>
           </div>
           
           {filteredEvents.length > 0 ? (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ duration: 0.4, delay: 0.2 }}
-              className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5"
-            >
-              {filteredEvents.map((event, index) => (
-                <EventCardGrid
-                  key={event.id}
-                  event={event}
-                  onClick={handleEventClick}
-                  index={index}
-                />
-              ))}
-            </motion.div>
+            <>
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ duration: 0.4, delay: 0.2 }}
+                className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5"
+              >
+                {pagedEvents.map((event, index) => (
+                  <EventCardGrid
+                    key={event.id}
+                    event={event}
+                    onClick={handleEventClick}
+                    index={index}
+                  />
+                ))}
+              </motion.div>
+
+              {totalPages > 1 && (
+                <div className="mt-8 flex flex-col items-center gap-3">
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={goToPrevPage}
+                      disabled={safePage <= 1}
+                      className="btn-secondary px-4 py-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      Previous
+                    </button>
+                    <div className="text-sm text-muted-foreground flex items-center gap-2">
+                      <span>Page</span>
+                      <input
+                        type="number"
+                        min={1}
+                        max={totalPages}
+                        value={pageInput}
+                        onChange={(e) => handlePageInputChange(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            commitPageInput();
+                          }
+                        }}
+                        onBlur={() => setPageInput(String(safePage))}
+                        className="w-16 rounded-md border border-border bg-card px-2 py-1 text-center text-foreground"
+                      />
+                      <span>of {totalPages}</span>
+                    </div>
+                    <button
+                      onClick={goToNextPage}
+                      disabled={safePage >= totalPages}
+                      className="btn-secondary px-4 py-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      Next
+                    </button>
+                  </div>
+                  <div className="w-full grid grid-cols-[1fr_auto_1fr] items-center gap-3">
+                    <div />
+                    <div className="flex items-center gap-3 justify-center">
+                      <button
+                        onClick={() => setCurrentPage(1)}
+                        disabled={safePage <= 1}
+                        className="btn-secondary px-5 py-2.5 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        Jump to First Page
+                      </button>
+                      <button
+                        onClick={() => setCurrentPage(totalPages)}
+                        disabled={safePage >= totalPages}
+                        className="btn-secondary px-5 py-2.5 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        Jump To Last Page
+                      </button>
+                    </div>
+                    <div className="flex justify-end">
+                      <button
+                        onClick={scrollToEventsTop}
+                        aria-label="Scroll to filters"
+                        className="h-10 w-10 inline-flex items-center justify-center rounded-full border border-border bg-card text-foreground hover:bg-muted transition-colors"
+                      >
+                        <ArrowUp className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Showing {startIndex + 1}-{Math.min(endIndex, filteredEvents.length)} of {filteredEvents.length}
+                  </p>
+                </div>
+              )}
+            </>
           ) : (
             <div className="mt-8">
               <EmptyState onSearchArea={handleSearchArea} />
@@ -331,6 +493,13 @@ const EventCardGrid = ({
 }) => {
   const { user } = useAuth();
   const [isSaved, setIsSaved] = useState(false);
+
+  const toScoreLabel = (score?: number) => {
+    if (typeof score !== "number" || Number.isNaN(score) || score <= 0) {
+      return "RECOMMENDED";
+    }
+    return `SCORE ${Math.round(score)}`;
+  };
 
   useEffect(() => {
     if (user) {
@@ -399,7 +568,7 @@ const EventCardGrid = ({
           )}
           {event.isRecommended && (
             <span className="px-2 py-0.5 bg-primary/90 text-primary-foreground text-[10px] font-bold rounded-full backdrop-blur-sm">
-              ★ {event.recommendationScore}% MATCH
+              ★ {toScoreLabel(event.recommendationScore)}
             </span>
           )}
         </div>

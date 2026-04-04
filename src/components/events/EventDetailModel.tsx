@@ -33,6 +33,13 @@ const EventDetailModal = ({ event, onClose }: EventDetailModalProps) => {
   const { user } = useAuth();
   const [isSaved, setIsSaved] = useState(false);
 
+  const toScoreLabel = (score?: number) => {
+    if (typeof score !== "number" || Number.isNaN(score) || score <= 0) {
+      return "Recommended";
+    }
+    return `Score ${Math.round(score)}`;
+  };
+
   useEffect(() => {
     if (user && event) {
       getSavedEventIds().then((savedIds) => {
@@ -141,11 +148,11 @@ const EventDetailModal = ({ event, onClose }: EventDetailModalProps) => {
                   </div>
 
                   {/* Recommendation Badge */}
-                  {event.isRecommended && event.recommendationReasons && (
+                  {event.isRecommended && event.recommendationReasons && event.recommendationReasons.length > 0 && (
                     <div className="bg-primary/5 border border-primary/20 rounded-xl p-4">
                       <div className="flex items-center gap-2 mb-2">
                         <Star className="w-4 h-4 text-primary fill-primary" />
-                        <span className="text-sm font-medium text-primary">{event.recommendationScore}% Match</span>
+                        <span className="text-sm font-medium text-primary">{toScoreLabel(event.recommendationScore)}</span>
                       </div>
                       <p className="text-xs text-muted-foreground mb-2 flex items-center gap-1">
                         <Info className="w-3 h-3" /> Recommended because:
