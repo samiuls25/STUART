@@ -29,6 +29,7 @@ const searchPlaceholders = [
 ];
 
 const Explore = () => {
+  const { user, loading: authLoading } = useAuth();
   const [selectedSegment, setSelectedSegment] = useState<string>("All");
   const [selectedGenre, setSelectedGenre] = useState<string>("All");
   const [selectedPrice, setSelectedPrice] = useState<string>("All");
@@ -45,10 +46,27 @@ const Explore = () => {
   const [searchResults, setSearchResults] = useState<Event[] | null>(null);
 
   useEffect(() => {
+    if (authLoading) {
+      return;
+    }
+
+    let isMounted = true;
+    setLoading(true);
+
     fetchEvents()
-      .then((data) => setEvents(data))
-      .finally(() => setLoading(false));
-  }, []);
+      .then((data) => {
+        if (!isMounted) return;
+        setEvents(data);
+      })
+      .finally(() => {
+        if (!isMounted) return;
+        setLoading(false);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [authLoading, user?.id]);
 
   useEffect(() => {
     if (!navigator.geolocation) return;
