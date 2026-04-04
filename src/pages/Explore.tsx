@@ -362,6 +362,13 @@ const Explore = () => {
                 <div className="mt-8 flex flex-col items-center gap-3">
                   <div className="flex items-center gap-3">
                     <button
+                      onClick={() => setCurrentPage(1)}
+                      disabled={safePage <= 1}
+                      className="btn-secondary px-4 py-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      First
+                    </button>
+                    <button
                       onClick={goToPrevPage}
                       disabled={safePage <= 1}
                       className="btn-secondary px-4 py-2 disabled:opacity-50 disabled:cursor-not-allowed"
