@@ -369,6 +369,10 @@ interface UserRecommendationRow {
 }
  
 export async function fetchEvents(userId?: string): Promise<Event[]> {
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  const effectiveUserId = session?.user?.id ?? userId;
 
   const { data, error } = await supabase
     .from("events")
@@ -377,11 +381,11 @@ export async function fetchEvents(userId?: string): Promise<Event[]> {
   if (error) throw error;
 
   const recommendationMap = new Map<string, UserRecommendationRow>();
-  if (userId) {
+  if (effectiveUserId) {
     const { data: recommendationRows, error: recommendationError } = await supabase
       .from("user_event_recommendations")
       .select("event_id,recommendation_score,recommendation_reasons")
-      .eq("user_id", userId);
+      .eq("user_id", effectiveUserId);
 
     if (recommendationError) {
       console.error("Error fetching recommendations:", recommendationError);
@@ -389,10 +393,14 @@ export async function fetchEvents(userId?: string): Promise<Event[]> {
       (recommendationRows as UserRecommendationRow[] | null)?.forEach((row) => {
         recommendationMap.set(row.event_id, row);
       });
+
+      if ((recommendationRows?.length ?? 0) === 0) {
+        console.warn("No personalized recommendations found for user", effectiveUserId);
+      }
     }
   }
 
-  const hasAuthenticatedUser = Boolean(userId);
+  const hasAuthenticatedUser = Boolean(effectiveUserId);
 
   return (data ?? []).map((e: any) => ({
     id: e.id,

@@ -192,6 +192,11 @@ const Explore = () => {
     });
   };
 
+  const recommendationCount = events.filter((event) => event.isRecommended).length;
+  const topRecommendationScore = events
+    .filter((event) => event.isRecommended)
+    .reduce((max, event) => Math.max(max, event.recommendationScore ?? 0), 0);
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
@@ -294,6 +299,12 @@ const Explore = () => {
 
         {/* Content Sections */}
         <section className="max-w-7xl mx-auto px-6 py-8">
+          {import.meta.env.DEV && (
+            <div className="mb-4 rounded-lg border border-dashed border-primary/40 bg-primary/5 px-3 py-2 text-xs text-primary">
+              rec-debug: authLoading={String(authLoading)} userId={user?.id ?? "none"} recommendedCount={recommendationCount} topScore={topRecommendationScore}
+            </div>
+          )}
+
           {/* Plan Builder */}
           <PlanBuilderCard onBuildPlan={handleBuildPlan} />
           
