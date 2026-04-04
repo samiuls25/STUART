@@ -22,7 +22,7 @@ const Saved = () => {
       return;
     }
 
-    Promise.all([fetchEvents(), getSavedEventIds()])
+    Promise.all([fetchEvents(user.id), getSavedEventIds()])
       .then(([allEvents, savedIds]) => {
         setEvents(allEvents);
         setSavedEventIds(savedIds);

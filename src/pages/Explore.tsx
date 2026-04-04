@@ -53,7 +53,7 @@ const Explore = () => {
     let isMounted = true;
     setLoading(true);
 
-    fetchEvents()
+    fetchEvents(user?.id)
       .then((data) => {
         if (!isMounted) return;
         setEvents(data);
@@ -301,7 +301,7 @@ const Explore = () => {
           <TrendingSection events={filteredEvents} onEventClick={handleEventClick} />
           
           {/* Recommended Section */}
-          <RecommendedSection events={filteredEvents} onEventClick={handleEventClick} />
+          <RecommendedSection events={events} onEventClick={handleEventClick} />
 
           {/* All Events Grid */}
           <div className="mb-4">

@@ -368,11 +368,7 @@ interface UserRecommendationRow {
   recommendation_reasons: string[] | null;
 }
  
-export async function fetchEvents(): Promise<Event[]> {
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-  const user = session?.user ?? null;
+export async function fetchEvents(userId?: string): Promise<Event[]> {
 
   const { data, error } = await supabase
     .from("events")
@@ -381,33 +377,22 @@ export async function fetchEvents(): Promise<Event[]> {
   if (error) throw error;
 
   const recommendationMap = new Map<string, UserRecommendationRow>();
-  const eventIds = Array.from(
-    new Set((data ?? []).map((event: any) => event.id).filter(Boolean))
-  );
+  if (userId) {
+    const { data: recommendationRows, error: recommendationError } = await supabase
+      .from("user_event_recommendations")
+      .select("event_id,recommendation_score,recommendation_reasons")
+      .eq("user_id", userId);
 
-  if (user?.id && eventIds.length > 0) {
-    // PostgREST GET queries can exceed URL limits with large IN lists, so fetch in chunks.
-    const chunkSize = 100;
-    for (let i = 0; i < eventIds.length; i += chunkSize) {
-      const eventIdsChunk = eventIds.slice(i, i + chunkSize);
-      const { data: recommendationRows, error: recommendationError } = await supabase
-        .from("user_event_recommendations")
-        .select("event_id,recommendation_score,recommendation_reasons")
-        .eq("user_id", user.id)
-        .in("event_id", eventIdsChunk);
-
-      if (recommendationError) {
-        console.error("Error fetching recommendation chunk:", recommendationError);
-        continue;
-      }
-
+    if (recommendationError) {
+      console.error("Error fetching recommendations:", recommendationError);
+    } else {
       (recommendationRows as UserRecommendationRow[] | null)?.forEach((row) => {
         recommendationMap.set(row.event_id, row);
       });
     }
   }
 
-  const hasAuthenticatedUser = Boolean(user?.id);
+  const hasAuthenticatedUser = Boolean(userId);
 
   return (data ?? []).map((e: any) => ({
     id: e.id,
