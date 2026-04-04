@@ -407,6 +407,8 @@ export async function fetchEvents(): Promise<Event[]> {
     }
   }
 
+  const hasAuthenticatedUser = Boolean(user?.id);
+
   return (data ?? []).map((e: any) => ({
     id: e.id,
     name: e.name,
@@ -426,20 +428,15 @@ export async function fetchEvents(): Promise<Event[]> {
     travelTime: e.travel_time ?? e.travelTime ?? 10,
     tags: e.tags ?? [],
     priceLevel: e.price_level ?? e.priceLevel ?? "$", // <-- use snake_case first
-    isRecommended:
-      recommendationMap.get(e.id)?.recommendation_score !== undefined
-        ? (recommendationMap.get(e.id)?.recommendation_score || 0) > 0
-        : e.is_recommended ?? e.isRecommended ?? false,
-    recommendationScore:
-      recommendationMap.get(e.id)?.recommendation_score ??
-      e.recommendation_score ??
-      e.recommendationScore ??
-      0,
-    recommendationReasons:
-      recommendationMap.get(e.id)?.recommendation_reasons ??
-      e.recommendation_reasons ??
-      e.recommendationReasons ??
-      [],
+    isRecommended: hasAuthenticatedUser
+      ? (recommendationMap.get(e.id)?.recommendation_score ?? 0) > 0
+      : false,
+    recommendationScore: hasAuthenticatedUser
+      ? recommendationMap.get(e.id)?.recommendation_score ?? 0
+      : 0,
+    recommendationReasons: hasAuthenticatedUser
+      ? recommendationMap.get(e.id)?.recommendation_reasons ?? []
+      : [],
     isTrending: e.is_trending ?? e.isTrending ?? false,
     trendingRank: e.trending_rank ?? e.trendingRank ?? 0,
     happeningNow: e.happening_now ?? e.happeningNow ?? false,
