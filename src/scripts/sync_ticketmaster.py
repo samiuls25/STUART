@@ -1,4 +1,5 @@
 import os
+import re
 from dotenv import load_dotenv
 import requests
 from supabase import create_client
@@ -21,6 +22,32 @@ supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 DEFAULT_EVENT_TIMEZONE = "America/New_York"
 DEFAULT_EVENT_DURATION_HOURS = 3
 
+
+def normalize_label(value: str | None):
+    if not value:
+        return ""
+
+    normalized = value.lower()
+    normalized = re.sub(r"\((?:new york|ny|nyc)\)", "", normalized)
+    normalized = re.sub(r"\b(?:new york|nyc|ny)\b", "", normalized)
+    normalized = re.sub(r"[^a-z0-9]+", " ", normalized)
+    normalized = re.sub(r"\s+", " ", normalized).strip()
+    return normalized
+
+
+def has_usable_ticketmaster_image(images):
+    if not images:
+        return False
+
+    for image in images:
+        url = image.get("url", "")
+        is_fallback = bool(image.get("fallback", False))
+        width = image.get("width", 0) or 0
+        if url and not is_fallback and width >= 500:
+            return True
+
+    return False
+
 def extract_genres(event):
     classifications = event.get("classifications", [])
     if not classifications:
@@ -35,11 +62,21 @@ def extract_genres(event):
 def pick_hero_image(images):
     if not images:
         return ""
+
+    valid_images = [
+        image
+        for image in images
+        if image.get("url") and not bool(image.get("fallback", False)) and (image.get("width", 0) or 0) >= 500
+    ]
+
+    if not valid_images:
+        return ""
+
     for ratio in ["16_9", "3_2"]:
-        for img in images:
+        for img in valid_images:
             if img.get("ratio") == ratio and img.get("width", 0) > 500:
                 return img.get("url", "")
-    return images[0].get("url", "")
+    return valid_images[0].get("url", "")
 
 def get_price(event):
     price_ranges = event.get("priceRanges", [])
@@ -150,16 +187,16 @@ def transform_event(event):
     }
 
 def deduplicate_events(events):
-    """Remove duplicate events based on name + date + venue"""
+    """Remove duplicate events based on normalized title + date + normalized venue."""
     seen = set()
     unique = []
     
     for event in events:
         # Create a unique key based on name, date, and venue
         key = (
-            event.get("name", "").lower().strip(),
+            normalize_label(event.get("name", "")),
             event.get("date"),
-            event.get("venue", "").lower().strip()
+            normalize_label(event.get("venue", "")),
         )
         
         if key not in seen:
@@ -171,10 +208,14 @@ def deduplicate_events(events):
     return unique
 
 def sync_to_supabase(events):
-    transformed = [transform_event(e) for e in events]
+    transformed = [transform_event(e) for e in events if has_usable_ticketmaster_image(e.get("images", []))]
     
     # Filter out any with missing required fields
-    transformed = [e for e in transformed if e["name"] and e["date"] and e["external_id"]]
+    transformed = [
+        e
+        for e in transformed
+        if e["name"] and e["date"] and e["external_id"] and e.get("hero_image")
+    ]
     
     # Deduplicate before inserting
     transformed = deduplicate_events(transformed)
