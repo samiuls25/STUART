@@ -20,6 +20,7 @@ DEFAULT_EVENT_TIMEZONE = "America/New_York"
 TRENDING_TOP_N = 20
 RECOMMENDATION_MIN_SCORE = 20
 RECOMMENDATION_TOP_N = 25
+COLD_START_MIN_SCORE = 8
 
 
 def fetch_all(table: str, columns: str = "*"):
@@ -247,6 +248,12 @@ def compute_recommendations(events, saved_events, friendships):
             for event_id in saved_by_user.get(friend_id, set()):
                 friend_saved_counts[event_id] += 1
 
+        # Users with little history should still receive recommendations from
+        # momentum/trending signals instead of getting an empty state.
+        min_score_for_user = (
+            COLD_START_MIN_SCORE if len(user_saved_ids) <= 1 else RECOMMENDATION_MIN_SCORE
+        )
+
         user_recs = []
 
         for event in upcoming_events:
@@ -292,7 +299,7 @@ def compute_recommendations(events, saved_events, friendships):
                 score += 8
                 reasons.append("Happening right now")
 
-            if score >= RECOMMENDATION_MIN_SCORE:
+            if score >= min_score_for_user:
                 user_recs.append((event_id, score, reasons[:3]))
 
         user_recs.sort(key=lambda item: item[1], reverse=True)
