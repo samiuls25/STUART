@@ -14,6 +14,9 @@ export interface Event {
   source?: string;
   sourceLabel?: string;
   organizerName?: string;
+  hangoutId?: string;
+  isJoinedByCurrentUser?: boolean;
+  hangoutJoinStatus?: "invited" | "yes" | "no" | "maybe" | "pending-availability";
   isSaveable?: boolean;
   isTrackable?: boolean;
     price?: string;
@@ -401,6 +404,11 @@ interface ProfileNameRow {
   name: string | null;
 }
 
+interface HangoutMembershipRow {
+  hangout_id: string;
+  response_status: "invited" | "yes" | "no" | "maybe" | "pending-availability";
+}
+
 const normalizeEventKeyPart = (value?: string) => {
   if (!value) return "";
   return value
@@ -412,6 +420,10 @@ const normalizeEventKeyPart = (value?: string) => {
 };
 
 const buildConsolidationKey = (event: Event) => {
+  if (event.source === "hangout" && event.hangoutId) {
+    return `hangout|${event.hangoutId}`;
+  }
+
   return [
     event.source || "ticketmaster",
     normalizeEventKeyPart(event.name),
@@ -511,6 +523,7 @@ const fetchPublicHangoutEvents = async (userId?: string): Promise<Event[]> => {
 
   const creatorIds = [...new Set(publicRows.map((row) => row.created_by).filter(Boolean))];
   const profileNameMap = new Map<string, string>();
+  const membershipMap = new Map<string, HangoutMembershipRow["response_status"]>();
 
   if (creatorIds.length > 0) {
     const { data: profileRows, error: profileError } = await supabase
@@ -529,6 +542,25 @@ const fetchPublicHangoutEvents = async (userId?: string): Promise<Event[]> => {
     }
   }
 
+  if (userId) {
+    const hangoutIds = publicRows.map((row) => row.id);
+    if (hangoutIds.length > 0) {
+      const { data: membershipRows, error: membershipError } = await supabase
+        .from("hangout_invites")
+        .select("hangout_id,response_status")
+        .eq("friend_id", userId)
+        .in("hangout_id", hangoutIds);
+
+      if (membershipError) {
+        console.error("Error fetching hangout memberships:", membershipError);
+      } else {
+        ((membershipRows as HangoutMembershipRow[] | null) || []).forEach((row) => {
+          membershipMap.set(row.hangout_id, row.response_status);
+        });
+      }
+    }
+  }
+
   return publicRows
     .map((row): Event | null => {
       const activityMetadata = HANGOUT_ACTIVITY_METADATA[row.activity_type] || defaultHangoutMetadata;
@@ -536,9 +568,11 @@ const fetchPublicHangoutEvents = async (userId?: string): Promise<Event[]> => {
       if (!date) return null;
 
       const time = row.confirmed_start_time || row.proposed_start_time || "TBA";
+      const joinStatus = membershipMap.get(row.id);
 
       return {
         id: `hangout:${row.id}`,
+        hangoutId: row.id,
         name: row.title,
         heroImage: row.hero_image || activityMetadata.heroImage,
         date,
@@ -553,6 +587,8 @@ const fetchPublicHangoutEvents = async (userId?: string): Promise<Event[]> => {
         source: "hangout",
         sourceLabel: supportsIsPublicColumn ? "Public Hangout" : "Hangout",
         organizerName: profileNameMap.get(row.created_by),
+        isJoinedByCurrentUser: joinStatus ? joinStatus !== "no" : false,
+        hangoutJoinStatus: joinStatus,
         isSaveable: false,
         isTrackable: false,
         price: "Free",

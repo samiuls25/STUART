@@ -31,6 +31,10 @@ interface HangoutInviteRow {
   responded_at: string | null;
 }
 
+interface HangoutMembershipRow {
+  response_status: "invited" | "yes" | "no" | "maybe" | "pending-availability";
+}
+
 export interface CreateHangoutInput {
   title: string;
   description?: string;
@@ -134,6 +138,72 @@ export async function fetchHangoutsForCurrentUser(): Promise<Hangout[]> {
       const bDate = b.confirmedTime?.date || b.proposedTimeRange.date;
       return aDate.localeCompare(bDate);
     });
+}
+
+export async function getCurrentUserHangoutMembership(hangoutId: string): Promise<{
+  joined: boolean;
+  status?: "invited" | "yes" | "no" | "maybe" | "pending-availability";
+}> {
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return { joined: false };
+  }
+
+  const { data, error } = await supabase
+    .from("hangout_invites")
+    .select("response_status")
+    .eq("hangout_id", hangoutId)
+    .eq("friend_id", user.id)
+    .maybeSingle();
+
+  if (error) {
+    throw error;
+  }
+
+  const membership = data as HangoutMembershipRow | null;
+  if (!membership) {
+    return { joined: false };
+  }
+
+  return {
+    joined: membership.response_status !== "no",
+    status: membership.response_status,
+  };
+}
+
+export async function joinPublicHangout(hangoutId: string): Promise<void> {
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    throw new Error("You must be signed in to join this hangout.");
+  }
+
+  const existingMembership = await getCurrentUserHangoutMembership(hangoutId);
+  if (existingMembership.joined) {
+    return;
+  }
+
+  const { error } = await supabase.from("hangout_invites").insert({
+    hangout_id: hangoutId,
+    friend_id: user.id,
+    is_highlighted: false,
+    response_status: "yes",
+    availability_submitted: [],
+    responded_at: new Date().toISOString(),
+  });
+
+  if (error) {
+    // Ignore duplicate row races if another request inserted first.
+    if ((error as { code?: string }).code === "23505") {
+      return;
+    }
+    throw error;
+  }
 }
 
 export async function createHangout(input: CreateHangoutInput): Promise<void> {

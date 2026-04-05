@@ -23,6 +23,7 @@ import type { Event } from "../../data/events";
 import { toast } from "../../hooks/use-toast";
 import { saveEvent, unsaveEvent, getSavedEventIds } from "../../lib/SavedEvents";
 import { useAuth } from "../../lib/AuthContext";
+import { getCurrentUserHangoutMembership, joinPublicHangout } from "../../lib/hangouts";
 
 interface EventDetailModalProps {
   event: Event | null;
@@ -32,6 +33,8 @@ interface EventDetailModalProps {
 const EventDetailModal = ({ event, onClose }: EventDetailModalProps) => {
   const { user } = useAuth();
   const [isSaved, setIsSaved] = useState(false);
+  const [hangoutMembershipState, setHangoutMembershipState] = useState<"checking" | "joined" | "not-joined">("not-joined");
+  const [joiningHangout, setJoiningHangout] = useState(false);
 
   const toScoreLabel = (score?: number) => {
     if (typeof score !== "number" || Number.isNaN(score) || score <= 0) {
@@ -49,6 +52,48 @@ const EventDetailModal = ({ event, onClose }: EventDetailModalProps) => {
       setIsSaved(false);
     }
   }, [user, event]);
+
+  const resolvedHangoutId =
+    event?.hangoutId
+    || (event?.source === "hangout" && event.id.startsWith("hangout:")
+      ? event.id.slice("hangout:".length)
+      : null);
+
+  const isHangoutEvent = Boolean(event && event.source === "hangout" && resolvedHangoutId);
+
+  useEffect(() => {
+    if (!event || !isHangoutEvent || !resolvedHangoutId) {
+      setHangoutMembershipState("not-joined");
+      return;
+    }
+
+    if (!user) {
+      setHangoutMembershipState(event.isJoinedByCurrentUser ? "joined" : "not-joined");
+      return;
+    }
+
+    if (event.isJoinedByCurrentUser) {
+      setHangoutMembershipState("joined");
+      return;
+    }
+
+    let isMounted = true;
+    setHangoutMembershipState("checking");
+
+    getCurrentUserHangoutMembership(resolvedHangoutId)
+      .then((membership) => {
+        if (!isMounted) return;
+        setHangoutMembershipState(membership.joined ? "joined" : "not-joined");
+      })
+      .catch(() => {
+        if (!isMounted) return;
+        setHangoutMembershipState("not-joined");
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [event?.id, event?.isJoinedByCurrentUser, isHangoutEvent, resolvedHangoutId, user?.id]);
 
   if (!event) return null;
 
@@ -99,6 +144,47 @@ const EventDetailModal = ({ event, onClose }: EventDetailModalProps) => {
       title: "Thanks for your feedback!",
       description: "This helps us improve your recommendations",
     });
+  };
+
+  const handleOpenHangouts = () => {
+    window.location.href = "/hangouts";
+  };
+
+  const handleJoinHangout = async () => {
+    if (!event || !resolvedHangoutId) return;
+
+    if (!user) {
+      toast({
+        title: "Sign in required",
+        description: "Please sign in to join this hangout.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setJoiningHangout(true);
+    try {
+      await joinPublicHangout(resolvedHangoutId);
+      setHangoutMembershipState("joined");
+      toast({
+        title: "Joined hangout",
+        description: "You are now part of this hangout.",
+      });
+    } catch (error) {
+      const message = (error as { message?: string })?.message || "Could not join hangout right now.";
+      const lowerMessage = message.toLowerCase();
+
+      toast({
+        title: "Could not join hangout",
+        description:
+          lowerMessage.includes("permission")
+            ? "Phase C RLS policy for self-join may not be enabled yet."
+            : message,
+        variant: "destructive",
+      });
+    } finally {
+      setJoiningHangout(false);
+    }
   };
 
   return (
@@ -259,6 +345,24 @@ const EventDetailModal = ({ event, onClose }: EventDetailModalProps) => {
                     <a href={event.ticketUrl} target="_blank" rel="noopener noreferrer" className="btn-primary flex items-center gap-2">
                       Get Tickets <ExternalLink className="w-4 h-4" />
                     </a>
+                  ) : isHangoutEvent ? (
+                    hangoutMembershipState === "joined" ? (
+                      <button onClick={handleOpenHangouts} className="btn-primary flex items-center gap-2">
+                        Open Hangouts
+                      </button>
+                    ) : (
+                      <button
+                        onClick={handleJoinHangout}
+                        disabled={joiningHangout || hangoutMembershipState === "checking"}
+                        className="btn-primary flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {joiningHangout
+                          ? "Joining..."
+                          : hangoutMembershipState === "checking"
+                            ? "Checking..."
+                            : "Join Hangout"}
+                      </button>
+                    )
                   ) : (
                     <a href="/hangouts" className="btn-primary flex items-center gap-2">
                       Open Hangouts
