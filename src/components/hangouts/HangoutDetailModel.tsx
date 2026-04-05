@@ -38,6 +38,7 @@ const HangoutDetailModal = ({
   const [showAvailabilityEditor, setShowAvailabilityEditor] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [applyingSuggestedTime, setApplyingSuggestedTime] = useState(false);
+  const [selectedSuggestedSlotKey, setSelectedSuggestedSlotKey] = useState<string | null>(null);
   const [availabilitySlots, setAvailabilitySlots] = useState<Record<string, number>>({});
 
   const viewerId = currentUserId || "current-user";
@@ -164,11 +165,19 @@ const HangoutDetailModal = ({
   }, [hangout.responses]);
 
   const bestAvailabilitySuggestion = rankedAvailabilitySuggestions[0] || null;
+  const selectedAvailabilitySuggestion = selectedSuggestedSlotKey
+    ? rankedAvailabilitySuggestions.find((slot) => slot.key === selectedSuggestedSlotKey) || bestAvailabilitySuggestion
+    : bestAvailabilitySuggestion;
+
+  useEffect(() => {
+    setSelectedSuggestedSlotKey(bestAvailabilitySuggestion?.key ?? null);
+  }, [hangout.id, bestAvailabilitySuggestion?.key]);
+
   const isSuggestedSlotAlreadyApplied = Boolean(
-    bestAvailabilitySuggestion
-    && timeRange.date === bestAvailabilitySuggestion.date
-    && timeRange.startTime === bestAvailabilitySuggestion.startTime
-    && timeRange.endTime === bestAvailabilitySuggestion.endTime
+    selectedAvailabilitySuggestion
+    && timeRange.date === selectedAvailabilitySuggestion.date
+    && timeRange.startTime === selectedAvailabilitySuggestion.startTime
+    && timeRange.endTime === selectedAvailabilitySuggestion.endTime
   );
 
   const formatSuggestedSlot = (date: string, startTime: string, endTime: string) => {
@@ -181,16 +190,16 @@ const HangoutDetailModal = ({
   };
 
   const handleApplySuggestedTime = async () => {
-    if (!bestAvailabilitySuggestion || !onApplySuggestedTime) {
+    if (!selectedAvailabilitySuggestion || !onApplySuggestedTime) {
       return;
     }
 
     setApplyingSuggestedTime(true);
     try {
       await onApplySuggestedTime(hangout, {
-        date: bestAvailabilitySuggestion.date,
-        startTime: bestAvailabilitySuggestion.startTime,
-        endTime: bestAvailabilitySuggestion.endTime,
+        date: selectedAvailabilitySuggestion.date,
+        startTime: selectedAvailabilitySuggestion.startTime,
+        endTime: selectedAvailabilitySuggestion.endTime,
       });
     } finally {
       setApplyingSuggestedTime(false);
@@ -366,14 +375,14 @@ const HangoutDetailModal = ({
                   <h4 className="font-heading font-semibold text-foreground mb-1">Suggested Best Time</h4>
                   <p className="text-sm text-primary font-medium">
                     {formatSuggestedSlot(
-                      bestAvailabilitySuggestion.date,
-                      bestAvailabilitySuggestion.startTime,
-                      bestAvailabilitySuggestion.endTime
+                      selectedAvailabilitySuggestion?.date || bestAvailabilitySuggestion.date,
+                      selectedAvailabilitySuggestion?.startTime || bestAvailabilitySuggestion.startTime,
+                      selectedAvailabilitySuggestion?.endTime || bestAvailabilitySuggestion.endTime
                     )}
                   </p>
                   <p className="text-xs text-muted-foreground mt-2">
-                    {bestAvailabilitySuggestion.votes} vote{bestAvailabilitySuggestion.votes !== 1 ? "s" : ""}
-                    {` `}({bestAvailabilitySuggestion.preferredVotes} preferred)
+                    {(selectedAvailabilitySuggestion?.votes || bestAvailabilitySuggestion.votes)} vote{(selectedAvailabilitySuggestion?.votes || bestAvailabilitySuggestion.votes) !== 1 ? "s" : ""}
+                    {` `}({selectedAvailabilitySuggestion?.preferredVotes || bestAvailabilitySuggestion.preferredVotes} preferred)
                   </p>
 
                   <button
@@ -390,14 +399,22 @@ const HangoutDetailModal = ({
 
                   {rankedAvailabilitySuggestions.length > 1 && (
                     <div className="mt-3 pt-3 border-t border-primary/15">
-                      <p className="text-xs text-muted-foreground mb-2">Other strong options</p>
+                      <p className="text-xs text-muted-foreground mb-2">Top options</p>
                       <div className="space-y-1.5">
-                        {rankedAvailabilitySuggestions.slice(1, 3).map((slot) => (
-                          <div key={slot.key} className="text-xs text-foreground/80">
+                        {rankedAvailabilitySuggestions.slice(0, 3).map((slot) => (
+                          <button
+                            key={slot.key}
+                            onClick={() => setSelectedSuggestedSlotKey(slot.key)}
+                            className={`w-full text-left text-xs rounded-lg px-2 py-1.5 transition-colors ${
+                              selectedAvailabilitySuggestion?.key === slot.key
+                                ? "bg-primary/15 text-primary"
+                                : "text-foreground/80 hover:bg-primary/10"
+                            }`}
+                          >
                             {formatSuggestedSlot(slot.date, slot.startTime, slot.endTime)}
                             {` `}
                             <span className="text-muted-foreground">({slot.votes} votes)</span>
-                          </div>
+                          </button>
                         ))}
                       </div>
                     </div>
