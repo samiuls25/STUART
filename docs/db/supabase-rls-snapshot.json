@@ -230,7 +230,7 @@
     "policyname": "Users can view related hangouts",
     "cmd": "SELECT",
     "roles": "{public}",
-    "qual": "((created_by = auth.uid()) OR is_hangout_invitee(id, auth.uid()))",
+    "qual": "(((is_public = true) AND (status = 'confirmed'::text)) OR (created_by = auth.uid()) OR is_hangout_invitee(id, auth.uid()))",
     "with_check": null
   },
   {
