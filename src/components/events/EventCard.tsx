@@ -130,6 +130,11 @@ const EventCard = ({
                 {event.sourceLabel}
               </span>
             )}
+            {event.source === "hangout" && event.isJoinedByCurrentUser && (
+              <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-green-500/15 text-green-700">
+                Joined
+              </span>
+            )}
             <span className={`genre-tag ${isSelected ? "active" : ""}`}>
               {event.genre}
             </span>

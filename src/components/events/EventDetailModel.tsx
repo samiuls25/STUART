@@ -23,7 +23,7 @@ import type { Event } from "../../data/events";
 import { toast } from "../../hooks/use-toast";
 import { saveEvent, unsaveEvent, getSavedEventIds } from "../../lib/SavedEvents";
 import { useAuth } from "../../lib/AuthContext";
-import { getCurrentUserHangoutMembership, joinPublicHangout } from "../../lib/hangouts";
+import { getCurrentUserHangoutMembership, joinPublicHangout, leavePublicHangout } from "../../lib/hangouts";
 
 interface EventDetailModalProps {
   event: Event | null;
@@ -35,6 +35,7 @@ const EventDetailModal = ({ event, onClose }: EventDetailModalProps) => {
   const [isSaved, setIsSaved] = useState(false);
   const [hangoutMembershipState, setHangoutMembershipState] = useState<"checking" | "joined" | "not-joined">("not-joined");
   const [joiningHangout, setJoiningHangout] = useState(false);
+  const [leavingHangout, setLeavingHangout] = useState(false);
 
   const toScoreLabel = (score?: number) => {
     if (typeof score !== "number" || Number.isNaN(score) || score <= 0) {
@@ -184,6 +185,38 @@ const EventDetailModal = ({ event, onClose }: EventDetailModalProps) => {
       });
     } finally {
       setJoiningHangout(false);
+    }
+  };
+
+  const handleLeaveHangout = async () => {
+    if (!event || !resolvedHangoutId) return;
+
+    if (!user) {
+      toast({
+        title: "Sign in required",
+        description: "Please sign in to leave this hangout.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setLeavingHangout(true);
+    try {
+      await leavePublicHangout(resolvedHangoutId);
+      setHangoutMembershipState("not-joined");
+      toast({
+        title: "Left hangout",
+        description: "You have been removed from this hangout.",
+      });
+    } catch (error) {
+      const message = (error as { message?: string })?.message || "Could not leave hangout right now.";
+      toast({
+        title: "Could not leave hangout",
+        description: message,
+        variant: "destructive",
+      });
+    } finally {
+      setLeavingHangout(false);
     }
   };
 
@@ -338,9 +371,21 @@ const EventDetailModal = ({ event, onClose }: EventDetailModalProps) => {
                       {event.priceLevel === 'free' ? 'Free' : event.price}
                     </p>
                   </div>
-                  <button onClick={handleSuggestToGroup} className="btn-secondary flex items-center gap-2 text-sm">
-                    <Users className="w-4 h-4" /> Suggest to Group
-                  </button>
+                  {isHangoutEvent ? (
+                    hangoutMembershipState === "joined" ? (
+                      <button
+                        onClick={handleLeaveHangout}
+                        disabled={leavingHangout}
+                        className="btn-secondary flex items-center gap-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        <Users className="w-4 h-4" /> {leavingHangout ? "Leaving..." : "Leave Hangout"}
+                      </button>
+                    ) : null
+                  ) : (
+                    <button onClick={handleSuggestToGroup} className="btn-secondary flex items-center gap-2 text-sm">
+                      <Users className="w-4 h-4" /> Suggest to Group
+                    </button>
+                  )}
                   {event.ticketUrl ? (
                     <a href={event.ticketUrl} target="_blank" rel="noopener noreferrer" className="btn-primary flex items-center gap-2">
                       Get Tickets <ExternalLink className="w-4 h-4" />
@@ -353,7 +398,7 @@ const EventDetailModal = ({ event, onClose }: EventDetailModalProps) => {
                     ) : (
                       <button
                         onClick={handleJoinHangout}
-                        disabled={joiningHangout || hangoutMembershipState === "checking"}
+                        disabled={joiningHangout || leavingHangout || hangoutMembershipState === "checking"}
                         className="btn-primary flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         {joiningHangout

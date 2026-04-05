@@ -573,6 +573,11 @@ const EventCardGrid = ({
               {event.sourceLabel}
             </span>
           )}
+          {event.source === "hangout" && event.isJoinedByCurrentUser && (
+            <span className="px-2 py-0.5 bg-green-500/85 text-white text-[10px] font-semibold rounded-full">
+              Joined
+            </span>
+          )}
           {event.happeningNow && (
             <span className="px-2 py-0.5 bg-green-500 text-white text-[10px] font-bold rounded-full animate-pulse">
               NOW

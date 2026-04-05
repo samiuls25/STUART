@@ -188,6 +188,24 @@ export async function joinPublicHangout(hangoutId: string): Promise<void> {
     return;
   }
 
+  if (existingMembership.status === "no") {
+    const { error: rejoinError } = await supabase
+      .from("hangout_invites")
+      .update({
+        response_status: "yes",
+        availability_submitted: [],
+        responded_at: new Date().toISOString(),
+      })
+      .eq("hangout_id", hangoutId)
+      .eq("friend_id", user.id);
+
+    if (rejoinError) {
+      throw rejoinError;
+    }
+
+    return;
+  }
+
   const { error } = await supabase.from("hangout_invites").insert({
     hangout_id: hangoutId,
     friend_id: user.id,
@@ -202,6 +220,30 @@ export async function joinPublicHangout(hangoutId: string): Promise<void> {
     if ((error as { code?: string }).code === "23505") {
       return;
     }
+    throw error;
+  }
+}
+
+export async function leavePublicHangout(hangoutId: string): Promise<void> {
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    throw new Error("You must be signed in to leave this hangout.");
+  }
+
+  const { error } = await supabase
+    .from("hangout_invites")
+    .update({
+      response_status: "no",
+      availability_submitted: [],
+      responded_at: new Date().toISOString(),
+    })
+    .eq("hangout_id", hangoutId)
+    .eq("friend_id", user.id);
+
+  if (error) {
     throw error;
   }
 }
