@@ -7,35 +7,48 @@ import EventCard from "../components/events/EventCard";
 import MapView from "../components/map/MapView";
 import EventDetailModal from "../components/events/EventDetailModel";
 import EmptyState from "../components/shared/EmptyState";
-// import { events, type Event } from "../data/events";
-import type { Event } from "../data/events"; // keep the Event type if it matches your table
-import { supabase } from "../lib/supabase";
+import { fetchEvents, type Event } from "../data/events";
+import { useAuth } from "../lib/AuthContext";
 
 const MapPage = () => {
+  const { user, loading: authLoading } = useAuth();
   const [selectedSegment, setSelectedSegment] = useState("All");
   const [selectedGenre, setSelectedGenre] = useState("All");
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
   const [hoveredEventId, setHoveredEventId] = useState<string | null>(null);
   const [detailEvent, setDetailEvent] = useState<Event | null>(null);
   const [events, setEvents] = useState<Event[]>([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-  const loadEvents = async () => {
-    const { data, error } = await supabase
-      .from("events")
-      .select("*")
-      .limit(200);
+    if (authLoading) return;
 
-    if (error) {
-      console.error("Supabase events fetch error:", error);
-      return;
-    }
+    let isMounted = true;
+    setLoading(true);
 
-    setEvents((data ?? []) as Event[]);
-  };
+    fetchEvents(user?.id)
+      .then((rows) => {
+        if (!isMounted) return;
 
-  loadEvents();
-}, []);
+        const mappableRows = rows.filter(
+          (event) =>
+            typeof event.latitude === "number"
+            && Number.isFinite(event.latitude)
+            && typeof event.longitude === "number"
+            && Number.isFinite(event.longitude)
+        );
+
+        setEvents(mappableRows);
+      })
+      .finally(() => {
+        if (!isMounted) return;
+        setLoading(false);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [authLoading, user?.id]);
 
   const filteredEvents = useMemo(() => {
     return events.filter((event) => {
@@ -60,6 +73,14 @@ const MapPage = () => {
     setSelectedSegment("All");
     setSelectedGenre("All");
   };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <span className="text-muted-foreground text-lg">Loading map events...</span>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background">

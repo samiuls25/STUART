@@ -190,7 +190,9 @@ const Explore = () => {
 
   const handleEventClick = (event: Event) => {
     setDetailEvent(event);
-    void trackEventView(event.id, "explore-card");
+    if (event.isTrackable !== false) {
+      void trackEventView(event.id, "explore-card");
+    }
   };
 
   const handleSearchArea = () => {
@@ -502,15 +504,25 @@ const EventCardGrid = ({
   };
 
   useEffect(() => {
-    if (user) {
+    if (user && event.isSaveable !== false) {
       getSavedEventIds().then((savedIds) => {
         setIsSaved(savedIds.includes(event.id));
       });
+    } else {
+      setIsSaved(false);
     }
-  }, [user, event.id]);
+  }, [user, event.id, event.isSaveable]);
 
   const handleSaveToggle = async (e: React.MouseEvent) => {
     e.stopPropagation();
+
+    if (event.isSaveable === false) {
+      toast({
+        title: "Save not available",
+        description: "Public hangouts are discoverable but not saved as ticketed events.",
+      });
+      return;
+    }
     
     if (!user) {
       toast({
@@ -556,6 +568,11 @@ const EventCardGrid = ({
         
         {/* Badges */}
         <div className="absolute top-3 left-3 flex items-center gap-2">
+          {event.sourceLabel && (
+            <span className="px-2 py-0.5 bg-background/85 text-foreground text-[10px] font-semibold rounded-full backdrop-blur-sm border border-border">
+              {event.sourceLabel}
+            </span>
+          )}
           {event.happeningNow && (
             <span className="px-2 py-0.5 bg-green-500 text-white text-[10px] font-bold rounded-full animate-pulse">
               NOW
@@ -574,16 +591,18 @@ const EventCardGrid = ({
         </div>
         
         {/* Save Button */}
-        <button
-          onClick={handleSaveToggle}
-          className={`absolute top-3 right-3 p-2 rounded-full backdrop-blur-sm opacity-0 group-hover:opacity-100 transition-all ${
-            isSaved 
-              ? "bg-primary text-primary-foreground" 
-              : "bg-background/80 hover:bg-primary/20"
-          }`}
-        >
-          <Heart className={`w-4 h-4 ${isSaved ? "fill-current" : ""}`} />
-        </button>
+        {event.isSaveable !== false && (
+          <button
+            onClick={handleSaveToggle}
+            className={`absolute top-3 right-3 p-2 rounded-full backdrop-blur-sm opacity-0 group-hover:opacity-100 transition-all ${
+              isSaved 
+                ? "bg-primary text-primary-foreground" 
+                : "bg-background/80 hover:bg-primary/20"
+            }`}
+          >
+            <Heart className={`w-4 h-4 ${isSaved ? "fill-current" : ""}`} />
+          </button>
+        )}
 
         <div className="absolute bottom-3 left-3">
           <span className="genre-tag active">{event.genre}</span>

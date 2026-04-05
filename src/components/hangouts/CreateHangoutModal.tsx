@@ -26,6 +26,7 @@ const CreateHangoutModal = ({ isOpen, onClose, onCreate }: CreateHangoutModalPro
   const [heatmapSlots, setHeatmapSlots] = useState<Record<string, number>>({});
   const [locationName, setLocationName] = useState("");
   const [isFlexibleLocation, setIsFlexibleLocation] = useState(true);
+  const [isPublicHangout, setIsPublicHangout] = useState(false);
   const [selectedFriends, setSelectedFriends] = useState<string[]>([]);
   const [highlightedFriends, setHighlightedFriends] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
@@ -97,6 +98,7 @@ const CreateHangoutModal = ({ isOpen, onClose, onCreate }: CreateHangoutModalPro
             isFlexible: isFlexibleLocation,
           }
         : undefined,
+      isPublic: isPublicHangout,
       invitedFriends: selectedFriends,
       highlightedFriends,
       status: "pending",
@@ -119,6 +121,7 @@ const CreateHangoutModal = ({ isOpen, onClose, onCreate }: CreateHangoutModalPro
     setHeatmapSlots({});
     setLocationName("");
     setIsFlexibleLocation(true);
+    setIsPublicHangout(false);
     setSelectedFriends([]);
     setHighlightedFriends([]);
     setSearchQuery("");
@@ -363,6 +366,22 @@ const CreateHangoutModal = ({ isOpen, onClose, onCreate }: CreateHangoutModalPro
                           />
                         </div>
                       )}
+                    </div>
+
+                    <div className="rounded-xl border border-border bg-muted/30 p-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-medium text-foreground">Make this hangout public</p>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            Public confirmed hangouts can appear in Explore and Map for everyone.
+                          </p>
+                        </div>
+                        <Switch
+                          checked={isPublicHangout}
+                          onCheckedChange={setIsPublicHangout}
+                          aria-label="Make hangout public"
+                        />
+                      </div>
                     </div>
                   </motion.div>
                 )}

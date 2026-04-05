@@ -41,16 +41,26 @@ const EventDetailModal = ({ event, onClose }: EventDetailModalProps) => {
   };
 
   useEffect(() => {
-    if (user && event) {
+    if (user && event && event.isSaveable !== false) {
       getSavedEventIds().then((savedIds) => {
         setIsSaved(savedIds.includes(event.id));
       });
+    } else {
+      setIsSaved(false);
     }
   }, [user, event]);
 
   if (!event) return null;
 
   const handleSave = async () => {
+    if (event.isSaveable === false) {
+      toast({
+        title: "Save not available",
+        description: "Public hangouts are discoverable but not saved as ticketed events.",
+      });
+      return;
+    }
+
     if (!user) {
       toast({
         title: "Sign in required",
@@ -122,15 +132,22 @@ const EventDetailModal = ({ event, onClose }: EventDetailModalProps) => {
                   </button>
 
                   <div className="absolute top-4 left-4 flex gap-2">
-                    <button onClick={handleSave} className={`p-2 rounded-full backdrop-blur-sm transition-colors ${isSaved ? 'bg-primary text-primary-foreground' : 'bg-background/80 hover:bg-primary/20'}`}>
-                      <Heart className={`w-5 h-5 ${isSaved ? 'fill-current' : ''}`} />
-                    </button>
+                    {event.isSaveable !== false && (
+                      <button onClick={handleSave} className={`p-2 rounded-full backdrop-blur-sm transition-colors ${isSaved ? 'bg-primary text-primary-foreground' : 'bg-background/80 hover:bg-primary/20'}`}>
+                        <Heart className={`w-5 h-5 ${isSaved ? 'fill-current' : ''}`} />
+                      </button>
+                    )}
                     <button className="p-2 rounded-full bg-background/80 backdrop-blur-sm hover:bg-primary/20 transition-colors">
                       <Share2 className="w-5 h-5 text-foreground" />
                     </button>
                   </div>
 
                   <div className="absolute bottom-4 left-6 flex items-center gap-2">
+                    {event.sourceLabel && (
+                      <span className="px-2 py-1 bg-background/80 backdrop-blur-sm text-xs rounded-full text-foreground border border-border">
+                        {event.sourceLabel}
+                      </span>
+                    )}
                     <span className="genre-tag active">{event.genre}</span>
                     {event.tags?.slice(0, 2).map((tag) => (
                       <span key={tag} className="px-2 py-1 bg-background/80 backdrop-blur-sm text-xs rounded-full text-foreground">
@@ -145,6 +162,9 @@ const EventDetailModal = ({ event, onClose }: EventDetailModalProps) => {
                   <div>
                     <h2 className="font-heading text-2xl font-bold text-foreground mb-2">{event.name}</h2>
                     {event.description && <p className="text-muted-foreground text-sm">{event.description}</p>}
+                    {event.organizerName && (
+                      <p className="text-xs text-muted-foreground mt-2">Organized by {event.organizerName}</p>
+                    )}
                   </div>
 
                   {/* Recommendation Badge */}
@@ -235,9 +255,15 @@ const EventDetailModal = ({ event, onClose }: EventDetailModalProps) => {
                   <button onClick={handleSuggestToGroup} className="btn-secondary flex items-center gap-2 text-sm">
                     <Users className="w-4 h-4" /> Suggest to Group
                   </button>
-                  <a href={event.ticketUrl} target="_blank" rel="noopener noreferrer" className="btn-primary flex items-center gap-2">
-                    Get Tickets <ExternalLink className="w-4 h-4" />
-                  </a>
+                  {event.ticketUrl ? (
+                    <a href={event.ticketUrl} target="_blank" rel="noopener noreferrer" className="btn-primary flex items-center gap-2">
+                      Get Tickets <ExternalLink className="w-4 h-4" />
+                    </a>
+                  ) : (
+                    <a href="/hangouts" className="btn-primary flex items-center gap-2">
+                      Open Hangouts
+                    </a>
+                  )}
                 </div>
               </div>
             </motion.div>

@@ -6,6 +6,7 @@ interface HangoutRow {
   title: string;
   description: string | null;
   activity_type: Hangout["activityType"];
+  is_public?: boolean;
   created_by: string;
   status: Hangout["status"];
   proposed_date: string;
@@ -33,6 +34,7 @@ export interface CreateHangoutInput {
   title: string;
   description?: string;
   activityType: Hangout["activityType"];
+  isPublic?: boolean;
   proposedTimeRange: {
     date: string;
     startTime: string;
@@ -49,6 +51,15 @@ export interface CreateHangoutInput {
 }
 
 const setupIssueCodes = new Set(["42P01", "PGRST205", "42P17"]);
+
+const isMissingColumnError = (error: unknown, columnName: string) => {
+  if (!error || typeof error !== "object") return false;
+
+  const candidate = error as { code?: string; message?: string; details?: string };
+  const message = `${candidate.message || ""} ${candidate.details || ""}`.toLowerCase();
+
+  return candidate.code === "42703" && message.includes(columnName.toLowerCase());
+};
 
 export function isHangoutsSetupError(error: unknown): boolean {
   if (!error || typeof error !== "object") return false;
@@ -124,23 +135,45 @@ export async function createHangout(input: CreateHangoutInput): Promise<void> {
 
   if (!user) throw new Error("You must be signed in to create a hangout.");
 
-  const { data: insertedHangout, error: hangoutError } = await supabase
+  const baseInsertPayload = {
+    title: input.title,
+    description: input.description?.trim() || null,
+    activity_type: input.activityType,
+    created_by: user.id,
+    status: "pending",
+    proposed_date: input.proposedTimeRange.date,
+    proposed_start_time: input.proposedTimeRange.startTime,
+    proposed_end_time: input.proposedTimeRange.endTime,
+    location_name: input.location?.name?.trim() || null,
+    location_address: input.location?.address?.trim() || null,
+    is_flexible_location: input.location?.isFlexible ?? true,
+  };
+
+  const insertWithPublicFlag = {
+    ...baseInsertPayload,
+    is_public: input.isPublic ?? false,
+  };
+
+  let insertedHangout: { id: string } | null = null;
+
+  let { data: insertedWithPublic, error: hangoutError } = await supabase
     .from("hangouts")
-    .insert({
-      title: input.title,
-      description: input.description?.trim() || null,
-      activity_type: input.activityType,
-      created_by: user.id,
-      status: "pending",
-      proposed_date: input.proposedTimeRange.date,
-      proposed_start_time: input.proposedTimeRange.startTime,
-      proposed_end_time: input.proposedTimeRange.endTime,
-      location_name: input.location?.name?.trim() || null,
-      location_address: input.location?.address?.trim() || null,
-      is_flexible_location: input.location?.isFlexible ?? true,
-    })
+    .insert(insertWithPublicFlag)
     .select("id")
     .single();
+
+  if (hangoutError && isMissingColumnError(hangoutError, "is_public")) {
+    const retry = await supabase
+      .from("hangouts")
+      .insert(baseInsertPayload)
+      .select("id")
+      .single();
+
+    insertedWithPublic = retry.data;
+    hangoutError = retry.error;
+  }
+
+  insertedHangout = insertedWithPublic;
 
   if (hangoutError) throw hangoutError;
 
@@ -301,6 +334,7 @@ function mapRowToHangout(row: HangoutRow, invites: HangoutInviteRow[]): Hangout 
     title: row.title,
     description: row.description || undefined,
     activityType: row.activity_type,
+    isPublic: Boolean(row.is_public),
     createdBy: row.created_by,
     proposedTimeRange: {
       date: row.proposed_date,

@@ -6,11 +6,16 @@ export interface Event {
     time: string;
     venue: string;
     neighborhood: string;
-    latitude: number;
-    longitude: number;
+  latitude: number | null;
+  longitude: number | null;
     segment: string;
     genre: string;
     ticketUrl: string;
+  source?: string;
+  sourceLabel?: string;
+  organizerName?: string;
+  isSaveable?: boolean;
+  isTrackable?: boolean;
     price?: string;
     // Enhanced fields
     description?: string;
@@ -343,6 +348,7 @@ export interface Event {
     "Theater",
     "Exhibition",
     "Comedy",
+    "Hangout",
   ];
   
   export const priceLevels = ["All", "Free", "$", "$$", "$$$"];
@@ -369,6 +375,31 @@ interface UserRecommendationRow {
   recommendation_reasons: string[] | null;
 }
 
+interface HangoutPublicRow {
+  id: string;
+  title: string;
+  description: string | null;
+  activity_type: "chill" | "outdoor" | "social" | "late-night" | "active" | "creative";
+  created_by: string;
+  status: string;
+  is_public?: boolean;
+  proposed_date: string;
+  proposed_start_time: string;
+  confirmed_date: string | null;
+  confirmed_start_time: string | null;
+  location_name: string | null;
+  location_address: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  hero_image?: string | null;
+  tags?: string[] | null;
+}
+
+interface ProfileNameRow {
+  id: string;
+  name: string | null;
+}
+
 const normalizeEventKeyPart = (value?: string) => {
   if (!value) return "";
   return value
@@ -381,10 +412,159 @@ const normalizeEventKeyPart = (value?: string) => {
 
 const buildConsolidationKey = (event: Event) => {
   return [
+    event.source || "ticketmaster",
     normalizeEventKeyPart(event.name),
     event.date,
     normalizeEventKeyPart(event.venue),
   ].join("|");
+};
+
+const HANGOUT_ACTIVITY_METADATA: Record<string, { segment: string; genre: string; tags: string[]; heroImage: string }> = {
+  chill: {
+    segment: "Arts",
+    genre: "Hangout",
+    tags: ["hangout", "chill", "social"],
+    heroImage: "https://images.unsplash.com/photo-1442512595331-e89e73853f31?w=1200&q=80",
+  },
+  outdoor: {
+    segment: "Arts",
+    genre: "Hangout",
+    tags: ["hangout", "outdoor", "social"],
+    heroImage: "https://images.unsplash.com/photo-1469474968028-56623f02e42e?w=1200&q=80",
+  },
+  social: {
+    segment: "Music",
+    genre: "Hangout",
+    tags: ["hangout", "social", "group"],
+    heroImage: "https://images.unsplash.com/photo-1528605248644-14dd04022da1?w=1200&q=80",
+  },
+  "late-night": {
+    segment: "Music",
+    genre: "Hangout",
+    tags: ["hangout", "nightlife", "social"],
+    heroImage: "https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?w=1200&q=80",
+  },
+  active: {
+    segment: "Sports",
+    genre: "Hangout",
+    tags: ["hangout", "active", "fitness"],
+    heroImage: "https://images.unsplash.com/photo-1517836357463-d25dfeac3438?w=1200&q=80",
+  },
+  creative: {
+    segment: "Arts",
+    genre: "Hangout",
+    tags: ["hangout", "creative", "art"],
+    heroImage: "https://images.unsplash.com/photo-1513364776144-60967b0f800f?w=1200&q=80",
+  },
+};
+
+const defaultHangoutMetadata = HANGOUT_ACTIVITY_METADATA.social;
+
+const deriveNeighborhoodFromAddress = (address?: string | null) => {
+  if (!address) return "New York";
+
+  const parts = address
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+  if (parts.length >= 2) return parts[1];
+  return parts[0] || "New York";
+};
+
+const isHangoutsTableMissing = (error: unknown) => {
+  if (!error || typeof error !== "object") return false;
+  const candidate = error as { code?: string; message?: string; details?: string };
+  const message = `${candidate.message || ""} ${candidate.details || ""}`.toLowerCase();
+
+  return candidate.code === "42P01" || message.includes("relation") && message.includes("hangouts") && message.includes("does not exist");
+};
+
+const fetchPublicHangoutEvents = async (): Promise<Event[]> => {
+  const { data: hangoutRows, error: hangoutError } = await supabase
+    .from("hangouts")
+    .select("*")
+    .eq("status", "confirmed")
+    .order("confirmed_date", { ascending: true });
+
+  if (hangoutError) {
+    if (isHangoutsTableMissing(hangoutError)) {
+      return [];
+    }
+
+    console.error("Error fetching hangouts for events feed:", hangoutError);
+    return [];
+  }
+
+  const publicRows = ((hangoutRows as HangoutPublicRow[] | null) || []).filter(
+    (row) => row.is_public === true
+  );
+
+  if (publicRows.length === 0) {
+    return [];
+  }
+
+  const creatorIds = [...new Set(publicRows.map((row) => row.created_by).filter(Boolean))];
+  const profileNameMap = new Map<string, string>();
+
+  if (creatorIds.length > 0) {
+    const { data: profileRows, error: profileError } = await supabase
+      .from("profiles")
+      .select("id,name")
+      .in("id", creatorIds);
+
+    if (profileError) {
+      console.error("Error fetching public hangout organizers:", profileError);
+    } else {
+      ((profileRows as ProfileNameRow[] | null) || []).forEach((row) => {
+        if (row.name) {
+          profileNameMap.set(row.id, row.name);
+        }
+      });
+    }
+  }
+
+  return publicRows
+    .map((row): Event | null => {
+      const activityMetadata = HANGOUT_ACTIVITY_METADATA[row.activity_type] || defaultHangoutMetadata;
+      const date = row.confirmed_date || row.proposed_date;
+      if (!date) return null;
+
+      const time = row.confirmed_start_time || row.proposed_start_time || "TBA";
+
+      return {
+        id: `hangout:${row.id}`,
+        name: row.title,
+        heroImage: row.hero_image || activityMetadata.heroImage,
+        date,
+        time,
+        venue: row.location_name || "TBD",
+        neighborhood: deriveNeighborhoodFromAddress(row.location_address),
+        latitude: row.latitude ?? null,
+        longitude: row.longitude ?? null,
+        segment: activityMetadata.segment,
+        genre: activityMetadata.genre,
+        ticketUrl: "",
+        source: "hangout",
+        sourceLabel: "Public Hangout",
+        organizerName: profileNameMap.get(row.created_by),
+        isSaveable: false,
+        isTrackable: false,
+        price: "Free",
+        description: row.description || "Community hangout",
+        travelTime: undefined,
+        tags: row.tags?.length ? row.tags : activityMetadata.tags,
+        priceLevel: "free",
+        isRecommended: false,
+        recommendationScore: 0,
+        recommendationReasons: [],
+        isTrending: false,
+        trendingRank: 0,
+        happeningNow: false,
+        isTonight: false,
+      };
+    })
+    .filter((event): event is Event => event !== null);
 };
 
 const PLACEHOLDER_IMAGE_MIN_ROWS = 60;
@@ -537,11 +717,16 @@ export async function fetchEvents(userId?: string): Promise<Event[]> {
     time: e.time,
     venue: e.venue,
     neighborhood: e.neighborhood,
-    latitude: e.latitude,
-    longitude: e.longitude,
+    latitude: e.latitude ?? null,
+    longitude: e.longitude ?? null,
     segment: e.segment,
     genre: e.genre,
     ticketUrl: e.ticket_url || e.ticketUrl || "",
+    source: e.source || "ticketmaster",
+    sourceLabel: e.source === "manual" ? "Manual" : "Ticketmaster",
+    organizerName: undefined,
+    isSaveable: true,
+    isTrackable: true,
     price: e.price,
     description: e.description,
     distance: e.distance ?? 1,
@@ -563,6 +748,10 @@ export async function fetchEvents(userId?: string): Promise<Event[]> {
     isTonight: e.is_tonight ?? e.isTonight ?? false,
   }));
 
-  const filteredByImageQuality = filterLikelyPlaceholderImageEvents(mappedEvents);
+  const publicHangoutEvents = await fetchPublicHangoutEvents();
+
+  const mergedEvents = [...mappedEvents, ...publicHangoutEvents];
+
+  const filteredByImageQuality = filterLikelyPlaceholderImageEvents(mergedEvents);
   return consolidateEvents(filteredByImageQuality);
 }

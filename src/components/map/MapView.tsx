@@ -30,7 +30,12 @@ export default function MapView({
 
   const center = useMemo(() => {
     // If you have events, center around first event; otherwise NYC
-    if (events.length) return { lat: events[0].latitude, lng: events[0].longitude };
+    if (events.length) {
+      return {
+        lat: events[0].latitude ?? 40.7128,
+        lng: events[0].longitude ?? -74.006,
+      };
+    }
     return { lat: 40.7128, lng: -74.006 };
   }, [events]);
 

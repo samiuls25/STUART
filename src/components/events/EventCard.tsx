@@ -27,15 +27,25 @@ const EventCard = ({
   const [isSaved, setIsSaved] = useState(false);
 
   useEffect(() => {
-    if (user) {
+    if (user && event.isSaveable !== false) {
       getSavedEventIds().then((savedIds) => {
         setIsSaved(savedIds.includes(event.id));
       });
+    } else {
+      setIsSaved(false);
     }
-  }, [user, event.id]);
+  }, [user, event.id, event.isSaveable]);
 
   const handleSaveToggle = async (e: React.MouseEvent) => {
     e.stopPropagation();
+
+    if (event.isSaveable === false) {
+      toast({
+        title: "Save not available",
+        description: "This public hangout is discoverable but not saved as a ticketed event.",
+      });
+      return;
+    }
     
     if (!user) {
       toast({
@@ -97,22 +107,29 @@ const EventCard = ({
           )}
           
           {/* Save button */}
-          <button
-            onClick={handleSaveToggle}
-            className={`absolute top-2 right-2 p-1.5 rounded-full backdrop-blur-sm opacity-0 group-hover:opacity-100 transition-all ${
-              isSaved 
-                ? "bg-primary text-primary-foreground" 
-                : "bg-background/80 hover:bg-primary/20"
-            }`}
-          >
-            <Heart className={`w-3.5 h-3.5 ${isSaved ? "fill-current" : ""}`} />
-          </button>
+          {event.isSaveable !== false && (
+            <button
+              onClick={handleSaveToggle}
+              className={`absolute top-2 right-2 p-1.5 rounded-full backdrop-blur-sm opacity-0 group-hover:opacity-100 transition-all ${
+                isSaved 
+                  ? "bg-primary text-primary-foreground" 
+                  : "bg-background/80 hover:bg-primary/20"
+              }`}
+            >
+              <Heart className={`w-3.5 h-3.5 ${isSaved ? "fill-current" : ""}`} />
+            </button>
+          )}
         </div>
 
         {/* Content */}
         <div className="flex-1 min-w-0 py-1">
           {/* Genre Tag + Distance */}
           <div className="flex items-center gap-2 mb-2">
+            {event.sourceLabel && (
+              <span className="text-[10px] font-medium px-2 py-0.5 rounded-full border border-border text-muted-foreground">
+                {event.sourceLabel}
+              </span>
+            )}
             <span className={`genre-tag ${isSelected ? "active" : ""}`}>
               {event.genre}
             </span>

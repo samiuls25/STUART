@@ -28,7 +28,7 @@ const MapPin = ({ event, isActive, isHovered, onSelect, onHover }: MapPinProps) 
 
   return (
     <OverlayView
-      position={{ lat: event.latitude, lng: event.longitude }}
+      position={{ lat: event.latitude ?? 40.7128, lng: event.longitude ?? -74.006 }}
       mapPaneName={OverlayView.OVERLAY_MOUSE_TARGET}
       getPixelPositionOffset={(w, h) => ({ x: -w / 2, y: -h / 2 })}
     >

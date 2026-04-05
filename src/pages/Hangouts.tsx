@@ -295,6 +295,7 @@ const Hangouts = () => {
         title: hangout.title,
         description: hangout.description,
         activityType: hangout.activityType,
+        isPublic: hangout.isPublic,
         proposedTimeRange: hangout.proposedTimeRange,
         location: hangout.location,
         invitedFriends: hangout.invitedFriends || [],

@@ -42,6 +42,7 @@ export interface Hangout {
   title: string;
   description?: string;
   activityType: "chill" | "outdoor" | "social" | "late-night" | "active" | "creative";
+  isPublic?: boolean;
   createdBy: string;
   proposedTimeRange: {
     date: string;
