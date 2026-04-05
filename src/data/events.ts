@@ -770,7 +770,7 @@ export async function fetchEvents(userId?: string): Promise<Event[]> {
     const { data, error } = await supabase
       .from("events")
       .select("*")
-      .order("date", { ascending: true })
+      .order("date", { ascending: false })
       .range(offset, offset + pageSize - 1);
 
     if (error) throw error;
@@ -856,6 +856,16 @@ export async function fetchEvents(userId?: string): Promise<Event[]> {
   const publicHangoutEvents = await fetchPublicHangoutEvents(effectiveUserId);
 
   const mergedEvents = [...mappedEvents, ...publicHangoutEvents];
+  mergedEvents.sort((a, b) => {
+    const aTs = new Date(a.date).getTime();
+    const bTs = new Date(b.date).getTime();
+
+    if (!Number.isNaN(aTs) && !Number.isNaN(bTs) && aTs !== bTs) {
+      return bTs - aTs;
+    }
+
+    return (b.date || "").localeCompare(a.date || "");
+  });
 
   const filteredByImageQuality = filterLikelyPlaceholderImageEvents(mergedEvents);
   const consolidated = consolidateEvents(filteredByImageQuality);

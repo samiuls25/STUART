@@ -3,6 +3,7 @@ import React from "react";
 import { motion } from "framer-motion";
 import { Heart, Trash2 } from "lucide-react";
 import Navbar from "../components/layout/Navbar";
+import AuthModal from "../components/auth/AuthModal";
 import EventDetailModal from "../components/events/EventDetailModel";
 import { type Event, fetchEvents } from "../data/events";
 import { getSavedEventIds, unsaveEvent } from "../lib/SavedEvents";
@@ -38,6 +39,7 @@ const compareByDateAsc = (a: Event, b: Event) => {
 
 const Saved = () => {
   const { user } = useAuth();
+  const [showAuth, setShowAuth] = useState(false);
   const [events, setEvents] = useState<Event[]>([]);
   const [savedEventIds, setSavedEventIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
@@ -94,8 +96,12 @@ const Saved = () => {
             <h2 className="font-heading text-2xl font-bold text-foreground mb-4">
               Sign in to view saved events
             </h2>
+            <button onClick={() => setShowAuth(true)} className="btn-primary px-6 py-3">
+              Sign In To Continue
+            </button>
           </div>
         </main>
+        <AuthModal isOpen={showAuth} onClose={() => setShowAuth(false)} />
       </div>
     );
   }

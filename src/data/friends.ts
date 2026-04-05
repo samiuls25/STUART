@@ -63,6 +63,8 @@ export interface Hangout {
     startTime: string;
     endTime: string;
   };
+  confirmedAt?: string;
+  confirmedByUserId?: string;
 }
 
 export interface HangoutResponse {

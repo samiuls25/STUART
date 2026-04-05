@@ -19,6 +19,7 @@ interface HangoutRow {
   location_address: string | null;
   is_flexible_location: boolean;
   created_at: string;
+  updated_at: string;
 }
 
 interface HangoutInviteRow {
@@ -500,6 +501,7 @@ export async function applySuggestedHangoutTime(
       confirmed_date: suggestedTime.date,
       confirmed_start_time: suggestedTime.startTime,
       confirmed_end_time: suggestedTime.endTime,
+      updated_at: new Date().toISOString(),
     })
     .eq("id", hangoutId)
     .eq("created_by", user.id);
@@ -580,11 +582,13 @@ async function syncHangoutStatus(hangoutId: string): Promise<void> {
     confirmed_date: string | null;
     confirmed_start_time: string | null;
     confirmed_end_time: string | null;
+    updated_at: string;
   } = {
     status: nextStatus,
     confirmed_date: null,
     confirmed_start_time: null,
     confirmed_end_time: null,
+    updated_at: new Date().toISOString(),
   };
 
   if (nextStatus === "confirmed") {
@@ -637,5 +641,7 @@ function mapRowToHangout(row: HangoutRow, invites: HangoutInviteRow[]): Hangout 
             endTime: row.confirmed_end_time,
           }
         : undefined,
+    confirmedAt: row.status === "confirmed" ? (row.updated_at || row.created_at) : undefined,
+    confirmedByUserId: row.created_by,
   };
 }

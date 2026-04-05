@@ -45,6 +45,7 @@ const HangoutDetailModal = ({
 
   const activityType = getActivityType(hangout.activityType);
   const creator = getFriendById(hangout.createdBy);
+  const confirmedBy = hangout.confirmedByUserId ? getFriendById(hangout.confirmedByUserId) : null;
   const currentUserResponse = hangout.responses.find((r) => r.friendId === viewerId);
   const visibleResponses = hangout.isPublic
     ? hangout.responses.filter((response) => response.status !== "no")
@@ -189,6 +190,27 @@ const HangoutDetailModal = ({
     }
   };
 
+  const formatConfirmationAuditStamp = () => {
+    if (hangout.status !== "confirmed" || !hangout.confirmedAt) {
+      return null;
+    }
+
+    let confirmedAtLabel = hangout.confirmedAt;
+    try {
+      confirmedAtLabel = format(parseISO(hangout.confirmedAt), "MMM d, yyyy 'at' h:mm a");
+    } catch {
+      // Fall back to the raw value if parsing fails.
+    }
+
+    const confirmerName = hangout.confirmedByUserId === viewerId
+      ? "you"
+      : (confirmedBy?.name || "the organizer");
+
+    return `Confirmed by ${confirmerName} on ${confirmedAtLabel}`;
+  };
+
+  const confirmationAuditStamp = formatConfirmationAuditStamp();
+
   const handleApplySuggestedTime = async () => {
     if (!selectedAvailabilitySuggestion || !onApplySuggestedTime) {
       return;
@@ -301,6 +323,12 @@ const HangoutDetailModal = ({
                     {isCreator ? "Created by you" : `Created by ${creator?.name || "Unknown"}`}
                   </span>
                 </div>
+                {confirmationAuditStamp && (
+                  <div className="flex items-center gap-3 text-sm">
+                    <Check className="w-4 h-4 text-green-600 flex-shrink-0" />
+                    <span className="text-foreground">{confirmationAuditStamp}</span>
+                  </div>
+                )}
               </div>
 
               {/* Highlighted friends */}
