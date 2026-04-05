@@ -657,6 +657,59 @@ const consolidateEvents = (events: Event[]) => {
     };
   });
 };
+
+const ensureRecommendationFallback = (events: Event[]) => {
+  if (events.some((event) => event.isRecommended)) {
+    return events;
+  }
+
+  const fallbackCandidates = [...events]
+    .filter((event) => event.source !== "hangout")
+    .sort((a, b) => {
+      const aRank = a.trendingRank && a.trendingRank > 0 ? a.trendingRank : Number.MAX_SAFE_INTEGER;
+      const bRank = b.trendingRank && b.trendingRank > 0 ? b.trendingRank : Number.MAX_SAFE_INTEGER;
+      if (aRank !== bRank) return aRank - bRank;
+
+      if ((a.happeningNow ? 1 : 0) !== (b.happeningNow ? 1 : 0)) {
+        return (b.happeningNow ? 1 : 0) - (a.happeningNow ? 1 : 0);
+      }
+
+      if ((a.isTonight ? 1 : 0) !== (b.isTonight ? 1 : 0)) {
+        return (b.isTonight ? 1 : 0) - (a.isTonight ? 1 : 0);
+      }
+
+      return (a.date || "").localeCompare(b.date || "");
+    })
+    .slice(0, 4);
+
+  if (fallbackCandidates.length === 0) {
+    return events;
+  }
+
+  const fallbackIdSet = new Set(fallbackCandidates.map((event) => event.id));
+
+  return events.map((event) => {
+    if (!fallbackIdSet.has(event.id)) {
+      return event;
+    }
+
+    const fallbackScore = event.trendingRank && event.trendingRank > 0
+      ? Math.max(70, 100 - event.trendingRank * 3)
+      : 72;
+
+    return {
+      ...event,
+      isRecommended: true,
+      recommendationScore: event.recommendationScore && event.recommendationScore > 0
+        ? event.recommendationScore
+        : fallbackScore,
+      recommendationReasons:
+        event.recommendationReasons && event.recommendationReasons.length > 0
+          ? event.recommendationReasons
+          : ["Popular around NYC right now", "Great match while we personalize your feed"],
+    };
+  });
+};
  
 export async function fetchEvents(userId?: string): Promise<Event[]> {
   const {
@@ -760,5 +813,6 @@ export async function fetchEvents(userId?: string): Promise<Event[]> {
   const mergedEvents = [...mappedEvents, ...publicHangoutEvents];
 
   const filteredByImageQuality = filterLikelyPlaceholderImageEvents(mergedEvents);
-  return consolidateEvents(filteredByImageQuality);
+  const consolidated = consolidateEvents(filteredByImageQuality);
+  return ensureRecommendationFallback(consolidated);
 }

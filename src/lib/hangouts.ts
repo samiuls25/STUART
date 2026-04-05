@@ -58,7 +58,14 @@ const isMissingColumnError = (error: unknown, columnName: string) => {
   const candidate = error as { code?: string; message?: string; details?: string };
   const message = `${candidate.message || ""} ${candidate.details || ""}`.toLowerCase();
 
-  return candidate.code === "42703" && message.includes(columnName.toLowerCase());
+  const hasMissingColumnMessage = message.includes("could not find")
+    && message.includes(columnName.toLowerCase())
+    && message.includes("column");
+
+  return (
+    (candidate.code === "42703" && message.includes(columnName.toLowerCase()))
+    || (candidate.code === "PGRST204" && hasMissingColumnMessage)
+  );
 };
 
 export function isHangoutsSetupError(error: unknown): boolean {

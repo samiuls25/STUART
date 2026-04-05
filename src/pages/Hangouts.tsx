@@ -64,7 +64,7 @@ const Hangouts = () => {
         isBlocked: friend.isBlocked,
       }));
 
-      setInviteCandidates(nextDirectory);
+      setInviteCandidates(nextDirectory.map((friend) => ({ ...friend })));
 
       const participantIds = new Set<string>();
       fetchedHangouts.forEach((hangout) => {
