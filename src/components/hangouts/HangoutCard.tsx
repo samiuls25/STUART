@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { motion } from "framer-motion";
-import { MapPin, Clock, Users, Check, X, HelpCircle, ChevronRight, Trash2 } from "lucide-react";
+import { MapPin, Clock, Users, Check, X, HelpCircle, ChevronRight, Trash2, EyeOff } from "lucide-react";
 import { Hangout, getFriendById, getActivityType } from "../../data/friends";
 import { format } from "date-fns";
 import ConfirmDeleteHangoutDialog from "./ConfirmDeleteHangoutDialog";
@@ -11,7 +11,8 @@ interface HangoutCardProps {
   onViewDetails?: (hangout: Hangout) => void;
   onOpenAvailability?: (hangout: Hangout) => void;
   onDeleteHangout?: (hangout: Hangout) => void;
-  variant?: "suggested" | "pending" | "confirmed";
+  onHideDeclined?: (hangout: Hangout) => void;
+  variant?: "suggested" | "pending" | "confirmed" | "declined";
   currentUserId?: string;
 }
 
@@ -21,6 +22,7 @@ const HangoutCard = ({
   onViewDetails,
   onOpenAvailability,
   onDeleteHangout,
+  onHideDeclined,
   variant = "suggested",
   currentUserId,
 }: HangoutCardProps) => {
@@ -39,7 +41,12 @@ const HangoutCard = ({
   const isCreator = hangout.createdBy === viewerId;
   const canShowMyStatus = !!currentUserResponse;
   const canRespondOnCard = !!currentUserResponse;
-  const canOpenAvailabilityOnCard = !!currentUserResponse;
+  const canOpenAvailabilityOnCard = !!currentUserResponse && currentUserResponse.status !== "no";
+  const canHideDeclinedInvite =
+    !!onHideDeclined
+    && !isCreator
+    && !hangout.isPublic
+    && currentUserResponse?.status === "no";
 
   const myStatus = {
     invited: { label: "Invited", className: "bg-muted text-muted-foreground" },
@@ -59,6 +66,7 @@ const HangoutCard = ({
     suggested: { label: "New Invite", className: "bg-primary/10 text-primary" },
     pending: { label: "Awaiting Responses", className: "bg-amber-500/10 text-amber-600" },
     confirmed: { label: "Confirmed!", className: "bg-green-500/10 text-green-600" },
+    declined: { label: "Declined", className: "bg-destructive/10 text-destructive" },
   };
 
   return (
@@ -222,10 +230,19 @@ const HangoutCard = ({
               </button>
             </div>
           )}
-          {(canOpenAvailabilityOnCard || isCreator) && (
+          {(canOpenAvailabilityOnCard || isCreator || canHideDeclinedInvite) && (
             <>
               <div className="hidden sm:block h-7 w-px bg-border" />
               <div className="ml-auto flex items-center gap-2">
+                {canHideDeclinedInvite && (
+                  <button
+                    onClick={() => onHideDeclined?.(hangout)}
+                    className="flex items-center justify-center gap-1 py-2.5 px-3 rounded-xl bg-muted text-muted-foreground hover:bg-muted/80 transition-colors"
+                  >
+                    <EyeOff className="w-4 h-4" />
+                    <span className="hidden sm:inline">Hide</span>
+                  </button>
+                )}
                 {canOpenAvailabilityOnCard && (
                   <button
                     onClick={() => onOpenAvailability?.(hangout)}

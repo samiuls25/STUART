@@ -395,10 +395,23 @@ export async function submitHangoutAvailability(hangoutId: string, availability:
 
   if (!user) throw new Error("You must be signed in to submit availability.");
 
+  const { data: membership, error: membershipError } = await supabase
+    .from("hangout_invites")
+    .select("response_status")
+    .eq("hangout_id", hangoutId)
+    .eq("friend_id", user.id)
+    .single();
+
+  if (membershipError) throw membershipError;
+
+  const currentStatus = (membership as HangoutMembershipRow).response_status;
+  const shouldMarkPendingAvailability = availability.length > 0 && currentStatus !== "no";
+
   const { error } = await supabase
     .from("hangout_invites")
     .update({
       availability_submitted: availability,
+      ...(shouldMarkPendingAvailability ? { response_status: "pending-availability" as const } : {}),
       responded_at: new Date().toISOString(),
     })
     .eq("hangout_id", hangoutId)
@@ -434,13 +447,15 @@ async function syncHangoutStatus(hangoutId: string): Promise<void> {
   if (inviteError) throw inviteError;
 
   const responses = inviteRows || [];
-  const hasYes = responses.some((row) => row.response_status === "yes");
+  const hasCommittedParticipant = responses.some(
+    (row) => row.response_status === "yes" || row.response_status === "pending-availability"
+  );
   const hasUnanswered = responses.some((row) => row.response_status === "invited");
 
   let nextStatus: Hangout["status"] = "pending";
   if (hasUnanswered) {
     nextStatus = "suggested";
-  } else if (hasYes) {
+  } else if (hasCommittedParticipant) {
     nextStatus = "confirmed";
   }
 

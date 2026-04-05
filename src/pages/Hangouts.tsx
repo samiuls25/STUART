@@ -36,11 +36,15 @@ const Hangouts = () => {
   const [filterTo, setFilterTo] = useState("");
   const [hangoutsState, setHangoutsState] = useState<Hangout[]>(hangouts);
   const [inviteCandidates, setInviteCandidates] = useState<Friend[]>([]);
+  const [hiddenDeclinedHangoutIds, setHiddenDeclinedHangoutIds] = useState<string[]>([]);
   const [loadingHangouts, setLoadingHangouts] = useState(true);
   const [schemaMissing, setSchemaMissing] = useState(false);
 
   const today = startOfDay(new Date());
   const currentUserId = user?.id;
+  const hiddenDeclinedStorageKey = currentUserId
+    ? `stuart:hiddenDeclinedHangouts:${currentUserId}`
+    : null;
 
   const loadHangouts = async () => {
     setLoadingHangouts(true);
@@ -130,11 +134,36 @@ const Hangouts = () => {
       setInviteCandidates([]);
       setLoadingHangouts(false);
       setSchemaMissing(false);
+      setHiddenDeclinedHangoutIds([]);
       return;
     }
 
     loadHangouts();
   }, [user?.id]);
+
+  useEffect(() => {
+    if (!hiddenDeclinedStorageKey) {
+      setHiddenDeclinedHangoutIds([]);
+      return;
+    }
+
+    try {
+      const raw = window.localStorage.getItem(hiddenDeclinedStorageKey);
+      if (!raw) {
+        setHiddenDeclinedHangoutIds([]);
+        return;
+      }
+
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        setHiddenDeclinedHangoutIds(parsed.filter((id): id is string => typeof id === "string"));
+      } else {
+        setHiddenDeclinedHangoutIds([]);
+      }
+    } catch {
+      setHiddenDeclinedHangoutIds([]);
+    }
+  }, [hiddenDeclinedStorageKey]);
 
   const isInDateRange = (h: Hangout) => {
     if (!filterFrom && !filterTo) return true;
@@ -144,8 +173,37 @@ const Hangouts = () => {
     return true;
   };
 
+  const getCurrentUserResponseStatus = (hangout: Hangout) =>
+    currentUserId
+      ? hangout.responses.find((response) => response.friendId === currentUserId)?.status
+      : undefined;
+
+  const isDeclinedPublicHangout = (hangout: Hangout) =>
+    Boolean(hangout.isPublic) && getCurrentUserResponseStatus(hangout) === "no";
+
+  const isDeclinedPrivateInvite = (hangout: Hangout) =>
+    !!currentUserId
+    && !hangout.isPublic
+    && hangout.createdBy !== currentUserId
+    && getCurrentUserResponseStatus(hangout) === "no";
+
+  const isExcludedFromPrimarySections = (hangout: Hangout) =>
+    isDeclinedPublicHangout(hangout) || isDeclinedPrivateInvite(hangout);
+
+  const declinedPrivateInviteHangouts = hangoutsState.filter(
+    (hangout) =>
+      isDeclinedPrivateInvite(hangout)
+      && !hiddenDeclinedHangoutIds.includes(hangout.id)
+      && isInDateRange(hangout)
+  );
+
+  const hiddenDeclinedCount = hiddenDeclinedHangoutIds.filter((hangoutId) =>
+    hangoutsState.some((hangout) => hangout.id === hangoutId && isDeclinedPrivateInvite(hangout))
+  ).length;
+
   const suggestedHangouts = hangoutsState.filter(
     (h) =>
+      !isExcludedFromPrimarySections(h) &&
       h.status === "suggested" &&
       !!currentUserId &&
       h.createdBy !== currentUserId &&
@@ -155,6 +213,7 @@ const Hangouts = () => {
 
   const pendingHangouts = hangoutsState.filter(
     (h) =>
+      !isExcludedFromPrimarySections(h) &&
       (h.status === "pending" || h.status === "suggested") &&
       (!!currentUserId &&
         (h.createdBy === currentUserId ||
@@ -164,6 +223,7 @@ const Hangouts = () => {
 
   const confirmedHangouts = hangoutsState.filter(
     (h) =>
+      !isExcludedFromPrimarySections(h) &&
       h.status === "confirmed" &&
       isAfter(parseISO(h.confirmedTime?.date || h.proposedTimeRange.date), today) &&
       isInDateRange(h)
@@ -171,11 +231,29 @@ const Hangouts = () => {
 
   const pastHangouts = hangoutsState.filter(
     (h) =>
+      !isDeclinedPublicHangout(h) &&
       (h.status === "completed" ||
         (h.status === "confirmed" &&
           isBefore(parseISO(h.confirmedTime?.date || h.proposedTimeRange.date), today))) &&
       isInDateRange(h)
   );
+
+  const handleHideDeclinedHangout = (hangoutId: string) => {
+    if (!hiddenDeclinedStorageKey) return;
+
+    setHiddenDeclinedHangoutIds((prev) => {
+      if (prev.includes(hangoutId)) return prev;
+      const next = [...prev, hangoutId];
+      window.localStorage.setItem(hiddenDeclinedStorageKey, JSON.stringify(next));
+      return next;
+    });
+  };
+
+  const handleRestoreHiddenDeclined = () => {
+    if (!hiddenDeclinedStorageKey) return;
+    setHiddenDeclinedHangoutIds([]);
+    window.localStorage.removeItem(hiddenDeclinedStorageKey);
+  };
 
   const handleRespond = async (hangout: Hangout, response: "yes" | "no" | "maybe") => {
     try {
@@ -552,22 +630,62 @@ const Hangouts = () => {
             </motion.section>
           )}
 
+          {/* Declined Private Invites */}
+          {declinedPrivateInviteHangouts.length > 0 && (
+            <motion.section initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.35 }} className="mb-10">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <X className="w-5 h-5 text-destructive" />
+                  <h2 className="font-heading text-lg font-semibold text-foreground">Declined Invites</h2>
+                </div>
+                {hiddenDeclinedCount > 0 && (
+                  <button
+                    onClick={handleRestoreHiddenDeclined}
+                    className="text-xs px-3 py-1.5 rounded-full border border-border hover:border-primary/30 text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    Restore {hiddenDeclinedCount} hidden
+                  </button>
+                )}
+              </div>
+              <div className="space-y-4">
+                {declinedPrivateInviteHangouts.map((hangout, index) => (
+                  <motion.div key={hangout.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.05 }}>
+                    <HangoutCard
+                      hangout={hangout}
+                      variant="declined"
+                      onRespond={handleRespond}
+                      onViewDetails={handleViewDetails}
+                      onOpenAvailability={handleOpenAvailabilityEditor}
+                      onDeleteHangout={handleDeleteHangout}
+                      onHideDeclined={(target) => handleHideDeclinedHangout(target.id)}
+                      currentUserId={currentUserId}
+                    />
+                  </motion.div>
+                ))}
+              </div>
+            </motion.section>
+          )}
+
           {/* Empty State */}
-          {suggestedHangouts.length === 0 && pendingHangouts.length === 0 && confirmedHangouts.length === 0 && (
+          {suggestedHangouts.length === 0 && pendingHangouts.length === 0 && confirmedHangouts.length === 0 && declinedPrivateInviteHangouts.length === 0 && (
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-center py-16">
               <div className="w-20 h-20 rounded-2xl bg-primary/10 flex items-center justify-center mx-auto mb-6">
                 <Users className="w-10 h-10 text-primary" />
               </div>
               <h3 className="font-heading text-xl font-semibold text-foreground mb-2">
-                {hasActiveFilter ? "No hangouts in this timeframe" : "No hangouts yet"}
+                {hasActiveFilter ? "No hangouts in this timeframe" : hiddenDeclinedCount > 0 ? "Only hidden declined invites remain" : "No hangouts yet"}
               </h3>
               <p className="text-muted-foreground mb-6 max-w-md mx-auto">
                 {hasActiveFilter
                   ? "Try adjusting your date filter or create a new hangout."
-                  : "Start planning casual meetups with your friends. Create a hangout and invite people you'd like to spend time with."}
+                  : hiddenDeclinedCount > 0
+                    ? "You can restore your hidden declined invites or create a new hangout."
+                    : "Start planning casual meetups with your friends. Create a hangout and invite people you'd like to spend time with."}
               </p>
               {hasActiveFilter ? (
                 <button onClick={clearFilters} className="btn-primary px-6 py-3">Clear Filters</button>
+              ) : hiddenDeclinedCount > 0 ? (
+                <button onClick={handleRestoreHiddenDeclined} className="btn-primary px-6 py-3">Restore Hidden Invites</button>
               ) : (
                 <button onClick={() => setShowCreateModal(true)} className="btn-primary px-6 py-3">Create Your First Hangout</button>
               )}
