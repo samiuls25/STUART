@@ -190,16 +190,21 @@ const Hangouts = () => {
   const isExcludedFromPrimarySections = (hangout: Hangout) =>
     isDeclinedPublicHangout(hangout) || isDeclinedPrivateInvite(hangout);
 
-  const declinedPrivateInviteHangouts = hangoutsState.filter(
+  const allDeclinedPrivateInviteHangouts = hangoutsState.filter(
     (hangout) =>
       isDeclinedPrivateInvite(hangout)
-      && !hiddenDeclinedHangoutIds.includes(hangout.id)
       && isInDateRange(hangout)
   );
 
-  const hiddenDeclinedCount = hiddenDeclinedHangoutIds.filter((hangoutId) =>
-    hangoutsState.some((hangout) => hangout.id === hangoutId && isDeclinedPrivateInvite(hangout))
-  ).length;
+  const declinedPrivateInviteHangouts = allDeclinedPrivateInviteHangouts.filter(
+    (hangout) => !hiddenDeclinedHangoutIds.includes(hangout.id)
+  );
+
+  const hiddenDeclinedPrivateInviteHangouts = allDeclinedPrivateInviteHangouts.filter(
+    (hangout) => hiddenDeclinedHangoutIds.includes(hangout.id)
+  );
+
+  const hiddenDeclinedCount = hiddenDeclinedPrivateInviteHangouts.length;
 
   const suggestedHangouts = hangoutsState.filter(
     (h) =>
@@ -253,6 +258,21 @@ const Hangouts = () => {
     if (!hiddenDeclinedStorageKey) return;
     setHiddenDeclinedHangoutIds([]);
     window.localStorage.removeItem(hiddenDeclinedStorageKey);
+  };
+
+  const handleRestoreDeclinedHangout = (hangoutId: string) => {
+    if (!hiddenDeclinedStorageKey) return;
+
+    setHiddenDeclinedHangoutIds((prev) => {
+      if (!prev.includes(hangoutId)) return prev;
+      const next = prev.filter((id) => id !== hangoutId);
+      if (next.length === 0) {
+        window.localStorage.removeItem(hiddenDeclinedStorageKey);
+      } else {
+        window.localStorage.setItem(hiddenDeclinedStorageKey, JSON.stringify(next));
+      }
+      return next;
+    });
   };
 
   const handleRespond = async (hangout: Hangout, response: "yes" | "no" | "maybe") => {
@@ -666,8 +686,44 @@ const Hangouts = () => {
             </motion.section>
           )}
 
+          {hiddenDeclinedPrivateInviteHangouts.length > 0 && (
+            <motion.section initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.38 }} className="mb-10">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <X className="w-5 h-5 text-muted-foreground" />
+                  <h2 className="font-heading text-lg font-semibold text-foreground">Hidden Declined Invites</h2>
+                  <span className="px-2 py-0.5 rounded-full bg-muted text-muted-foreground text-sm font-medium">
+                    {hiddenDeclinedPrivateInviteHangouts.length}
+                  </span>
+                </div>
+                <button
+                  onClick={handleRestoreHiddenDeclined}
+                  className="text-xs px-3 py-1.5 rounded-full border border-border hover:border-primary/30 text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  Restore all
+                </button>
+              </div>
+              <div className="space-y-4">
+                {hiddenDeclinedPrivateInviteHangouts.map((hangout, index) => (
+                  <motion.div key={hangout.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.05 }}>
+                    <HangoutCard
+                      hangout={hangout}
+                      variant="declined"
+                      onRespond={handleRespond}
+                      onViewDetails={handleViewDetails}
+                      onOpenAvailability={handleOpenAvailabilityEditor}
+                      onDeleteHangout={handleDeleteHangout}
+                      onRestoreDeclined={(target) => handleRestoreDeclinedHangout(target.id)}
+                      currentUserId={currentUserId}
+                    />
+                  </motion.div>
+                ))}
+              </div>
+            </motion.section>
+          )}
+
           {/* Empty State */}
-          {suggestedHangouts.length === 0 && pendingHangouts.length === 0 && confirmedHangouts.length === 0 && declinedPrivateInviteHangouts.length === 0 && (
+          {suggestedHangouts.length === 0 && pendingHangouts.length === 0 && confirmedHangouts.length === 0 && declinedPrivateInviteHangouts.length === 0 && hiddenDeclinedPrivateInviteHangouts.length === 0 && (
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-center py-16">
               <div className="w-20 h-20 rounded-2xl bg-primary/10 flex items-center justify-center mx-auto mb-6">
                 <Users className="w-10 h-10 text-primary" />

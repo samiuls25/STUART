@@ -235,11 +235,7 @@ export async function leavePublicHangout(hangoutId: string): Promise<void> {
 
   const { error } = await supabase
     .from("hangout_invites")
-    .update({
-      response_status: "no",
-      availability_submitted: [],
-      responded_at: new Date().toISOString(),
-    })
+    .delete()
     .eq("hangout_id", hangoutId)
     .eq("friend_id", user.id);
 
@@ -363,6 +359,33 @@ export async function respondToHangout(hangoutId: string, response: "yes" | "no"
   } = await supabase.auth.getUser();
 
   if (!user) throw new Error("You must be signed in to respond.");
+
+  if (response === "no") {
+    const supportsIsPublicColumn = await hasHangoutsIsPublicColumn();
+    const selectFields = supportsIsPublicColumn ? "is_public, created_by" : "created_by";
+
+    const { data: hangoutRow, error: hangoutReadError } = await supabase
+      .from("hangouts")
+      .select(selectFields)
+      .eq("id", hangoutId)
+      .single();
+
+    if (hangoutReadError) throw hangoutReadError;
+
+    const isPublicHangout = supportsIsPublicColumn && Boolean((hangoutRow as { is_public?: boolean }).is_public);
+    if (isPublicHangout && hangoutRow.created_by !== user.id) {
+      const { error: leaveError } = await supabase
+        .from("hangout_invites")
+        .delete()
+        .eq("hangout_id", hangoutId)
+        .eq("friend_id", user.id);
+
+      if (leaveError) throw leaveError;
+
+      await syncHangoutStatus(hangoutId);
+      return;
+    }
+  }
 
   const responseUpdate: {
     response_status: "yes" | "no" | "maybe";

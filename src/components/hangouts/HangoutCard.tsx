@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { motion } from "framer-motion";
-import { MapPin, Clock, Users, Check, X, HelpCircle, ChevronRight, Trash2, EyeOff } from "lucide-react";
+import { MapPin, Clock, Users, Check, X, HelpCircle, ChevronRight, Trash2, Eye, EyeOff } from "lucide-react";
 import { Hangout, getFriendById, getActivityType } from "../../data/friends";
 import { format } from "date-fns";
 import ConfirmDeleteHangoutDialog from "./ConfirmDeleteHangoutDialog";
@@ -12,6 +12,7 @@ interface HangoutCardProps {
   onOpenAvailability?: (hangout: Hangout) => void;
   onDeleteHangout?: (hangout: Hangout) => void;
   onHideDeclined?: (hangout: Hangout) => void;
+  onRestoreDeclined?: (hangout: Hangout) => void;
   variant?: "suggested" | "pending" | "confirmed" | "declined";
   currentUserId?: string;
 }
@@ -23,6 +24,7 @@ const HangoutCard = ({
   onOpenAvailability,
   onDeleteHangout,
   onHideDeclined,
+  onRestoreDeclined,
   variant = "suggested",
   currentUserId,
 }: HangoutCardProps) => {
@@ -44,6 +46,11 @@ const HangoutCard = ({
   const canOpenAvailabilityOnCard = !!currentUserResponse && currentUserResponse.status !== "no";
   const canHideDeclinedInvite =
     !!onHideDeclined
+    && !isCreator
+    && !hangout.isPublic
+    && currentUserResponse?.status === "no";
+  const canRestoreDeclinedInvite =
+    !!onRestoreDeclined
     && !isCreator
     && !hangout.isPublic
     && currentUserResponse?.status === "no";
@@ -230,7 +237,7 @@ const HangoutCard = ({
               </button>
             </div>
           )}
-          {(canOpenAvailabilityOnCard || isCreator || canHideDeclinedInvite) && (
+          {(canOpenAvailabilityOnCard || isCreator || canHideDeclinedInvite || canRestoreDeclinedInvite) && (
             <>
               <div className="hidden sm:block h-7 w-px bg-border" />
               <div className="ml-auto flex items-center gap-2">
@@ -241,6 +248,15 @@ const HangoutCard = ({
                   >
                     <EyeOff className="w-4 h-4" />
                     <span className="hidden sm:inline">Hide</span>
+                  </button>
+                )}
+                {canRestoreDeclinedInvite && (
+                  <button
+                    onClick={() => onRestoreDeclined?.(hangout)}
+                    className="flex items-center justify-center gap-1 py-2.5 px-3 rounded-xl bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
+                  >
+                    <Eye className="w-4 h-4" />
+                    <span className="hidden sm:inline">Restore</span>
                   </button>
                 )}
                 {canOpenAvailabilityOnCard && (
