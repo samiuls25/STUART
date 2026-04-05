@@ -191,6 +191,24 @@
   {
     "schemaname": "public",
     "tablename": "hangout_invites",
+    "policyname": "Invitees can leave public hangouts",
+    "cmd": "DELETE",
+    "roles": "{public}",
+    "qual": "((friend_id = auth.uid()) AND (EXISTS ( SELECT 1\n   FROM hangouts h\n  WHERE ((h.id = hangout_invites.hangout_id) AND COALESCE(h.is_public, false)))))",
+    "with_check": null
+  },
+  {
+    "schemaname": "public",
+    "tablename": "hangout_invites",
+    "policyname": "Users can self-join public hangouts",
+    "cmd": "INSERT",
+    "roles": "{public}",
+    "qual": null,
+    "with_check": "((friend_id = auth.uid()) AND (EXISTS ( SELECT 1\n   FROM hangouts h\n  WHERE ((h.id = hangout_invites.hangout_id) AND (h.is_public = true) AND (h.status = 'confirmed'::text)))))"
+  },
+  {
+    "schemaname": "public",
+    "tablename": "hangout_invites",
     "policyname": "Users can view related hangout invites",
     "cmd": "SELECT",
     "roles": "{public}",
@@ -230,7 +248,7 @@
     "policyname": "Users can view related hangouts",
     "cmd": "SELECT",
     "roles": "{public}",
-    "qual": "((created_by = auth.uid()) OR is_hangout_invitee(id, auth.uid()))",
+    "qual": "(((is_public = true) AND (status = 'confirmed'::text)) OR (created_by = auth.uid()) OR is_hangout_invitee(id, auth.uid()))",
     "with_check": null
   },
   {

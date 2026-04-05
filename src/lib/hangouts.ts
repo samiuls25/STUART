@@ -6,6 +6,7 @@ interface HangoutRow {
   title: string;
   description: string | null;
   activity_type: Hangout["activityType"];
+  is_public?: boolean;
   created_by: string;
   status: Hangout["status"];
   proposed_date: string;
@@ -18,6 +19,7 @@ interface HangoutRow {
   location_address: string | null;
   is_flexible_location: boolean;
   created_at: string;
+  updated_at: string;
 }
 
 interface HangoutInviteRow {
@@ -29,10 +31,22 @@ interface HangoutInviteRow {
   responded_at: string | null;
 }
 
+interface HangoutMembershipRow {
+  response_status: "invited" | "yes" | "no" | "maybe" | "pending-availability";
+}
+
+interface HangoutStatusSyncRow {
+  proposed_date: string;
+  proposed_start_time: string;
+  proposed_end_time: string;
+  is_public?: boolean;
+}
+
 export interface CreateHangoutInput {
   title: string;
   description?: string;
   activityType: Hangout["activityType"];
+  isPublic?: boolean;
   proposedTimeRange: {
     date: string;
     startTime: string;
@@ -49,6 +63,22 @@ export interface CreateHangoutInput {
 }
 
 const setupIssueCodes = new Set(["42P01", "PGRST205", "42P17"]);
+
+const isMissingColumnError = (error: unknown, columnName: string) => {
+  if (!error || typeof error !== "object") return false;
+
+  const candidate = error as { code?: string; message?: string; details?: string };
+  const message = `${candidate.message || ""} ${candidate.details || ""}`.toLowerCase();
+
+  const hasMissingColumnMessage = message.includes("could not find")
+    && message.includes(columnName.toLowerCase())
+    && message.includes("column");
+
+  return (
+    (candidate.code === "42703" && message.includes(columnName.toLowerCase()))
+    || (candidate.code === "PGRST204" && hasMissingColumnMessage)
+  );
+};
 
 export function isHangoutsSetupError(error: unknown): boolean {
   if (!error || typeof error !== "object") return false;
@@ -117,6 +147,110 @@ export async function fetchHangoutsForCurrentUser(): Promise<Hangout[]> {
     });
 }
 
+export async function getCurrentUserHangoutMembership(hangoutId: string): Promise<{
+  joined: boolean;
+  status?: "invited" | "yes" | "no" | "maybe" | "pending-availability";
+}> {
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return { joined: false };
+  }
+
+  const { data, error } = await supabase
+    .from("hangout_invites")
+    .select("response_status")
+    .eq("hangout_id", hangoutId)
+    .eq("friend_id", user.id)
+    .maybeSingle();
+
+  if (error) {
+    throw error;
+  }
+
+  const membership = data as HangoutMembershipRow | null;
+  if (!membership) {
+    return { joined: false };
+  }
+
+  return {
+    joined: membership.response_status !== "no",
+    status: membership.response_status,
+  };
+}
+
+export async function joinPublicHangout(hangoutId: string): Promise<void> {
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    throw new Error("You must be signed in to join this hangout.");
+  }
+
+  const existingMembership = await getCurrentUserHangoutMembership(hangoutId);
+  if (existingMembership.joined) {
+    return;
+  }
+
+  if (existingMembership.status === "no") {
+    const { error: rejoinError } = await supabase
+      .from("hangout_invites")
+      .update({
+        response_status: "yes",
+        availability_submitted: [],
+        responded_at: new Date().toISOString(),
+      })
+      .eq("hangout_id", hangoutId)
+      .eq("friend_id", user.id);
+
+    if (rejoinError) {
+      throw rejoinError;
+    }
+
+    return;
+  }
+
+  const { error } = await supabase.from("hangout_invites").insert({
+    hangout_id: hangoutId,
+    friend_id: user.id,
+    is_highlighted: false,
+    response_status: "yes",
+    availability_submitted: [],
+    responded_at: new Date().toISOString(),
+  });
+
+  if (error) {
+    // Ignore duplicate row races if another request inserted first.
+    if ((error as { code?: string }).code === "23505") {
+      return;
+    }
+    throw error;
+  }
+}
+
+export async function leavePublicHangout(hangoutId: string): Promise<void> {
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    throw new Error("You must be signed in to leave this hangout.");
+  }
+
+  const { error } = await supabase
+    .from("hangout_invites")
+    .delete()
+    .eq("hangout_id", hangoutId)
+    .eq("friend_id", user.id);
+
+  if (error) {
+    throw error;
+  }
+}
+
 export async function createHangout(input: CreateHangoutInput): Promise<void> {
   const {
     data: { user },
@@ -124,25 +258,90 @@ export async function createHangout(input: CreateHangoutInput): Promise<void> {
 
   if (!user) throw new Error("You must be signed in to create a hangout.");
 
+  const shouldCreatePublicHangout = input.isPublic ?? false;
+
+  const baseInsertPayload = {
+    title: input.title,
+    description: input.description?.trim() || null,
+    activity_type: input.activityType,
+    created_by: user.id,
+    status: shouldCreatePublicHangout ? "confirmed" : "pending",
+    proposed_date: input.proposedTimeRange.date,
+    proposed_start_time: input.proposedTimeRange.startTime,
+    proposed_end_time: input.proposedTimeRange.endTime,
+    confirmed_date: shouldCreatePublicHangout ? input.proposedTimeRange.date : null,
+    confirmed_start_time: shouldCreatePublicHangout ? input.proposedTimeRange.startTime : null,
+    confirmed_end_time: shouldCreatePublicHangout ? input.proposedTimeRange.endTime : null,
+    location_name: input.location?.name?.trim() || null,
+    location_address: input.location?.address?.trim() || null,
+    is_flexible_location: input.location?.isFlexible ?? true,
+  };
+
+  const insertPayload = {
+    ...baseInsertPayload,
+    is_public: shouldCreatePublicHangout,
+  };
+
   const { data: insertedHangout, error: hangoutError } = await supabase
     .from("hangouts")
-    .insert({
-      title: input.title,
-      description: input.description?.trim() || null,
-      activity_type: input.activityType,
-      created_by: user.id,
-      status: "pending",
-      proposed_date: input.proposedTimeRange.date,
-      proposed_start_time: input.proposedTimeRange.startTime,
-      proposed_end_time: input.proposedTimeRange.endTime,
-      location_name: input.location?.name?.trim() || null,
-      location_address: input.location?.address?.trim() || null,
-      is_flexible_location: input.location?.isFlexible ?? true,
-    })
-    .select("id")
+    .insert(insertPayload)
+    .select("id,is_public")
     .single();
 
+  if (hangoutError && isMissingColumnError(hangoutError, "is_public")) {
+    if (shouldCreatePublicHangout) {
+      throw new Error("Public hangouts are unavailable until the is_public column is active in Supabase API.");
+    }
+
+    const retry = await supabase
+      .from("hangouts")
+      .insert(baseInsertPayload)
+      .select("id")
+      .single();
+
+    if (retry.error) throw retry.error;
+
+    const fallbackInserted = retry.data;
+    if (!fallbackInserted) {
+      throw new Error("Failed to create hangout");
+    }
+
+    const uniqueInvites = [...new Set(input.invitedFriends)].filter((friendId) => friendId && friendId !== user.id);
+
+    const inviteRows = [
+      {
+        hangout_id: fallbackInserted.id,
+        friend_id: user.id,
+        is_highlighted: false,
+        response_status: "yes" as const,
+        availability_submitted: input.creatorAvailability || [],
+      },
+      ...uniqueInvites.map((friendId) => ({
+        hangout_id: fallbackInserted.id,
+        friend_id: friendId,
+        is_highlighted: new Set(input.highlightedFriends).has(friendId),
+        response_status: "invited" as const,
+        availability_submitted: [],
+      })),
+    ];
+
+    const { error: inviteError } = await supabase.from("hangout_invites").insert(inviteRows);
+
+    if (inviteError) throw inviteError;
+
+    await syncHangoutStatus(fallbackInserted.id);
+    return;
+  }
+
   if (hangoutError) throw hangoutError;
+
+  if (!insertedHangout) {
+    throw new Error("Failed to create hangout");
+  }
+
+  if (shouldCreatePublicHangout && insertedHangout.is_public !== true) {
+    throw new Error("Public hangout creation failed to persist visibility. Please retry.");
+  }
 
   const uniqueInvites = [...new Set(input.invitedFriends)].filter((friendId) => friendId && friendId !== user.id);
 
@@ -177,6 +376,53 @@ export async function respondToHangout(hangoutId: string, response: "yes" | "no"
 
   if (!user) throw new Error("You must be signed in to respond.");
 
+  if (response === "no") {
+    let isPublicHangout = false;
+
+    const publicProbe = await supabase
+      .from("hangouts")
+      .select("is_public")
+      .eq("id", hangoutId)
+      .single();
+
+    if (publicProbe.error) {
+      if (!isMissingColumnError(publicProbe.error, "is_public")) {
+        throw publicProbe.error;
+      }
+    } else {
+      isPublicHangout = Boolean((publicProbe.data as { is_public?: boolean }).is_public);
+    }
+
+    if (isPublicHangout) {
+      const { error: leaveError } = await supabase
+        .from("hangout_invites")
+        .delete()
+        .eq("hangout_id", hangoutId)
+        .eq("friend_id", user.id);
+
+      if (!leaveError) {
+        await syncHangoutStatus(hangoutId);
+        return;
+      }
+
+      const leaveMessage = `${(leaveError as { message?: string }).message || ""}`.toLowerCase();
+      const isDeletePolicyDenied =
+        (leaveError as { code?: string }).code === "42501"
+        || leaveMessage.includes("row-level security")
+        || leaveMessage.includes("permission denied");
+
+      if (!isDeletePolicyDenied) {
+        throw leaveError;
+      }
+
+      // Compatibility fallback for environments that still block invitee deletes.
+      // In this case, keep behavior functional by writing an explicit "no" response.
+      // UI will hide declined public attendees from membership lists.
+      console.warn("Public leave delete blocked by RLS; falling back to response_status='no'.");
+
+    }
+  }
+
   const responseUpdate: {
     response_status: "yes" | "no" | "maybe";
     responded_at: string;
@@ -208,10 +454,23 @@ export async function submitHangoutAvailability(hangoutId: string, availability:
 
   if (!user) throw new Error("You must be signed in to submit availability.");
 
+  const { data: membership, error: membershipError } = await supabase
+    .from("hangout_invites")
+    .select("response_status")
+    .eq("hangout_id", hangoutId)
+    .eq("friend_id", user.id)
+    .single();
+
+  if (membershipError) throw membershipError;
+
+  const currentStatus = (membership as HangoutMembershipRow).response_status;
+  const shouldMarkPendingAvailability = availability.length > 0 && currentStatus !== "no";
+
   const { error } = await supabase
     .from("hangout_invites")
     .update({
       availability_submitted: availability,
+      ...(shouldMarkPendingAvailability ? { response_status: "pending-availability" as const } : {}),
       responded_at: new Date().toISOString(),
     })
     .eq("hangout_id", hangoutId)
@@ -220,6 +479,34 @@ export async function submitHangoutAvailability(hangoutId: string, availability:
   if (error) throw error;
 
   await syncHangoutStatus(hangoutId);
+}
+
+export async function applySuggestedHangoutTime(
+  hangoutId: string,
+  suggestedTime: { date: string; startTime: string; endTime: string }
+): Promise<void> {
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) throw new Error("You must be signed in to finalize a hangout time.");
+
+  const { error } = await supabase
+    .from("hangouts")
+    .update({
+      status: "confirmed",
+      proposed_date: suggestedTime.date,
+      proposed_start_time: suggestedTime.startTime,
+      proposed_end_time: suggestedTime.endTime,
+      confirmed_date: suggestedTime.date,
+      confirmed_start_time: suggestedTime.startTime,
+      confirmed_end_time: suggestedTime.endTime,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", hangoutId)
+    .eq("created_by", user.id);
+
+  if (error) throw error;
 }
 
 export async function deleteHangout(hangoutId: string): Promise<void> {
@@ -239,6 +526,33 @@ export async function deleteHangout(hangoutId: string): Promise<void> {
 }
 
 async function syncHangoutStatus(hangoutId: string): Promise<void> {
+  let hangoutRow: HangoutStatusSyncRow;
+  let isPublicHangout = false;
+
+  const withPublicColumn = await supabase
+    .from("hangouts")
+    .select("is_public,proposed_date,proposed_start_time,proposed_end_time")
+    .eq("id", hangoutId)
+    .single();
+
+  if (withPublicColumn.error) {
+    if (!isMissingColumnError(withPublicColumn.error, "is_public")) {
+      throw withPublicColumn.error;
+    }
+
+    const withoutPublicColumn = await supabase
+      .from("hangouts")
+      .select("proposed_date,proposed_start_time,proposed_end_time")
+      .eq("id", hangoutId)
+      .single();
+
+    if (withoutPublicColumn.error) throw withoutPublicColumn.error;
+    hangoutRow = withoutPublicColumn.data as HangoutStatusSyncRow;
+  } else {
+    hangoutRow = withPublicColumn.data as HangoutStatusSyncRow;
+    isPublicHangout = Boolean((withPublicColumn.data as { is_public?: boolean }).is_public);
+  }
+
   const { data: inviteRows, error: inviteError } = await supabase
     .from("hangout_invites")
     .select("response_status")
@@ -247,13 +561,19 @@ async function syncHangoutStatus(hangoutId: string): Promise<void> {
   if (inviteError) throw inviteError;
 
   const responses = inviteRows || [];
-  const hasYes = responses.some((row) => row.response_status === "yes");
+  const hasCommittedParticipant = responses.some(
+    (row) => row.response_status === "yes" || row.response_status === "pending-availability"
+  );
   const hasUnanswered = responses.some((row) => row.response_status === "invited");
 
   let nextStatus: Hangout["status"] = "pending";
-  if (hasUnanswered) {
+
+  if (isPublicHangout) {
+    // Public hangouts should stay discoverable and joinable even when people leave.
+    nextStatus = "confirmed";
+  } else if (hasUnanswered) {
     nextStatus = "suggested";
-  } else if (hasYes) {
+  } else if (hasCommittedParticipant) {
     nextStatus = "confirmed";
   }
 
@@ -262,22 +582,16 @@ async function syncHangoutStatus(hangoutId: string): Promise<void> {
     confirmed_date: string | null;
     confirmed_start_time: string | null;
     confirmed_end_time: string | null;
+    updated_at: string;
   } = {
     status: nextStatus,
     confirmed_date: null,
     confirmed_start_time: null,
     confirmed_end_time: null,
+    updated_at: new Date().toISOString(),
   };
 
   if (nextStatus === "confirmed") {
-    const { data: hangoutRow, error: hangoutReadError } = await supabase
-      .from("hangouts")
-      .select("proposed_date, proposed_start_time, proposed_end_time")
-      .eq("id", hangoutId)
-      .single();
-
-    if (hangoutReadError) throw hangoutReadError;
-
     updatePayload.confirmed_date = hangoutRow.proposed_date;
     updatePayload.confirmed_start_time = hangoutRow.proposed_start_time;
     updatePayload.confirmed_end_time = hangoutRow.proposed_end_time;
@@ -301,6 +615,7 @@ function mapRowToHangout(row: HangoutRow, invites: HangoutInviteRow[]): Hangout 
     title: row.title,
     description: row.description || undefined,
     activityType: row.activity_type,
+    isPublic: Boolean(row.is_public),
     createdBy: row.created_by,
     proposedTimeRange: {
       date: row.proposed_date,
@@ -326,5 +641,7 @@ function mapRowToHangout(row: HangoutRow, invites: HangoutInviteRow[]): Hangout 
             endTime: row.confirmed_end_time,
           }
         : undefined,
+    confirmedAt: row.status === "confirmed" ? (row.updated_at || row.created_at) : undefined,
+    confirmedByUserId: row.created_by,
   };
 }

@@ -6,11 +6,19 @@ export interface Event {
     time: string;
     venue: string;
     neighborhood: string;
-    latitude: number;
-    longitude: number;
+  latitude: number | null;
+  longitude: number | null;
     segment: string;
     genre: string;
     ticketUrl: string;
+  source?: string;
+  sourceLabel?: string;
+  organizerName?: string;
+  hangoutId?: string;
+  isJoinedByCurrentUser?: boolean;
+  hangoutJoinStatus?: "invited" | "yes" | "no" | "maybe" | "pending-availability";
+  isSaveable?: boolean;
+  isTrackable?: boolean;
     price?: string;
     // Enhanced fields
     description?: string;
@@ -343,6 +351,7 @@ export interface Event {
     "Theater",
     "Exhibition",
     "Comedy",
+    "Hangout",
   ];
   
   export const priceLevels = ["All", "Free", "$", "$$", "$$$"];
@@ -362,11 +371,42 @@ export interface Event {
 
 // export async fetcher
 import { supabase } from "../lib/supabase";
+import { hasHangoutsIsPublicColumn } from "../lib/hangoutsSchema";
 
 interface UserRecommendationRow {
   event_id: string;
   recommendation_score: number;
   recommendation_reasons: string[] | null;
+}
+
+interface HangoutPublicRow {
+  id: string;
+  title: string;
+  description: string | null;
+  activity_type: "chill" | "outdoor" | "social" | "late-night" | "active" | "creative";
+  created_by: string;
+  status: string;
+  is_public?: boolean;
+  proposed_date: string;
+  proposed_start_time: string;
+  confirmed_date: string | null;
+  confirmed_start_time: string | null;
+  location_name: string | null;
+  location_address: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  hero_image?: string | null;
+  tags?: string[] | null;
+}
+
+interface ProfileNameRow {
+  id: string;
+  name: string | null;
+}
+
+interface HangoutMembershipRow {
+  hangout_id: string;
+  response_status: "invited" | "yes" | "no" | "maybe" | "pending-availability";
 }
 
 const normalizeEventKeyPart = (value?: string) => {
@@ -380,11 +420,196 @@ const normalizeEventKeyPart = (value?: string) => {
 };
 
 const buildConsolidationKey = (event: Event) => {
+  if (event.source === "hangout" && event.hangoutId) {
+    return `hangout|${event.hangoutId}`;
+  }
+
   return [
+    event.source || "ticketmaster",
     normalizeEventKeyPart(event.name),
     event.date,
     normalizeEventKeyPart(event.venue),
   ].join("|");
+};
+
+const HANGOUT_ACTIVITY_METADATA: Record<string, { segment: string; genre: string; tags: string[]; heroImage: string }> = {
+  chill: {
+    segment: "Arts",
+    genre: "Hangout",
+    tags: ["hangout", "chill", "social"],
+    heroImage: "https://images.unsplash.com/photo-1442512595331-e89e73853f31?w=1200&q=80",
+  },
+  outdoor: {
+    segment: "Arts",
+    genre: "Hangout",
+    tags: ["hangout", "outdoor", "social"],
+    heroImage: "https://images.unsplash.com/photo-1469474968028-56623f02e42e?w=1200&q=80",
+  },
+  social: {
+    segment: "Music",
+    genre: "Hangout",
+    tags: ["hangout", "social", "group"],
+    heroImage: "https://images.unsplash.com/photo-1528605248644-14dd04022da1?w=1200&q=80",
+  },
+  "late-night": {
+    segment: "Music",
+    genre: "Hangout",
+    tags: ["hangout", "nightlife", "social"],
+    heroImage: "https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?w=1200&q=80",
+  },
+  active: {
+    segment: "Sports",
+    genre: "Hangout",
+    tags: ["hangout", "active", "fitness"],
+    heroImage: "https://images.unsplash.com/photo-1517836357463-d25dfeac3438?w=1200&q=80",
+  },
+  creative: {
+    segment: "Arts",
+    genre: "Hangout",
+    tags: ["hangout", "creative", "art"],
+    heroImage: "https://images.unsplash.com/photo-1513364776144-60967b0f800f?w=1200&q=80",
+  },
+};
+
+const defaultHangoutMetadata = HANGOUT_ACTIVITY_METADATA.social;
+
+const deriveNeighborhoodFromAddress = (address?: string | null) => {
+  if (!address) return "New York";
+
+  const parts = address
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+  if (parts.length >= 2) return parts[1];
+  return parts[0] || "New York";
+};
+
+const isHangoutsTableMissing = (error: unknown) => {
+  if (!error || typeof error !== "object") return false;
+  const candidate = error as { code?: string; message?: string; details?: string };
+  const message = `${candidate.message || ""} ${candidate.details || ""}`.toLowerCase();
+
+  return candidate.code === "42P01" || message.includes("relation") && message.includes("hangouts") && message.includes("does not exist");
+};
+
+const fetchPublicHangoutEvents = async (userId?: string): Promise<Event[]> => {
+  const supportsIsPublicColumn = await hasHangoutsIsPublicColumn();
+  const discoverablePublicStatuses: HangoutPublicRow["status"][] = ["confirmed", "suggested", "pending"];
+
+  const { data: hangoutRows, error: hangoutError } = await supabase
+    .from("hangouts")
+    .select("*")
+    .in("status", discoverablePublicStatuses)
+    .order("confirmed_date", { ascending: true });
+
+  if (hangoutError) {
+    if (isHangoutsTableMissing(hangoutError)) {
+      return [];
+    }
+
+    console.error("Error fetching hangouts for events feed:", hangoutError);
+    return [];
+  }
+
+  const confirmedRows = (hangoutRows as HangoutPublicRow[] | null) || [];
+
+  const hasExplicitIsPublicFlag = confirmedRows.some((row) => typeof row.is_public === "boolean");
+  const useIsPublicFiltering = supportsIsPublicColumn || hasExplicitIsPublicFlag;
+
+  const publicRows = useIsPublicFiltering
+    ? confirmedRows.filter((row) => row.is_public === true)
+    : confirmedRows.filter((row) => !userId || row.created_by === userId);
+
+  if (publicRows.length === 0) {
+    return [];
+  }
+
+  const creatorIds = [...new Set(publicRows.map((row) => row.created_by).filter(Boolean))];
+  const profileNameMap = new Map<string, string>();
+  const membershipMap = new Map<string, HangoutMembershipRow["response_status"]>();
+
+  if (creatorIds.length > 0) {
+    const { data: profileRows, error: profileError } = await supabase
+      .from("profiles")
+      .select("id,name")
+      .in("id", creatorIds);
+
+    if (profileError) {
+      console.error("Error fetching public hangout organizers:", profileError);
+    } else {
+      ((profileRows as ProfileNameRow[] | null) || []).forEach((row) => {
+        if (row.name) {
+          profileNameMap.set(row.id, row.name);
+        }
+      });
+    }
+  }
+
+  if (userId) {
+    const hangoutIds = publicRows.map((row) => row.id);
+    if (hangoutIds.length > 0) {
+      const { data: membershipRows, error: membershipError } = await supabase
+        .from("hangout_invites")
+        .select("hangout_id,response_status")
+        .eq("friend_id", userId)
+        .in("hangout_id", hangoutIds);
+
+      if (membershipError) {
+        console.error("Error fetching hangout memberships:", membershipError);
+      } else {
+        ((membershipRows as HangoutMembershipRow[] | null) || []).forEach((row) => {
+          membershipMap.set(row.hangout_id, row.response_status);
+        });
+      }
+    }
+  }
+
+  return publicRows
+    .map((row): Event | null => {
+      const activityMetadata = HANGOUT_ACTIVITY_METADATA[row.activity_type] || defaultHangoutMetadata;
+      const date = row.confirmed_date || row.proposed_date;
+      if (!date) return null;
+
+      const time = row.confirmed_start_time || row.proposed_start_time || "TBA";
+      const joinStatus = membershipMap.get(row.id);
+
+      return {
+        id: `hangout:${row.id}`,
+        hangoutId: row.id,
+        name: row.title,
+        heroImage: row.hero_image || activityMetadata.heroImage,
+        date,
+        time,
+        venue: row.location_name || "TBD",
+        neighborhood: deriveNeighborhoodFromAddress(row.location_address),
+        latitude: row.latitude ?? null,
+        longitude: row.longitude ?? null,
+        segment: activityMetadata.segment,
+        genre: activityMetadata.genre,
+        ticketUrl: "",
+        source: "hangout",
+        sourceLabel: useIsPublicFiltering ? "Public Hangout" : "Hangout",
+        organizerName: profileNameMap.get(row.created_by),
+        isJoinedByCurrentUser: joinStatus ? joinStatus !== "no" : false,
+        hangoutJoinStatus: joinStatus,
+        isSaveable: false,
+        isTrackable: false,
+        price: "Free",
+        description: row.description || "Community hangout",
+        travelTime: undefined,
+        tags: row.tags?.length ? row.tags : activityMetadata.tags,
+        priceLevel: "free",
+        isRecommended: false,
+        recommendationScore: 0,
+        recommendationReasons: [],
+        isTrending: false,
+        trendingRank: 0,
+        happeningNow: false,
+        isTonight: false,
+      };
+    })
+    .filter((event): event is Event => event !== null);
 };
 
 const PLACEHOLDER_IMAGE_MIN_ROWS = 60;
@@ -477,6 +702,59 @@ const consolidateEvents = (events: Event[]) => {
     };
   });
 };
+
+const ensureRecommendationFallback = (events: Event[]) => {
+  if (events.some((event) => event.isRecommended)) {
+    return events;
+  }
+
+  const fallbackCandidates = [...events]
+    .filter((event) => event.source !== "hangout")
+    .sort((a, b) => {
+      const aRank = a.trendingRank && a.trendingRank > 0 ? a.trendingRank : Number.MAX_SAFE_INTEGER;
+      const bRank = b.trendingRank && b.trendingRank > 0 ? b.trendingRank : Number.MAX_SAFE_INTEGER;
+      if (aRank !== bRank) return aRank - bRank;
+
+      if ((a.happeningNow ? 1 : 0) !== (b.happeningNow ? 1 : 0)) {
+        return (b.happeningNow ? 1 : 0) - (a.happeningNow ? 1 : 0);
+      }
+
+      if ((a.isTonight ? 1 : 0) !== (b.isTonight ? 1 : 0)) {
+        return (b.isTonight ? 1 : 0) - (a.isTonight ? 1 : 0);
+      }
+
+      return (a.date || "").localeCompare(b.date || "");
+    })
+    .slice(0, 4);
+
+  if (fallbackCandidates.length === 0) {
+    return events;
+  }
+
+  const fallbackIdSet = new Set(fallbackCandidates.map((event) => event.id));
+
+  return events.map((event) => {
+    if (!fallbackIdSet.has(event.id)) {
+      return event;
+    }
+
+    const fallbackScore = event.trendingRank && event.trendingRank > 0
+      ? Math.max(70, 100 - event.trendingRank * 3)
+      : 72;
+
+    return {
+      ...event,
+      isRecommended: true,
+      recommendationScore: event.recommendationScore && event.recommendationScore > 0
+        ? event.recommendationScore
+        : fallbackScore,
+      recommendationReasons:
+        event.recommendationReasons && event.recommendationReasons.length > 0
+          ? event.recommendationReasons
+          : ["Popular around NYC right now", "Great match while we personalize your feed"],
+    };
+  });
+};
  
 export async function fetchEvents(userId?: string): Promise<Event[]> {
   const {
@@ -492,7 +770,7 @@ export async function fetchEvents(userId?: string): Promise<Event[]> {
     const { data, error } = await supabase
       .from("events")
       .select("*")
-      .order("date", { ascending: true })
+      .order("date", { ascending: false })
       .range(offset, offset + pageSize - 1);
 
     if (error) throw error;
@@ -529,40 +807,67 @@ export async function fetchEvents(userId?: string): Promise<Event[]> {
 
   const hasAuthenticatedUser = Boolean(effectiveUserId);
 
-  const mappedEvents = allEvents.map((e: any) => ({
-    id: e.id,
-    name: e.name,
-    heroImage: e.hero_image || e.heroImage || "",
-    date: e.date,
-    time: e.time,
-    venue: e.venue,
-    neighborhood: e.neighborhood,
-    latitude: e.latitude,
-    longitude: e.longitude,
-    segment: e.segment,
-    genre: e.genre,
-    ticketUrl: e.ticket_url || e.ticketUrl || "",
-    price: e.price,
-    description: e.description,
-    distance: e.distance ?? 1,
-    travelTime: e.travel_time ?? e.travelTime ?? 10,
-    tags: e.tags ?? [],
-    priceLevel: e.price_level ?? e.priceLevel ?? "$", // <-- use snake_case first
-    isRecommended: hasAuthenticatedUser
-      ? (recommendationMap.get(e.id)?.recommendation_score ?? 0) > 0
-      : false,
-    recommendationScore: hasAuthenticatedUser
-      ? recommendationMap.get(e.id)?.recommendation_score ?? 0
-      : 0,
-    recommendationReasons: hasAuthenticatedUser
-      ? recommendationMap.get(e.id)?.recommendation_reasons ?? []
-      : [],
-    isTrending: e.is_trending ?? e.isTrending ?? false,
-    trendingRank: e.trending_rank ?? e.trendingRank ?? 0,
-    happeningNow: e.happening_now ?? e.happeningNow ?? false,
-    isTonight: e.is_tonight ?? e.isTonight ?? false,
-  }));
+  const mappedEvents = allEvents.map((e: any) => {
+    const personalizedRecommendation = recommendationMap.get(e.id);
+    const fallbackScore = e.recommendation_score ?? e.recommendationScore ?? 0;
+    const fallbackReasons = e.recommendation_reasons ?? e.recommendationReasons ?? [];
+    const resolvedScore = hasAuthenticatedUser
+      ? (personalizedRecommendation?.recommendation_score ?? fallbackScore)
+      : fallbackScore;
+    const resolvedReasons = hasAuthenticatedUser
+      ? (personalizedRecommendation?.recommendation_reasons ?? fallbackReasons)
+      : fallbackReasons;
+    const resolvedRecommended = resolvedScore > 0 || Boolean(e.is_recommended ?? e.isRecommended ?? false);
 
-  const filteredByImageQuality = filterLikelyPlaceholderImageEvents(mappedEvents);
-  return consolidateEvents(filteredByImageQuality);
+    return {
+      id: e.id,
+      name: e.name,
+      heroImage: e.hero_image || e.heroImage || "",
+      date: e.date,
+      time: e.time,
+      venue: e.venue,
+      neighborhood: e.neighborhood,
+      latitude: e.latitude ?? null,
+      longitude: e.longitude ?? null,
+      segment: e.segment,
+      genre: e.genre,
+      ticketUrl: e.ticket_url || e.ticketUrl || "",
+      source: e.source || "ticketmaster",
+      sourceLabel: e.source === "manual" ? "Manual" : "Ticketmaster",
+      organizerName: undefined,
+      isSaveable: true,
+      isTrackable: true,
+      price: e.price,
+      description: e.description,
+      distance: e.distance ?? 1,
+      travelTime: e.travel_time ?? e.travelTime ?? 10,
+      tags: e.tags ?? [],
+      priceLevel: e.price_level ?? e.priceLevel ?? "$", // <-- use snake_case first
+      isRecommended: resolvedRecommended,
+      recommendationScore: resolvedScore,
+      recommendationReasons: resolvedReasons,
+      isTrending: e.is_trending ?? e.isTrending ?? false,
+      trendingRank: e.trending_rank ?? e.trendingRank ?? 0,
+      happeningNow: e.happening_now ?? e.happeningNow ?? false,
+      isTonight: e.is_tonight ?? e.isTonight ?? false,
+    };
+  });
+
+  const publicHangoutEvents = await fetchPublicHangoutEvents(effectiveUserId);
+
+  const mergedEvents = [...mappedEvents, ...publicHangoutEvents];
+  mergedEvents.sort((a, b) => {
+    const aTs = new Date(a.date).getTime();
+    const bTs = new Date(b.date).getTime();
+
+    if (!Number.isNaN(aTs) && !Number.isNaN(bTs) && aTs !== bTs) {
+      return bTs - aTs;
+    }
+
+    return (b.date || "").localeCompare(a.date || "");
+  });
+
+  const filteredByImageQuality = filterLikelyPlaceholderImageEvents(mergedEvents);
+  const consolidated = consolidateEvents(filteredByImageQuality);
+  return ensureRecommendationFallback(consolidated);
 }

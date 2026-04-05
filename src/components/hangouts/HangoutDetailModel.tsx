@@ -5,6 +5,7 @@ import { Hangout, TimeRange, getFriendById, getActivityType } from "../../data/f
 import { format, parseISO } from "date-fns";
 import AvailabilityHeatmap from "../availability/AvailabilityHeatmap";
 import ConfirmDeleteHangoutDialog from "./ConfirmDeleteHangoutDialog";
+import { scoreAvailabilitySlots } from "../../lib/hangoutFinalization";
 
 interface HangoutDetailModalProps {
   hangout: Hangout | null;
@@ -12,6 +13,10 @@ interface HangoutDetailModalProps {
   onClose: () => void;
   onRespond?: (hangout: Hangout, response: "yes" | "no" | "maybe") => void;
   onSubmitAvailability?: (hangout: Hangout, availability: TimeRange[]) => void;
+  onApplySuggestedTime?: (
+    hangout: Hangout,
+    suggestedTime: { date: string; startTime: string; endTime: string }
+  ) => Promise<void> | void;
   onDeleteHangout?: (hangout: Hangout) => void;
   initialShowAvailability?: boolean;
   currentUserId?: string;
@@ -23,6 +28,7 @@ const HangoutDetailModal = ({
   onClose,
   onRespond,
   onSubmitAvailability,
+  onApplySuggestedTime,
   onDeleteHangout,
   initialShowAvailability,
   currentUserId,
@@ -31,13 +37,19 @@ const HangoutDetailModal = ({
 
   const [showAvailabilityEditor, setShowAvailabilityEditor] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [applyingSuggestedTime, setApplyingSuggestedTime] = useState(false);
+  const [selectedSuggestedSlotKey, setSelectedSuggestedSlotKey] = useState<string | null>(null);
   const [availabilitySlots, setAvailabilitySlots] = useState<Record<string, number>>({});
 
   const viewerId = currentUserId || "current-user";
 
   const activityType = getActivityType(hangout.activityType);
   const creator = getFriendById(hangout.createdBy);
+  const confirmedBy = hangout.confirmedByUserId ? getFriendById(hangout.confirmedByUserId) : null;
   const currentUserResponse = hangout.responses.find((r) => r.friendId === viewerId);
+  const visibleResponses = hangout.isPublic
+    ? hangout.responses.filter((response) => response.status !== "no")
+    : hangout.responses;
   const isCreator = hangout.createdBy === viewerId;
   const timeRange = hangout.confirmedTime || hangout.proposedTimeRange;
   const canRespond = !!currentUserResponse;
@@ -143,6 +155,79 @@ const HangoutDetailModal = ({
     return aggregate;
   }, [submittedFriendAvailability]);
 
+  const rankedAvailabilitySuggestions = useMemo(() => {
+    return scoreAvailabilitySlots(
+      hangout.responses.map((response) => ({
+        friendId: response.friendId,
+        status: response.status,
+        availabilitySubmitted: response.availabilitySubmitted,
+      }))
+    );
+  }, [hangout.responses]);
+
+  const bestAvailabilitySuggestion = rankedAvailabilitySuggestions[0] || null;
+  const selectedAvailabilitySuggestion = selectedSuggestedSlotKey
+    ? rankedAvailabilitySuggestions.find((slot) => slot.key === selectedSuggestedSlotKey) || bestAvailabilitySuggestion
+    : bestAvailabilitySuggestion;
+
+  useEffect(() => {
+    setSelectedSuggestedSlotKey(bestAvailabilitySuggestion?.key ?? null);
+  }, [hangout.id, bestAvailabilitySuggestion?.key]);
+
+  const isSuggestedSlotAlreadyApplied = Boolean(
+    selectedAvailabilitySuggestion
+    && timeRange.date === selectedAvailabilitySuggestion.date
+    && timeRange.startTime === selectedAvailabilitySuggestion.startTime
+    && timeRange.endTime === selectedAvailabilitySuggestion.endTime
+  );
+
+  const formatSuggestedSlot = (date: string, startTime: string, endTime: string) => {
+    try {
+      const dateLabel = format(parseISO(`${date}T${startTime}:00`), "EEE, MMM d");
+      return `${dateLabel} • ${startTime} - ${endTime}`;
+    } catch {
+      return `${date} • ${startTime} - ${endTime}`;
+    }
+  };
+
+  const formatConfirmationAuditStamp = () => {
+    if (hangout.status !== "confirmed" || !hangout.confirmedAt) {
+      return null;
+    }
+
+    let confirmedAtLabel = hangout.confirmedAt;
+    try {
+      confirmedAtLabel = format(parseISO(hangout.confirmedAt), "MMM d, yyyy 'at' h:mm a");
+    } catch {
+      // Fall back to the raw value if parsing fails.
+    }
+
+    const confirmerName = hangout.confirmedByUserId === viewerId
+      ? "you"
+      : (confirmedBy?.name || "the organizer");
+
+    return `Confirmed by ${confirmerName} on ${confirmedAtLabel}`;
+  };
+
+  const confirmationAuditStamp = formatConfirmationAuditStamp();
+
+  const handleApplySuggestedTime = async () => {
+    if (!selectedAvailabilitySuggestion || !onApplySuggestedTime) {
+      return;
+    }
+
+    setApplyingSuggestedTime(true);
+    try {
+      await onApplySuggestedTime(hangout, {
+        date: selectedAvailabilitySuggestion.date,
+        startTime: selectedAvailabilitySuggestion.startTime,
+        endTime: selectedAvailabilitySuggestion.endTime,
+      });
+    } finally {
+      setApplyingSuggestedTime(false);
+    }
+  };
+
   const statusConfig = {
     suggested: { label: "New Invite", color: "bg-primary/10 text-primary" },
     pending: { label: "Awaiting Responses", color: "bg-amber-500/10 text-amber-600" },
@@ -238,6 +323,12 @@ const HangoutDetailModal = ({
                     {isCreator ? "Created by you" : `Created by ${creator?.name || "Unknown"}`}
                   </span>
                 </div>
+                {confirmationAuditStamp && (
+                  <div className="flex items-center gap-3 text-sm">
+                    <Check className="w-4 h-4 text-green-600 flex-shrink-0" />
+                    <span className="text-foreground">{confirmationAuditStamp}</span>
+                  </div>
+                )}
               </div>
 
               {/* Highlighted friends */}
@@ -264,10 +355,10 @@ const HangoutDetailModal = ({
               <div>
                 <h4 className="font-heading font-semibold text-foreground mb-3 flex items-center gap-2">
                   <Users className="w-4 h-4 text-primary" />
-                  Responses ({hangout.responses.length})
+                  Responses ({visibleResponses.length})
                 </h4>
                 <div className="space-y-2">
-                  {hangout.responses.map((response) => {
+                  {visibleResponses.map((response) => {
                     const friend = getFriendById(response.friendId);
                     const config = responseStatusConfig[response.status];
                     return (
@@ -304,6 +395,58 @@ const HangoutDetailModal = ({
                       readOnly
                     />
                   </div>
+                </div>
+              )}
+
+              {isCreator && bestAvailabilitySuggestion && (
+                <div className="rounded-xl border border-primary/20 bg-primary/5 p-4">
+                  <h4 className="font-heading font-semibold text-foreground mb-1">Suggested Best Time</h4>
+                  <p className="text-sm text-primary font-medium">
+                    {formatSuggestedSlot(
+                      selectedAvailabilitySuggestion?.date || bestAvailabilitySuggestion.date,
+                      selectedAvailabilitySuggestion?.startTime || bestAvailabilitySuggestion.startTime,
+                      selectedAvailabilitySuggestion?.endTime || bestAvailabilitySuggestion.endTime
+                    )}
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-2">
+                    {(selectedAvailabilitySuggestion?.votes || bestAvailabilitySuggestion.votes)} vote{(selectedAvailabilitySuggestion?.votes || bestAvailabilitySuggestion.votes) !== 1 ? "s" : ""}
+                    {` `}({selectedAvailabilitySuggestion?.preferredVotes || bestAvailabilitySuggestion.preferredVotes} preferred)
+                  </p>
+
+                  <button
+                    onClick={handleApplySuggestedTime}
+                    disabled={applyingSuggestedTime || isSuggestedSlotAlreadyApplied}
+                    className="mt-3 btn-primary px-3 py-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isSuggestedSlotAlreadyApplied
+                      ? "Suggested Time Already Applied"
+                      : applyingSuggestedTime
+                        ? "Applying..."
+                        : "Apply Suggested Time"}
+                  </button>
+
+                  {rankedAvailabilitySuggestions.length > 1 && (
+                    <div className="mt-3 pt-3 border-t border-primary/15">
+                      <p className="text-xs text-muted-foreground mb-2">Top options</p>
+                      <div className="space-y-1.5">
+                        {rankedAvailabilitySuggestions.slice(0, 3).map((slot) => (
+                          <button
+                            key={slot.key}
+                            onClick={() => setSelectedSuggestedSlotKey(slot.key)}
+                            className={`w-full text-left text-xs rounded-lg px-2 py-1.5 transition-colors ${
+                              selectedAvailabilitySuggestion?.key === slot.key
+                                ? "bg-primary/15 text-primary"
+                                : "text-foreground/80 hover:bg-primary/10"
+                            }`}
+                          >
+                            {formatSuggestedSlot(slot.date, slot.startTime, slot.endTime)}
+                            {` `}
+                            <span className="text-muted-foreground">({slot.votes} votes)</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 

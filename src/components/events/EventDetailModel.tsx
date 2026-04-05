@@ -23,6 +23,7 @@ import type { Event } from "../../data/events";
 import { toast } from "../../hooks/use-toast";
 import { saveEvent, unsaveEvent, getSavedEventIds } from "../../lib/SavedEvents";
 import { useAuth } from "../../lib/AuthContext";
+import { getCurrentUserHangoutMembership, joinPublicHangout, leavePublicHangout } from "../../lib/hangouts";
 
 interface EventDetailModalProps {
   event: Event | null;
@@ -32,6 +33,9 @@ interface EventDetailModalProps {
 const EventDetailModal = ({ event, onClose }: EventDetailModalProps) => {
   const { user } = useAuth();
   const [isSaved, setIsSaved] = useState(false);
+  const [hangoutMembershipState, setHangoutMembershipState] = useState<"checking" | "joined" | "not-joined">("not-joined");
+  const [joiningHangout, setJoiningHangout] = useState(false);
+  const [leavingHangout, setLeavingHangout] = useState(false);
 
   const toScoreLabel = (score?: number) => {
     if (typeof score !== "number" || Number.isNaN(score) || score <= 0) {
@@ -41,16 +45,68 @@ const EventDetailModal = ({ event, onClose }: EventDetailModalProps) => {
   };
 
   useEffect(() => {
-    if (user && event) {
+    if (user && event && event.isSaveable !== false) {
       getSavedEventIds().then((savedIds) => {
         setIsSaved(savedIds.includes(event.id));
       });
+    } else {
+      setIsSaved(false);
     }
   }, [user, event]);
+
+  const resolvedHangoutId =
+    event?.hangoutId
+    || (event?.source === "hangout" && event.id.startsWith("hangout:")
+      ? event.id.slice("hangout:".length)
+      : null);
+
+  const isHangoutEvent = Boolean(event && event.source === "hangout" && resolvedHangoutId);
+
+  useEffect(() => {
+    if (!event || !isHangoutEvent || !resolvedHangoutId) {
+      setHangoutMembershipState("not-joined");
+      return;
+    }
+
+    if (!user) {
+      setHangoutMembershipState(event.isJoinedByCurrentUser ? "joined" : "not-joined");
+      return;
+    }
+
+    if (event.isJoinedByCurrentUser) {
+      setHangoutMembershipState("joined");
+      return;
+    }
+
+    let isMounted = true;
+    setHangoutMembershipState("checking");
+
+    getCurrentUserHangoutMembership(resolvedHangoutId)
+      .then((membership) => {
+        if (!isMounted) return;
+        setHangoutMembershipState(membership.joined ? "joined" : "not-joined");
+      })
+      .catch(() => {
+        if (!isMounted) return;
+        setHangoutMembershipState("not-joined");
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [event?.id, event?.isJoinedByCurrentUser, isHangoutEvent, resolvedHangoutId, user?.id]);
 
   if (!event) return null;
 
   const handleSave = async () => {
+    if (event.isSaveable === false) {
+      toast({
+        title: "Save not available",
+        description: "Public hangouts are discoverable but not saved as ticketed events.",
+      });
+      return;
+    }
+
     if (!user) {
       toast({
         title: "Sign in required",
@@ -91,6 +147,79 @@ const EventDetailModal = ({ event, onClose }: EventDetailModalProps) => {
     });
   };
 
+  const handleOpenHangouts = () => {
+    window.location.href = "/hangouts";
+  };
+
+  const handleJoinHangout = async () => {
+    if (!event || !resolvedHangoutId) return;
+
+    if (!user) {
+      toast({
+        title: "Sign in required",
+        description: "Please sign in to join this hangout.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setJoiningHangout(true);
+    try {
+      await joinPublicHangout(resolvedHangoutId);
+      setHangoutMembershipState("joined");
+      toast({
+        title: "Joined hangout",
+        description: "You are now part of this hangout.",
+      });
+    } catch (error) {
+      const message = (error as { message?: string })?.message || "Could not join hangout right now.";
+      const lowerMessage = message.toLowerCase();
+
+      toast({
+        title: "Could not join hangout",
+        description:
+          lowerMessage.includes("permission")
+            ? "Phase C RLS policy for self-join may not be enabled yet."
+            : message,
+        variant: "destructive",
+      });
+    } finally {
+      setJoiningHangout(false);
+    }
+  };
+
+  const handleLeaveHangout = async () => {
+    if (!event || !resolvedHangoutId) return;
+
+    if (!user) {
+      toast({
+        title: "Sign in required",
+        description: "Please sign in to leave this hangout.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setLeavingHangout(true);
+    try {
+      await leavePublicHangout(resolvedHangoutId);
+      setHangoutMembershipState("not-joined");
+      toast({
+        title: "Left hangout",
+        description: "You have been removed from this hangout.",
+      });
+    } catch (error) {
+      const message = (error as { message?: string })?.message || "Could not leave hangout right now.";
+      toast({
+        title: "Could not leave hangout",
+        description: message,
+        variant: "destructive",
+      });
+    } finally {
+      setLeavingHangout(false);
+    }
+  };
+
   return (
     <AnimatePresence>
       {event && (
@@ -122,15 +251,22 @@ const EventDetailModal = ({ event, onClose }: EventDetailModalProps) => {
                   </button>
 
                   <div className="absolute top-4 left-4 flex gap-2">
-                    <button onClick={handleSave} className={`p-2 rounded-full backdrop-blur-sm transition-colors ${isSaved ? 'bg-primary text-primary-foreground' : 'bg-background/80 hover:bg-primary/20'}`}>
-                      <Heart className={`w-5 h-5 ${isSaved ? 'fill-current' : ''}`} />
-                    </button>
+                    {event.isSaveable !== false && (
+                      <button onClick={handleSave} className={`p-2 rounded-full backdrop-blur-sm transition-colors ${isSaved ? 'bg-primary text-primary-foreground' : 'bg-background/80 hover:bg-primary/20'}`}>
+                        <Heart className={`w-5 h-5 ${isSaved ? 'fill-current' : ''}`} />
+                      </button>
+                    )}
                     <button className="p-2 rounded-full bg-background/80 backdrop-blur-sm hover:bg-primary/20 transition-colors">
                       <Share2 className="w-5 h-5 text-foreground" />
                     </button>
                   </div>
 
                   <div className="absolute bottom-4 left-6 flex items-center gap-2">
+                    {event.sourceLabel && (
+                      <span className="px-2 py-1 bg-background/80 backdrop-blur-sm text-xs rounded-full text-foreground border border-border">
+                        {event.sourceLabel}
+                      </span>
+                    )}
                     <span className="genre-tag active">{event.genre}</span>
                     {event.tags?.slice(0, 2).map((tag) => (
                       <span key={tag} className="px-2 py-1 bg-background/80 backdrop-blur-sm text-xs rounded-full text-foreground">
@@ -145,6 +281,9 @@ const EventDetailModal = ({ event, onClose }: EventDetailModalProps) => {
                   <div>
                     <h2 className="font-heading text-2xl font-bold text-foreground mb-2">{event.name}</h2>
                     {event.description && <p className="text-muted-foreground text-sm">{event.description}</p>}
+                    {event.organizerName && (
+                      <p className="text-xs text-muted-foreground mt-2">Organized by {event.organizerName}</p>
+                    )}
                   </div>
 
                   {/* Recommendation Badge */}
@@ -232,12 +371,48 @@ const EventDetailModal = ({ event, onClose }: EventDetailModalProps) => {
                       {event.priceLevel === 'free' ? 'Free' : event.price}
                     </p>
                   </div>
-                  <button onClick={handleSuggestToGroup} className="btn-secondary flex items-center gap-2 text-sm">
-                    <Users className="w-4 h-4" /> Suggest to Group
-                  </button>
-                  <a href={event.ticketUrl} target="_blank" rel="noopener noreferrer" className="btn-primary flex items-center gap-2">
-                    Get Tickets <ExternalLink className="w-4 h-4" />
-                  </a>
+                  {isHangoutEvent ? (
+                    hangoutMembershipState === "joined" ? (
+                      <button
+                        onClick={handleLeaveHangout}
+                        disabled={leavingHangout}
+                        className="btn-secondary flex items-center gap-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        <Users className="w-4 h-4" /> {leavingHangout ? "Leaving..." : "Leave Hangout"}
+                      </button>
+                    ) : null
+                  ) : (
+                    <button onClick={handleSuggestToGroup} className="btn-secondary flex items-center gap-2 text-sm">
+                      <Users className="w-4 h-4" /> Suggest to Group
+                    </button>
+                  )}
+                  {event.ticketUrl ? (
+                    <a href={event.ticketUrl} target="_blank" rel="noopener noreferrer" className="btn-primary flex items-center gap-2">
+                      Get Tickets <ExternalLink className="w-4 h-4" />
+                    </a>
+                  ) : isHangoutEvent ? (
+                    hangoutMembershipState === "joined" ? (
+                      <button onClick={handleOpenHangouts} className="btn-primary flex items-center gap-2">
+                        Open Hangouts
+                      </button>
+                    ) : (
+                      <button
+                        onClick={handleJoinHangout}
+                        disabled={joiningHangout || leavingHangout || hangoutMembershipState === "checking"}
+                        className="btn-primary flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {joiningHangout
+                          ? "Joining..."
+                          : hangoutMembershipState === "checking"
+                            ? "Checking..."
+                            : "Join Hangout"}
+                      </button>
+                    )
+                  ) : (
+                    <a href="/hangouts" className="btn-primary flex items-center gap-2">
+                      Open Hangouts
+                    </a>
+                  )}
                 </div>
               </div>
             </motion.div>

@@ -12,9 +12,10 @@ interface CreateHangoutModalProps {
   isOpen: boolean;
   onClose: () => void;
   onCreate?: (hangout: Partial<Hangout> & { creatorAvailability?: TimeRange[] }) => void;
+  inviteCandidates?: Friend[];
 }
 
-const CreateHangoutModal = ({ isOpen, onClose, onCreate }: CreateHangoutModalProps) => {
+const CreateHangoutModal = ({ isOpen, onClose, onCreate, inviteCandidates }: CreateHangoutModalProps) => {
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -26,11 +27,14 @@ const CreateHangoutModal = ({ isOpen, onClose, onCreate }: CreateHangoutModalPro
   const [heatmapSlots, setHeatmapSlots] = useState<Record<string, number>>({});
   const [locationName, setLocationName] = useState("");
   const [isFlexibleLocation, setIsFlexibleLocation] = useState(true);
+  const [isPublicHangout, setIsPublicHangout] = useState(false);
   const [selectedFriends, setSelectedFriends] = useState<string[]>([]);
   const [highlightedFriends, setHighlightedFriends] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
 
-  const filteredFriends = friends.filter(
+  const friendPool = inviteCandidates ?? friends;
+
+  const filteredFriends = friendPool.filter(
     (f) =>
       !f.isBlocked &&
       f.name.toLowerCase().includes(searchQuery.toLowerCase())
@@ -97,6 +101,7 @@ const CreateHangoutModal = ({ isOpen, onClose, onCreate }: CreateHangoutModalPro
             isFlexible: isFlexibleLocation,
           }
         : undefined,
+      isPublic: isPublicHangout,
       invitedFriends: selectedFriends,
       highlightedFriends,
       status: "pending",
@@ -119,6 +124,7 @@ const CreateHangoutModal = ({ isOpen, onClose, onCreate }: CreateHangoutModalPro
     setHeatmapSlots({});
     setLocationName("");
     setIsFlexibleLocation(true);
+    setIsPublicHangout(false);
     setSelectedFriends([]);
     setHighlightedFriends([]);
     setSearchQuery("");
@@ -136,7 +142,7 @@ const CreateHangoutModal = ({ isOpen, onClose, onCreate }: CreateHangoutModalPro
   const canProceedStep2 = schedulingMode === "heatmap"
     ? (date && Object.values(heatmapSlots).some((v) => v > 0))
     : (date && startTime && endTime);
-  const canCreate = selectedFriends.length > 0;
+  const canCreate = isPublicHangout || selectedFriends.length > 0;
 
   return (
     <AnimatePresence>
@@ -364,6 +370,22 @@ const CreateHangoutModal = ({ isOpen, onClose, onCreate }: CreateHangoutModalPro
                         </div>
                       )}
                     </div>
+
+                    <div className="rounded-xl border border-border bg-muted/30 p-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-medium text-foreground">Make this hangout public</p>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            Public confirmed hangouts can appear in Explore and Map for everyone.
+                          </p>
+                        </div>
+                        <Switch
+                          checked={isPublicHangout}
+                          onCheckedChange={setIsPublicHangout}
+                          aria-label="Make hangout public"
+                        />
+                      </div>
+                    </div>
                   </motion.div>
                 )}
 
@@ -398,6 +420,12 @@ const CreateHangoutModal = ({ isOpen, onClose, onCreate }: CreateHangoutModalPro
                         </span>
                       )}
                     </div>
+
+                    {isPublicHangout && selectedFriends.length === 0 && (
+                      <div className="rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-xs text-primary">
+                        This public hangout can be created without inviting friends.
+                      </div>
+                    )}
 
                     {/* Highlight Info */}
                     <div className="flex items-start gap-2 p-3 rounded-lg bg-primary/5 text-sm">

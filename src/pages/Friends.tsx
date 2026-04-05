@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Search, UserPlus, Check, X, Bell, Filter, UserCheck } from "lucide-react";
+import { Search, UserPlus, Check, X, Bell, UserCheck } from "lucide-react";
 import Navbar from "../components/layout/Navbar";
 import AuthModal from "../components/auth/AuthModal";
 import FriendCard from "../components/friends/FriendCard";
@@ -102,6 +102,31 @@ const Friends = () => {
   });
 
   const pendingRequestsData = pendingRequests;
+
+  if (!user) {
+    return (
+      <div className="min-h-screen bg-background">
+        <Navbar />
+
+        <main className="pt-[72px]">
+          <div className="max-w-4xl mx-auto px-6 py-16 text-center">
+            <div className="w-20 h-20 rounded-2xl bg-primary/10 flex items-center justify-center mx-auto mb-6">
+              <UserCheck className="w-10 h-10 text-primary" />
+            </div>
+            <h1 className="font-heading text-3xl font-bold text-foreground mb-3">Friends</h1>
+            <p className="text-muted-foreground mb-8 max-w-xl mx-auto">
+              Sign in to manage friends, accept requests, and grow your circle.
+            </p>
+            <button onClick={() => setShowAuth(true)} className="btn-primary px-6 py-3">
+              Sign In To Continue
+            </button>
+          </div>
+        </main>
+
+        <AuthModal isOpen={showAuth} onClose={() => setShowAuth(false)} />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background">

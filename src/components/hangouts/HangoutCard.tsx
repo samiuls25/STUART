@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { motion } from "framer-motion";
-import { MapPin, Clock, Users, Check, X, HelpCircle, ChevronRight, Trash2 } from "lucide-react";
+import { MapPin, Clock, Users, Check, X, HelpCircle, ChevronRight, Trash2, Eye, EyeOff } from "lucide-react";
 import { Hangout, getFriendById, getActivityType } from "../../data/friends";
 import { format } from "date-fns";
 import ConfirmDeleteHangoutDialog from "./ConfirmDeleteHangoutDialog";
@@ -11,7 +11,9 @@ interface HangoutCardProps {
   onViewDetails?: (hangout: Hangout) => void;
   onOpenAvailability?: (hangout: Hangout) => void;
   onDeleteHangout?: (hangout: Hangout) => void;
-  variant?: "suggested" | "pending" | "confirmed";
+  onHideDeclined?: (hangout: Hangout) => void;
+  onRestoreDeclined?: (hangout: Hangout) => void;
+  variant?: "suggested" | "pending" | "confirmed" | "declined";
   currentUserId?: string;
 }
 
@@ -21,6 +23,8 @@ const HangoutCard = ({
   onViewDetails,
   onOpenAvailability,
   onDeleteHangout,
+  onHideDeclined,
+  onRestoreDeclined,
   variant = "suggested",
   currentUserId,
 }: HangoutCardProps) => {
@@ -29,9 +33,12 @@ const HangoutCard = ({
   const viewerId = currentUserId || "current-user";
   const activityType = getActivityType(hangout.activityType);
   const creator = getFriendById(hangout.createdBy);
+  const visibleResponses = hangout.isPublic
+    ? hangout.responses.filter((response) => response.status !== "no")
+    : hangout.responses;
   
-  const yesResponses = hangout.responses.filter((r) => r.status === "yes").length;
-  const pendingResponses = hangout.responses.filter(
+  const yesResponses = visibleResponses.filter((r) => r.status === "yes").length;
+  const pendingResponses = visibleResponses.filter(
     (r) => r.status === "invited" || r.status === "pending-availability"
   ).length;
 
@@ -39,7 +46,17 @@ const HangoutCard = ({
   const isCreator = hangout.createdBy === viewerId;
   const canShowMyStatus = !!currentUserResponse;
   const canRespondOnCard = !!currentUserResponse;
-  const canOpenAvailabilityOnCard = !!currentUserResponse;
+  const canOpenAvailabilityOnCard = !!currentUserResponse && currentUserResponse.status !== "no";
+  const canHideDeclinedInvite =
+    !!onHideDeclined
+    && !isCreator
+    && !hangout.isPublic
+    && currentUserResponse?.status === "no";
+  const canRestoreDeclinedInvite =
+    !!onRestoreDeclined
+    && !isCreator
+    && !hangout.isPublic
+    && currentUserResponse?.status === "no";
 
   const myStatus = {
     invited: { label: "Invited", className: "bg-muted text-muted-foreground" },
@@ -59,6 +76,7 @@ const HangoutCard = ({
     suggested: { label: "New Invite", className: "bg-primary/10 text-primary" },
     pending: { label: "Awaiting Responses", className: "bg-amber-500/10 text-amber-600" },
     confirmed: { label: "Confirmed!", className: "bg-green-500/10 text-green-600" },
+    declined: { label: "Declined", className: "bg-destructive/10 text-destructive" },
   };
 
   return (
@@ -154,7 +172,7 @@ const HangoutCard = ({
 
         {/* Attendee Avatars */}
         <div className="flex items-center gap-1 pt-1">
-          {hangout.responses.slice(0, 5).map((response, idx) => {
+          {visibleResponses.slice(0, 5).map((response, idx) => {
             const friend = getFriendById(response.friendId);
             const statusBorder = {
               yes: "ring-2 ring-green-500",
@@ -175,9 +193,9 @@ const HangoutCard = ({
               </div>
             );
           })}
-          {hangout.responses.length > 5 && (
+          {visibleResponses.length > 5 && (
             <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center text-xs font-medium text-muted-foreground -ml-2">
-              +{hangout.responses.length - 5}
+              +{visibleResponses.length - 5}
             </div>
           )}
         </div>
@@ -222,10 +240,28 @@ const HangoutCard = ({
               </button>
             </div>
           )}
-          {(canOpenAvailabilityOnCard || isCreator) && (
+          {(canOpenAvailabilityOnCard || isCreator || canHideDeclinedInvite || canRestoreDeclinedInvite) && (
             <>
               <div className="hidden sm:block h-7 w-px bg-border" />
               <div className="ml-auto flex items-center gap-2">
+                {canHideDeclinedInvite && (
+                  <button
+                    onClick={() => onHideDeclined?.(hangout)}
+                    className="flex items-center justify-center gap-1 py-2.5 px-3 rounded-xl bg-muted text-muted-foreground hover:bg-muted/80 transition-colors"
+                  >
+                    <EyeOff className="w-4 h-4" />
+                    <span className="hidden sm:inline">Hide</span>
+                  </button>
+                )}
+                {canRestoreDeclinedInvite && (
+                  <button
+                    onClick={() => onRestoreDeclined?.(hangout)}
+                    className="flex items-center justify-center gap-1 py-2.5 px-3 rounded-xl bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
+                  >
+                    <Eye className="w-4 h-4" />
+                    <span className="hidden sm:inline">Restore</span>
+                  </button>
+                )}
                 {canOpenAvailabilityOnCard && (
                   <button
                     onClick={() => onOpenAvailability?.(hangout)}
