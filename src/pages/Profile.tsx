@@ -1,10 +1,9 @@
 import { useState, useEffect } from "react";
 import React from "react";
 import { motion } from "framer-motion";
-import { Link, useNavigate } from "react-router-dom";
+import { Link } from "react-router-dom";
 import {
   User,
-  Settings,
   LogOut,
   Heart,
   Users,
@@ -12,24 +11,22 @@ import {
   ChevronRight,
   Trophy,
   Camera,
-  Sparkles,
 } from "lucide-react";
 import Navbar from "../components/layout/Navbar";
 import AuthModal from "../components/auth/AuthModal";
 import BadgeCard from "../components/profile/BadgeCard";
 import MemoryCard from "../components/profile/MemoryCard";
 import EditProfileModal from "../components/profile/EditProfileModal";
-import { groups } from "../data/groups";
-import { badges as localBadges, badgeDefinitions, memories as localMemories } from "../data/badges";
+import { badges as localBadges, memories as localMemories } from "../data/badges";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/AuthContext";
 import { getFriends } from "../lib/friends";
 import { getSavedEventIds } from "../lib/SavedEvents";
+import { getUserBadges } from "../lib/badges";
 
 type TabType = "overview" | "badges" | "memories";
 
 const Profile = () => {
-  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<TabType>("overview");
   const [editing, setEditing] = useState(false);
   const [showAuth, setShowAuth] = useState(false);
@@ -71,11 +68,11 @@ const Profile = () => {
     const fetchBadges = async () => {
       setLoadingBadges(true);
       try {
-        const { data, error } = await supabase.from("badges").select("*");
-        if (!error && data && mounted) setBadges(data as any);
+        const computedBadges = await getUserBadges(user.id);
+        if (mounted) setBadges(computedBadges);
       } catch (err) {
         setBadges([]);
-        console.warn("Failed to fetch badges, using empty data", err);
+        console.warn("Failed to compute badges, using empty data", err);
       } finally {
         if (mounted) setLoadingBadges(false);
       }
@@ -172,10 +169,7 @@ const Profile = () => {
 
   const unlockedBadges = badges.filter((b) => b.unlocked);
   const topBadges = unlockedBadges.slice(0, 3);
-  
-  // Get locked badges - badge definitions that user hasn't earned
-  const earnedBadgeIds = new Set(badges.map((b) => b.id));
-  const lockedBadges = badgeDefinitions.filter((def) => !earnedBadgeIds.has(def.id));
+  const lockedBadges = badges.filter((b) => !b.unlocked);
 
   const handleSignOut = async () => {
     try {
@@ -295,9 +289,15 @@ const Profile = () => {
                     </button>
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    {unlockedBadges.map((badge) => (
-                      <BadgeCard key={badge.id} badge={badge} compact />
-                    ))}
+                    {loadingBadges ? (
+                      <p className="text-sm text-muted-foreground">Computing badges...</p>
+                    ) : topBadges.length > 0 ? (
+                      topBadges.map((badge) => (
+                        <BadgeCard key={badge.id} badge={badge} compact />
+                      ))
+                    ) : (
+                      <p className="text-sm text-muted-foreground">No badges yet. Start exploring and joining hangouts.</p>
+                    )}
                   </div>
                 </div>
 
@@ -349,7 +349,9 @@ const Profile = () => {
                     <Trophy className="w-5 h-5 text-primary" />
                     Unlocked ({unlockedBadges.length})
                   </h2>
-                  {unlockedBadges.length > 0 ? (
+                  {loadingBadges ? (
+                    <p className="text-sm text-muted-foreground">Computing badges...</p>
+                  ) : unlockedBadges.length > 0 ? (
                     <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                       {unlockedBadges.map((badge, index) => (
                         <motion.div key={badge.id} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.05 }}>
@@ -367,21 +369,14 @@ const Profile = () => {
                   <div>
                     <h2 className="font-heading text-lg font-semibold text-muted-foreground mb-4">Locked ({lockedBadges.length})</h2>
                     <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                      {lockedBadges.map((badgeDef, index) => (
+                      {lockedBadges.map((badge, index) => (
                         <motion.div 
-                          key={badgeDef.id} 
+                          key={badge.id} 
                           initial={{ opacity: 0, y: 20 }} 
                           animate={{ opacity: 1, y: 0 }} 
                           transition={{ delay: index * 0.05 }}
                         >
-                          <BadgeCard 
-                            badge={{
-                              ...badgeDef,
-                              level: 0,
-                              progress: 0,
-                              unlocked: false,
-                            }} 
-                          />
+                          <BadgeCard badge={badge} />
                         </motion.div>
                       ))}
                     </div>
