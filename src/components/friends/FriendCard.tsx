@@ -2,7 +2,6 @@ import React from "react";
 import { motion } from "framer-motion";
 import { UserMinus, VolumeX, Volume2, MessageCircle, MoreHorizontal } from "lucide-react";
 import { Friend } from "../../lib/friends";
-import { badgeDefinitions as allBadges } from "../../data/badges";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -26,11 +25,8 @@ const FriendCard = ({ friend, onViewProfile, onMute, onBlock, compact = false }:
     busy: "bg-amber-500",
   };
 
-  // Safely handle badges - Supabase friends don't have badges array
-  const friendBadges = (friend.badges ?? [])
-    .map((id) => allBadges.find((b) => b.id === id))
-    .filter(Boolean)
-    .slice(0, 3);
+  // Supabase-backed badge summaries (already filtered to unlocked badges).
+  const friendBadges = (friend.badgeSummaries ?? []).slice(0, 3);
 
   // Safely handle status - Supabase friends don't have online/offline status
   const friendStatus = (friend.status as string) in statusColors 
@@ -47,8 +43,8 @@ const FriendCard = ({ friend, onViewProfile, onMute, onBlock, compact = false }:
       >
         <div className="relative">
           <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary/20 to-accent/20 flex items-center justify-center">
-            {friend.avatar ? (
-              <img src={friend.avatar} alt={friend.name} className="w-full h-full rounded-full object-cover" />
+            {friend.avatar_url ? (
+              <img src={friend.avatar_url} alt={friend.name} className="w-full h-full rounded-full object-cover" />
             ) : (
               <span className="font-heading font-bold text-primary">
                 {friend.name.charAt(0)}
@@ -61,8 +57,8 @@ const FriendCard = ({ friend, onViewProfile, onMute, onBlock, compact = false }:
           <p className="font-medium text-foreground truncate">{friend.name}</p>
           <div className="flex gap-1">
             {friendBadges.map((badge) => (
-              <span key={badge!.id} className="text-xs" title={badge!.name}>
-                {badge!.icon}
+              <span key={badge.id} className="text-xs" title={badge.name}>
+                {badge.icon}
               </span>
             ))}
           </div>
@@ -83,8 +79,8 @@ const FriendCard = ({ friend, onViewProfile, onMute, onBlock, compact = false }:
         className="relative flex-shrink-0"
       >
         <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-primary/20 to-accent/20 flex items-center justify-center">
-          {friend.avatar ? (
-            <img src={friend.avatar} alt={friend.name} className="w-full h-full rounded-xl object-cover" />
+          {friend.avatar_url ? (
+            <img src={friend.avatar_url} alt={friend.name} className="w-full h-full rounded-xl object-cover" />
           ) : (
             <span className="font-heading text-xl font-bold text-primary">
               {friend.name.charAt(0)}
@@ -112,11 +108,11 @@ const FriendCard = ({ friend, onViewProfile, onMute, onBlock, compact = false }:
         <div className="flex items-center gap-1.5 mt-1">
           {friendBadges.map((badge) => (
             <span
-              key={badge!.id}
+              key={badge.id}
               className="text-sm"
-              title={badge!.name}
+              title={badge.name}
             >
-              {badge!.icon}
+              {badge.icon}
             </span>
           ))}
         </div>

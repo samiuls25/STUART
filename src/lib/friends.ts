@@ -1,5 +1,14 @@
 import { supabase } from "./supabase";
 
+export interface FriendBadgeSummary {
+  id: string;
+  name: string;
+  icon: string;
+  level: number;
+  progress: number;
+  unlocked: boolean;
+}
+
 export interface Friend {
   id: string;
   name: string;
@@ -7,6 +16,7 @@ export interface Friend {
   avatar_url?: string;
   status: 'online' | 'offline' | 'busy';
   badges?: string[];
+  badgeSummaries?: FriendBadgeSummary[];
   mutualFriends?: number;
   hangoutsTogether?: number;
   isMuted?: boolean;
@@ -45,14 +55,72 @@ export async function getFriends(): Promise<Friend[]> {
     return [];
   }
 
+  type FriendBadgeRow = {
+    user_id: string;
+    badge_type: string;
+    title: string | null;
+    icon: string | null;
+    metadata: {
+      level?: number;
+      progress?: number;
+      unlocked?: boolean;
+    } | null;
+  };
+
+  const badgeSummaryByUserId = new Map<string, FriendBadgeSummary[]>();
+
+  const { data: badgeRows, error: badgeError } = await supabase
+    .from("badges")
+    .select("user_id,badge_type,title,icon,metadata")
+    .in("user_id", friendIds);
+
+  if (badgeError) {
+    console.warn("Error fetching friend badges:", badgeError);
+  } else {
+    (badgeRows as FriendBadgeRow[] | null)?.forEach((row) => {
+      const level = Number(row.metadata?.level || 0);
+      const progress = Number(row.metadata?.progress || 0);
+      const unlocked = typeof row.metadata?.unlocked === "boolean"
+        ? row.metadata.unlocked
+        : level > 0;
+
+      if (!unlocked) {
+        return;
+      }
+
+      const list = badgeSummaryByUserId.get(row.user_id) || [];
+      list.push({
+        id: row.badge_type,
+        name: row.title || row.badge_type,
+        icon: row.icon || "🏅",
+        level,
+        progress,
+        unlocked,
+      });
+      badgeSummaryByUserId.set(row.user_id, list);
+    });
+
+    badgeSummaryByUserId.forEach((list, key) => {
+      list.sort((a, b) => {
+        if (b.level !== a.level) return b.level - a.level;
+        if (b.progress !== a.progress) return b.progress - a.progress;
+        return a.name.localeCompare(b.name);
+      });
+      badgeSummaryByUserId.set(key, list);
+    });
+  }
+
   // Combine data
   return friendships.map(f => {
     const profile = profiles?.find(p => p.id === f.friend_id);
+    const badgeSummaries = badgeSummaryByUserId.get(f.friend_id) || [];
     return {
       id: f.friend_id,
       name: profile?.name || profile?.email || "Unknown",
       email: profile?.email || "",
       avatar_url: profile?.avatar_url,
+      badges: badgeSummaries.map((badge) => badge.id),
+      badgeSummaries,
       status: f.status as 'pending' | 'accepted' | 'blocked',
       created_at: f.created_at,
     };

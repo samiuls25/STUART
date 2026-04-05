@@ -17,7 +17,7 @@ import AuthModal from "../components/auth/AuthModal";
 import BadgeCard from "../components/profile/BadgeCard";
 import MemoryCard from "../components/profile/MemoryCard";
 import EditProfileModal from "../components/profile/EditProfileModal";
-import { badges as localBadges, memories as localMemories } from "../data/badges";
+import { memories as localMemories } from "../data/badges";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/AuthContext";
 import { getFriends } from "../lib/friends";
@@ -33,7 +33,7 @@ const Profile = () => {
   const [savedCount, setSavedCount] = useState<number>(0);
   const [groupsCount, setGroupsCount] = useState(0);
   const [friendsCount, setFriendsCount] = useState<number>(0);
-  const [badges, setBadges] = useState(localBadges);
+  const [badges, setBadges] = useState([]);
   const [memoriesState, setMemoriesState] = useState(localMemories);
   const [loadingBadges, setLoadingBadges] = useState(false);
   const [loadingMemories, setLoadingMemories] = useState(false);
