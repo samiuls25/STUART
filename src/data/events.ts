@@ -368,6 +368,7 @@ export interface Event {
 
 // export async fetcher
 import { supabase } from "../lib/supabase";
+import { hasHangoutsIsPublicColumn } from "../lib/hangoutsSchema";
 
 interface UserRecommendationRow {
   event_id: string;
@@ -480,7 +481,9 @@ const isHangoutsTableMissing = (error: unknown) => {
   return candidate.code === "42P01" || message.includes("relation") && message.includes("hangouts") && message.includes("does not exist");
 };
 
-const fetchPublicHangoutEvents = async (): Promise<Event[]> => {
+const fetchPublicHangoutEvents = async (userId?: string): Promise<Event[]> => {
+  const supportsIsPublicColumn = await hasHangoutsIsPublicColumn();
+
   const { data: hangoutRows, error: hangoutError } = await supabase
     .from("hangouts")
     .select("*")
@@ -496,9 +499,11 @@ const fetchPublicHangoutEvents = async (): Promise<Event[]> => {
     return [];
   }
 
-  const publicRows = ((hangoutRows as HangoutPublicRow[] | null) || []).filter(
-    (row) => row.is_public === true
-  );
+  const confirmedRows = (hangoutRows as HangoutPublicRow[] | null) || [];
+
+  const publicRows = supportsIsPublicColumn
+    ? confirmedRows.filter((row) => row.is_public === true)
+    : confirmedRows.filter((row) => !userId || row.created_by === userId);
 
   if (publicRows.length === 0) {
     return [];
@@ -546,7 +551,7 @@ const fetchPublicHangoutEvents = async (): Promise<Event[]> => {
         genre: activityMetadata.genre,
         ticketUrl: "",
         source: "hangout",
-        sourceLabel: "Public Hangout",
+        sourceLabel: supportsIsPublicColumn ? "Public Hangout" : "Hangout",
         organizerName: profileNameMap.get(row.created_by),
         isSaveable: false,
         isTrackable: false,
@@ -808,7 +813,7 @@ export async function fetchEvents(userId?: string): Promise<Event[]> {
     };
   });
 
-  const publicHangoutEvents = await fetchPublicHangoutEvents();
+  const publicHangoutEvents = await fetchPublicHangoutEvents(effectiveUserId);
 
   const mergedEvents = [...mappedEvents, ...publicHangoutEvents];
 

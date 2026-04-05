@@ -1,5 +1,6 @@
 import { supabase } from "./supabase";
 import { Hangout, TimeRange } from "../data/friends";
+import { hasHangoutsIsPublicColumn } from "./hangoutsSchema";
 
 interface HangoutRow {
   id: string;
@@ -156,16 +157,18 @@ export async function createHangout(input: CreateHangoutInput): Promise<void> {
     is_flexible_location: input.location?.isFlexible ?? true,
   };
 
-  const insertWithPublicFlag = {
-    ...baseInsertPayload,
-    is_public: input.isPublic ?? false,
-  };
+  const supportsIsPublicColumn = await hasHangoutsIsPublicColumn();
 
-  let insertedHangout: { id: string } | null = null;
+  const insertPayload = supportsIsPublicColumn
+    ? {
+        ...baseInsertPayload,
+        is_public: input.isPublic ?? false,
+      }
+    : baseInsertPayload;
 
-  let { data: insertedWithPublic, error: hangoutError } = await supabase
+  const { data: insertedHangout, error: hangoutError } = await supabase
     .from("hangouts")
-    .insert(insertWithPublicFlag)
+    .insert(insertPayload)
     .select("id")
     .single();
 
@@ -176,13 +179,45 @@ export async function createHangout(input: CreateHangoutInput): Promise<void> {
       .select("id")
       .single();
 
-    insertedWithPublic = retry.data;
-    hangoutError = retry.error;
+    if (retry.error) throw retry.error;
+
+    const fallbackInserted = retry.data;
+    if (!fallbackInserted) {
+      throw new Error("Failed to create hangout");
+    }
+
+    const uniqueInvites = [...new Set(input.invitedFriends)].filter((friendId) => friendId && friendId !== user.id);
+
+    const inviteRows = [
+      {
+        hangout_id: fallbackInserted.id,
+        friend_id: user.id,
+        is_highlighted: false,
+        response_status: "yes" as const,
+        availability_submitted: input.creatorAvailability || [],
+      },
+      ...uniqueInvites.map((friendId) => ({
+        hangout_id: fallbackInserted.id,
+        friend_id: friendId,
+        is_highlighted: new Set(input.highlightedFriends).has(friendId),
+        response_status: "invited" as const,
+        availability_submitted: [],
+      })),
+    ];
+
+    const { error: inviteError } = await supabase.from("hangout_invites").insert(inviteRows);
+
+    if (inviteError) throw inviteError;
+
+    await syncHangoutStatus(fallbackInserted.id);
+    return;
   }
 
-  insertedHangout = insertedWithPublic;
-
   if (hangoutError) throw hangoutError;
+
+  if (!insertedHangout) {
+    throw new Error("Failed to create hangout");
+  }
 
   const uniqueInvites = [...new Set(input.invitedFriends)].filter((friendId) => friendId && friendId !== user.id);
 
