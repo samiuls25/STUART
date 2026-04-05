@@ -3,6 +3,17 @@ import { type Hangout } from "../data/friends";
 import { fetchHangoutsForCurrentUser } from "./hangouts";
 import { supabase } from "./supabase";
 
+type BadgeCategory = "social" | "explorer" | "vibe" | "special";
+
+type BadgeDefinitionRuntime = {
+  id: string;
+  name: string;
+  icon: string;
+  description: string;
+  category: BadgeCategory;
+  maxLevel: number;
+};
+
 type BadgeId =
   | "night-pulse"
   | "urban-explorer"
@@ -59,6 +70,17 @@ type PersistedBadgeRow = {
   } | null;
 };
 
+type BadgeCatalogRow = {
+  id: string;
+  name: string;
+  icon: string | null;
+  description: string | null;
+  category: string | null;
+  max_level: number | null;
+  is_active?: boolean | null;
+  sort_order?: number | null;
+};
+
 const LEVEL_TARGETS: Record<BadgeId, number[]> = {
   "night-pulse": [2, 5, 10, 18, 30],
   "urban-explorer": [3, 6, 10, 16, 24],
@@ -68,6 +90,50 @@ const LEVEL_TARGETS: Record<BadgeId, number[]> = {
   "culture-vulture": [2, 5, 9, 14, 20],
   "early-bird": [2, 5, 10, 16, 24],
   "group-guru": [1, 3, 6, 10, 15],
+};
+
+const normalizeBadgeCategory = (value: string | null | undefined): BadgeCategory => {
+  if (value === "social" || value === "explorer" || value === "vibe" || value === "special") {
+    return value;
+  }
+
+  return "special";
+};
+
+const toRuntimeDefinition = (row: BadgeCatalogRow): BadgeDefinitionRuntime => {
+  return {
+    id: row.id,
+    name: row.name,
+    icon: row.icon || "🏅",
+    description: row.description || "",
+    category: normalizeBadgeCategory(row.category),
+    maxLevel: Number.isFinite(row.max_level) && (row.max_level || 0) > 0 ? Number(row.max_level) : 5,
+  };
+};
+
+const getFallbackDefinitions = (): BadgeDefinitionRuntime[] => {
+  return badgeDefinitions.map((badge) => ({
+    id: badge.id,
+    name: badge.name,
+    icon: badge.icon,
+    description: badge.description,
+    category: badge.category,
+    maxLevel: badge.maxLevel,
+  }));
+};
+
+const fetchBadgeCatalogDefinitions = async (): Promise<BadgeDefinitionRuntime[]> => {
+  const { data, error } = await supabase
+    .from("badge_catalog")
+    .select("id,name,icon,description,category,max_level,is_active,sort_order")
+    .eq("is_active", true)
+    .order("sort_order", { ascending: true });
+
+  if (error || !data || data.length === 0) {
+    return getFallbackDefinitions();
+  }
+
+  return (data as BadgeCatalogRow[]).map(toRuntimeDefinition);
 };
 
 const POSITIVE_RESPONSE_STATUSES = new Set(["yes", "maybe", "pending-availability"]);
@@ -273,12 +339,13 @@ const normalizeCategory = (value: string | undefined, fallback: Badge["category"
 };
 
 const mapPersistedRowsToBadges = (
+  definitions: BadgeDefinitionRuntime[],
   rows: PersistedBadgeRow[],
   fallbackById: Map<string, Badge>
 ): Badge[] => {
   const byType = new Map(rows.map((row) => [row.badge_type, row]));
 
-  return badgeDefinitions.map((definition) => {
+  return definitions.map((definition) => {
     const row = byType.get(definition.id);
     const fallback = fallbackById.get(definition.id) || {
       ...definition,
@@ -371,8 +438,10 @@ const formatEarnedAt = (earnedAt: string | undefined) => {
 };
 
 export async function getUserBadges(userId: string): Promise<Badge[]> {
+  const runtimeDefinitions = await fetchBadgeCatalogDefinitions();
+
   if (!userId) {
-    return badgeDefinitions.map((definition) => ({
+    return runtimeDefinitions.map((definition) => ({
       ...definition,
       level: 0,
       progress: 0,
@@ -482,9 +551,9 @@ export async function getUserBadges(userId: string): Promise<Badge[]> {
 
   const persistedByType = new Map<string, PersistedBadgeRow>(persistedRows.map((row) => [row.badge_type, row]));
 
-  const computedBadges = badgeDefinitions.map((definition) => {
+  const computedBadges = runtimeDefinitions.map((definition) => {
     const badgeId = definition.id as BadgeId;
-    const targetLevels = LEVEL_TARGETS[badgeId];
+    const targetLevels = LEVEL_TARGETS[badgeId] || [1, 3, 6, 10, 15];
     const computedCount = counters[badgeId] || 0;
     const computed = getLevelAndProgress(computedCount, targetLevels);
 
@@ -515,5 +584,5 @@ export async function getUserBadges(userId: string): Promise<Badge[]> {
   }
 
   const computedById = new Map(computedBadges.map((badge) => [badge.id, badge]));
-  return mapPersistedRowsToBadges(refreshedRows, computedById);
+  return mapPersistedRowsToBadges(runtimeDefinitions, refreshedRows, computedById);
 }

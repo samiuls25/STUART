@@ -2,8 +2,7 @@ import React from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, Trophy, Camera, Calendar, UserMinus, VolumeX, Volume2 } from "lucide-react";
 import { Friend } from "../../lib/friends";
-import { badgeDefinitions as allBadges, memories } from "../../data/badges";
-import BadgeCard from "../profile/BadgeCard";
+import { memories } from "../../data/badges";
 import MemoryCard from "../profile/MemoryCard";
 
 interface FriendProfileModalProps {
@@ -17,9 +16,7 @@ interface FriendProfileModalProps {
 const FriendProfileModal = ({ friend, isOpen, onClose, onMute, onBlock }: FriendProfileModalProps) => {
   if (!friend) return null;
 
-  const friendBadges = friend.badges
-    .map((id) => allBadges.find((b) => b.id === id))
-    .filter(Boolean);
+  const friendBadges = friend.badgeSummaries ?? [];
 
   // Mock shared memories (in real app, filter by attendees)
   const sharedMemories = memories.slice(0, 2);
@@ -73,8 +70,8 @@ const FriendProfileModal = ({ friend, isOpen, onClose, onMute, onBlock }: Friend
               <div className="flex items-start gap-4">
                 <div className="relative">
                   <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-primary/20 to-accent/20 flex items-center justify-center">
-                    {friend.avatar ? (
-                      <img src={friend.avatar} alt={friend.name} className="w-full h-full rounded-2xl object-cover" />
+                    {friend.avatar_url ? (
+                      <img src={friend.avatar_url} alt={friend.name} className="w-full h-full rounded-2xl object-cover" />
                     ) : (
                       <span className="font-heading text-3xl font-bold text-primary">
                         {friend.name.charAt(0)}
@@ -108,7 +105,14 @@ const FriendProfileModal = ({ friend, isOpen, onClose, onMute, onBlock }: Friend
                   </h4>
                   <div className="flex flex-wrap gap-2">
                     {friendBadges.map((badge) => (
-                      <BadgeCard key={badge!.id} badge={badge!} compact />
+                      <span
+                        key={badge.id}
+                        className="inline-flex items-center gap-2 rounded-full border border-border bg-muted/40 px-3 py-1.5 text-xs font-medium text-foreground"
+                        title={`${badge.name} • Level ${badge.level}`}
+                      >
+                        <span>{badge.icon}</span>
+                        <span>{badge.name}</span>
+                      </span>
                     ))}
                   </div>
                 </div>
