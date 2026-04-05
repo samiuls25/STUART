@@ -2,6 +2,33 @@
   {
     "schemaname": "public",
     "tablename": "badges",
+    "policyname": "Users can delete own badges",
+    "cmd": "DELETE",
+    "roles": "{authenticated}",
+    "qual": "(auth.uid() = user_id)",
+    "with_check": null
+  },
+  {
+    "schemaname": "public",
+    "tablename": "badges",
+    "policyname": "Users can insert own badges",
+    "cmd": "INSERT",
+    "roles": "{authenticated}",
+    "qual": null,
+    "with_check": "(auth.uid() = user_id)"
+  },
+  {
+    "schemaname": "public",
+    "tablename": "badges",
+    "policyname": "Users can update own badges",
+    "cmd": "UPDATE",
+    "roles": "{authenticated}",
+    "qual": "(auth.uid() = user_id)",
+    "with_check": "(auth.uid() = user_id)"
+  },
+  {
+    "schemaname": "public",
+    "tablename": "badges",
     "policyname": "Users can view badges of visible profiles",
     "cmd": "SELECT",
     "roles": "{public}",
