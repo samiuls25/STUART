@@ -495,11 +495,12 @@ const isHangoutsTableMissing = (error: unknown) => {
 
 const fetchPublicHangoutEvents = async (userId?: string): Promise<Event[]> => {
   const supportsIsPublicColumn = await hasHangoutsIsPublicColumn();
+  const discoverablePublicStatuses: HangoutPublicRow["status"][] = ["confirmed", "suggested", "pending"];
 
   const { data: hangoutRows, error: hangoutError } = await supabase
     .from("hangouts")
     .select("*")
-    .eq("status", "confirmed")
+    .in("status", discoverablePublicStatuses)
     .order("confirmed_date", { ascending: true });
 
   if (hangoutError) {
