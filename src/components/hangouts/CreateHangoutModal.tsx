@@ -12,9 +12,10 @@ interface CreateHangoutModalProps {
   isOpen: boolean;
   onClose: () => void;
   onCreate?: (hangout: Partial<Hangout> & { creatorAvailability?: TimeRange[] }) => void;
+  inviteCandidates?: Friend[];
 }
 
-const CreateHangoutModal = ({ isOpen, onClose, onCreate }: CreateHangoutModalProps) => {
+const CreateHangoutModal = ({ isOpen, onClose, onCreate, inviteCandidates }: CreateHangoutModalProps) => {
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -31,7 +32,9 @@ const CreateHangoutModal = ({ isOpen, onClose, onCreate }: CreateHangoutModalPro
   const [highlightedFriends, setHighlightedFriends] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
 
-  const filteredFriends = friends.filter(
+  const friendPool = inviteCandidates ?? friends;
+
+  const filteredFriends = friendPool.filter(
     (f) =>
       !f.isBlocked &&
       f.name.toLowerCase().includes(searchQuery.toLowerCase())
@@ -139,7 +142,7 @@ const CreateHangoutModal = ({ isOpen, onClose, onCreate }: CreateHangoutModalPro
   const canProceedStep2 = schedulingMode === "heatmap"
     ? (date && Object.values(heatmapSlots).some((v) => v > 0))
     : (date && startTime && endTime);
-  const canCreate = selectedFriends.length > 0;
+  const canCreate = isPublicHangout || selectedFriends.length > 0;
 
   return (
     <AnimatePresence>
@@ -417,6 +420,12 @@ const CreateHangoutModal = ({ isOpen, onClose, onCreate }: CreateHangoutModalPro
                         </span>
                       )}
                     </div>
+
+                    {isPublicHangout && selectedFriends.length === 0 && (
+                      <div className="rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-xs text-primary">
+                        This public hangout can be created without inviting friends.
+                      </div>
+                    )}
 
                     {/* Highlight Info */}
                     <div className="flex items-start gap-2 p-3 rounded-lg bg-primary/5 text-sm">

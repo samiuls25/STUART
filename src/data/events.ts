@@ -709,44 +709,51 @@ export async function fetchEvents(userId?: string): Promise<Event[]> {
 
   const hasAuthenticatedUser = Boolean(effectiveUserId);
 
-  const mappedEvents = allEvents.map((e: any) => ({
-    id: e.id,
-    name: e.name,
-    heroImage: e.hero_image || e.heroImage || "",
-    date: e.date,
-    time: e.time,
-    venue: e.venue,
-    neighborhood: e.neighborhood,
-    latitude: e.latitude ?? null,
-    longitude: e.longitude ?? null,
-    segment: e.segment,
-    genre: e.genre,
-    ticketUrl: e.ticket_url || e.ticketUrl || "",
-    source: e.source || "ticketmaster",
-    sourceLabel: e.source === "manual" ? "Manual" : "Ticketmaster",
-    organizerName: undefined,
-    isSaveable: true,
-    isTrackable: true,
-    price: e.price,
-    description: e.description,
-    distance: e.distance ?? 1,
-    travelTime: e.travel_time ?? e.travelTime ?? 10,
-    tags: e.tags ?? [],
-    priceLevel: e.price_level ?? e.priceLevel ?? "$", // <-- use snake_case first
-    isRecommended: hasAuthenticatedUser
-      ? (recommendationMap.get(e.id)?.recommendation_score ?? 0) > 0
-      : false,
-    recommendationScore: hasAuthenticatedUser
-      ? recommendationMap.get(e.id)?.recommendation_score ?? 0
-      : 0,
-    recommendationReasons: hasAuthenticatedUser
-      ? recommendationMap.get(e.id)?.recommendation_reasons ?? []
-      : [],
-    isTrending: e.is_trending ?? e.isTrending ?? false,
-    trendingRank: e.trending_rank ?? e.trendingRank ?? 0,
-    happeningNow: e.happening_now ?? e.happeningNow ?? false,
-    isTonight: e.is_tonight ?? e.isTonight ?? false,
-  }));
+  const mappedEvents = allEvents.map((e: any) => {
+    const personalizedRecommendation = recommendationMap.get(e.id);
+    const fallbackScore = e.recommendation_score ?? e.recommendationScore ?? 0;
+    const fallbackReasons = e.recommendation_reasons ?? e.recommendationReasons ?? [];
+    const resolvedScore = hasAuthenticatedUser
+      ? (personalizedRecommendation?.recommendation_score ?? fallbackScore)
+      : fallbackScore;
+    const resolvedReasons = hasAuthenticatedUser
+      ? (personalizedRecommendation?.recommendation_reasons ?? fallbackReasons)
+      : fallbackReasons;
+    const resolvedRecommended = resolvedScore > 0 || Boolean(e.is_recommended ?? e.isRecommended ?? false);
+
+    return {
+      id: e.id,
+      name: e.name,
+      heroImage: e.hero_image || e.heroImage || "",
+      date: e.date,
+      time: e.time,
+      venue: e.venue,
+      neighborhood: e.neighborhood,
+      latitude: e.latitude ?? null,
+      longitude: e.longitude ?? null,
+      segment: e.segment,
+      genre: e.genre,
+      ticketUrl: e.ticket_url || e.ticketUrl || "",
+      source: e.source || "ticketmaster",
+      sourceLabel: e.source === "manual" ? "Manual" : "Ticketmaster",
+      organizerName: undefined,
+      isSaveable: true,
+      isTrackable: true,
+      price: e.price,
+      description: e.description,
+      distance: e.distance ?? 1,
+      travelTime: e.travel_time ?? e.travelTime ?? 10,
+      tags: e.tags ?? [],
+      priceLevel: e.price_level ?? e.priceLevel ?? "$", // <-- use snake_case first
+      isRecommended: resolvedRecommended,
+      recommendationScore: resolvedScore,
+      recommendationReasons: resolvedReasons,
+      isTrending: e.is_trending ?? e.isTrending ?? false,
+      trendingRank: e.trending_rank ?? e.trendingRank ?? 0,
+      happeningNow: e.happening_now ?? e.happeningNow ?? false,
+      isTonight: e.is_tonight ?? e.isTonight ?? false,
+    };
+  });
 
   const publicHangoutEvents = await fetchPublicHangoutEvents();
 

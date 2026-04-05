@@ -35,6 +35,7 @@ const Hangouts = () => {
   const [filterFrom, setFilterFrom] = useState("");
   const [filterTo, setFilterTo] = useState("");
   const [hangoutsState, setHangoutsState] = useState<Hangout[]>(hangouts);
+  const [inviteCandidates, setInviteCandidates] = useState<Friend[]>([]);
   const [loadingHangouts, setLoadingHangouts] = useState(true);
   const [schemaMissing, setSchemaMissing] = useState(false);
 
@@ -62,6 +63,8 @@ const Hangouts = () => {
         isMuted: friend.isMuted,
         isBlocked: friend.isBlocked,
       }));
+
+      setInviteCandidates(nextDirectory);
 
       const participantIds = new Set<string>();
       fetchedHangouts.forEach((hangout) => {
@@ -124,6 +127,7 @@ const Hangouts = () => {
   useEffect(() => {
     if (!user) {
       setHangoutsState([]);
+      setInviteCandidates([]);
       setLoadingHangouts(false);
       setSchemaMissing(false);
       return;
@@ -585,7 +589,12 @@ const Hangouts = () => {
         </div>
       </main>
 
-      <CreateHangoutModal isOpen={showCreateModal} onClose={() => setShowCreateModal(false)} onCreate={handleCreate} />
+      <CreateHangoutModal
+        isOpen={showCreateModal}
+        onClose={() => setShowCreateModal(false)}
+        onCreate={handleCreate}
+        inviteCandidates={inviteCandidates}
+      />
       <HangoutDetailModal
         hangout={selectedHangout}
         isOpen={!!selectedHangout}
