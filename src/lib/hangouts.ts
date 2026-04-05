@@ -257,15 +257,20 @@ export async function createHangout(input: CreateHangoutInput): Promise<void> {
 
   if (!user) throw new Error("You must be signed in to create a hangout.");
 
+  const shouldCreatePublicHangout = input.isPublic ?? false;
+
   const baseInsertPayload = {
     title: input.title,
     description: input.description?.trim() || null,
     activity_type: input.activityType,
     created_by: user.id,
-    status: "pending",
+    status: shouldCreatePublicHangout ? "confirmed" : "pending",
     proposed_date: input.proposedTimeRange.date,
     proposed_start_time: input.proposedTimeRange.startTime,
     proposed_end_time: input.proposedTimeRange.endTime,
+    confirmed_date: shouldCreatePublicHangout ? input.proposedTimeRange.date : null,
+    confirmed_start_time: shouldCreatePublicHangout ? input.proposedTimeRange.startTime : null,
+    confirmed_end_time: shouldCreatePublicHangout ? input.proposedTimeRange.endTime : null,
     location_name: input.location?.name?.trim() || null,
     location_address: input.location?.address?.trim() || null,
     is_flexible_location: input.location?.isFlexible ?? true,
@@ -273,16 +278,20 @@ export async function createHangout(input: CreateHangoutInput): Promise<void> {
 
   const insertPayload = {
     ...baseInsertPayload,
-    is_public: input.isPublic ?? false,
+    is_public: shouldCreatePublicHangout,
   };
 
   const { data: insertedHangout, error: hangoutError } = await supabase
     .from("hangouts")
     .insert(insertPayload)
-    .select("id")
+    .select("id,is_public")
     .single();
 
   if (hangoutError && isMissingColumnError(hangoutError, "is_public")) {
+    if (shouldCreatePublicHangout) {
+      throw new Error("Public hangouts are unavailable until the is_public column is active in Supabase API.");
+    }
+
     const retry = await supabase
       .from("hangouts")
       .insert(baseInsertPayload)
@@ -327,6 +336,10 @@ export async function createHangout(input: CreateHangoutInput): Promise<void> {
 
   if (!insertedHangout) {
     throw new Error("Failed to create hangout");
+  }
+
+  if (shouldCreatePublicHangout && insertedHangout.is_public !== true) {
+    throw new Error("Public hangout creation failed to persist visibility. Please retry.");
   }
 
   const uniqueInvites = [...new Set(input.invitedFriends)].filter((friendId) => friendId && friendId !== user.id);

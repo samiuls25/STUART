@@ -164,6 +164,12 @@ const HangoutDetailModal = ({
   }, [hangout.responses]);
 
   const bestAvailabilitySuggestion = rankedAvailabilitySuggestions[0] || null;
+  const isSuggestedSlotAlreadyApplied = Boolean(
+    bestAvailabilitySuggestion
+    && timeRange.date === bestAvailabilitySuggestion.date
+    && timeRange.startTime === bestAvailabilitySuggestion.startTime
+    && timeRange.endTime === bestAvailabilitySuggestion.endTime
+  );
 
   const formatSuggestedSlot = (date: string, startTime: string, endTime: string) => {
     try {
@@ -372,10 +378,14 @@ const HangoutDetailModal = ({
 
                   <button
                     onClick={handleApplySuggestedTime}
-                    disabled={applyingSuggestedTime}
+                    disabled={applyingSuggestedTime || isSuggestedSlotAlreadyApplied}
                     className="mt-3 btn-primary px-3 py-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    {applyingSuggestedTime ? "Applying..." : "Apply Suggested Time"}
+                    {isSuggestedSlotAlreadyApplied
+                      ? "Suggested Time Already Applied"
+                      : applyingSuggestedTime
+                        ? "Applying..."
+                        : "Apply Suggested Time"}
                   </button>
 
                   {rankedAvailabilitySuggestions.length > 1 && (
