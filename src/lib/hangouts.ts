@@ -35,6 +35,13 @@ interface HangoutMembershipRow {
   response_status: "invited" | "yes" | "no" | "maybe" | "pending-availability";
 }
 
+interface HangoutStatusSyncRow {
+  proposed_date: string;
+  proposed_start_time: string;
+  proposed_end_time: string;
+  is_public?: boolean;
+}
+
 export interface CreateHangoutInput {
   title: string;
   description?: string;
@@ -478,6 +485,32 @@ export async function deleteHangout(hangoutId: string): Promise<void> {
 }
 
 async function syncHangoutStatus(hangoutId: string): Promise<void> {
+  const supportsIsPublicColumn = await hasHangoutsIsPublicColumn();
+
+  let hangoutRow: HangoutStatusSyncRow;
+
+  if (supportsIsPublicColumn) {
+    const { data, error } = await supabase
+      .from("hangouts")
+      .select("is_public,proposed_date,proposed_start_time,proposed_end_time")
+      .eq("id", hangoutId)
+      .single();
+
+    if (error) throw error;
+    hangoutRow = data as HangoutStatusSyncRow;
+  } else {
+    const { data, error } = await supabase
+      .from("hangouts")
+      .select("proposed_date,proposed_start_time,proposed_end_time")
+      .eq("id", hangoutId)
+      .single();
+
+    if (error) throw error;
+    hangoutRow = data as HangoutStatusSyncRow;
+  }
+
+  const isPublicHangout = supportsIsPublicColumn && Boolean((hangoutRow as { is_public?: boolean }).is_public);
+
   const { data: inviteRows, error: inviteError } = await supabase
     .from("hangout_invites")
     .select("response_status")
@@ -492,7 +525,11 @@ async function syncHangoutStatus(hangoutId: string): Promise<void> {
   const hasUnanswered = responses.some((row) => row.response_status === "invited");
 
   let nextStatus: Hangout["status"] = "pending";
-  if (hasUnanswered) {
+
+  if (isPublicHangout) {
+    // Public hangouts should stay discoverable and joinable even when people leave.
+    nextStatus = "confirmed";
+  } else if (hasUnanswered) {
     nextStatus = "suggested";
   } else if (hasCommittedParticipant) {
     nextStatus = "confirmed";
@@ -511,14 +548,6 @@ async function syncHangoutStatus(hangoutId: string): Promise<void> {
   };
 
   if (nextStatus === "confirmed") {
-    const { data: hangoutRow, error: hangoutReadError } = await supabase
-      .from("hangouts")
-      .select("proposed_date, proposed_start_time, proposed_end_time")
-      .eq("id", hangoutId)
-      .single();
-
-    if (hangoutReadError) throw hangoutReadError;
-
     updatePayload.confirmed_date = hangoutRow.proposed_date;
     updatePayload.confirmed_start_time = hangoutRow.proposed_start_time;
     updatePayload.confirmed_end_time = hangoutRow.proposed_end_time;

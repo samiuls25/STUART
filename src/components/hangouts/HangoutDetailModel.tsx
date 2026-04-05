@@ -5,6 +5,7 @@ import { Hangout, TimeRange, getFriendById, getActivityType } from "../../data/f
 import { format, parseISO } from "date-fns";
 import AvailabilityHeatmap from "../availability/AvailabilityHeatmap";
 import ConfirmDeleteHangoutDialog from "./ConfirmDeleteHangoutDialog";
+import { scoreAvailabilitySlots } from "../../lib/hangoutFinalization";
 
 interface HangoutDetailModalProps {
   hangout: Hangout | null;
@@ -145,6 +146,27 @@ const HangoutDetailModal = ({
     });
     return aggregate;
   }, [submittedFriendAvailability]);
+
+  const rankedAvailabilitySuggestions = useMemo(() => {
+    return scoreAvailabilitySlots(
+      hangout.responses.map((response) => ({
+        friendId: response.friendId,
+        status: response.status,
+        availabilitySubmitted: response.availabilitySubmitted,
+      }))
+    );
+  }, [hangout.responses]);
+
+  const bestAvailabilitySuggestion = rankedAvailabilitySuggestions[0] || null;
+
+  const formatSuggestedSlot = (date: string, startTime: string, endTime: string) => {
+    try {
+      const dateLabel = format(parseISO(`${date}T${startTime}:00`), "EEE, MMM d");
+      return `${dateLabel} • ${startTime} - ${endTime}`;
+    } catch {
+      return `${date} • ${startTime} - ${endTime}`;
+    }
+  };
 
   const statusConfig = {
     suggested: { label: "New Invite", color: "bg-primary/10 text-primary" },
@@ -307,6 +329,38 @@ const HangoutDetailModal = ({
                       readOnly
                     />
                   </div>
+                </div>
+              )}
+
+              {isCreator && bestAvailabilitySuggestion && (
+                <div className="rounded-xl border border-primary/20 bg-primary/5 p-4">
+                  <h4 className="font-heading font-semibold text-foreground mb-1">Suggested Best Time</h4>
+                  <p className="text-sm text-primary font-medium">
+                    {formatSuggestedSlot(
+                      bestAvailabilitySuggestion.date,
+                      bestAvailabilitySuggestion.startTime,
+                      bestAvailabilitySuggestion.endTime
+                    )}
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-2">
+                    {bestAvailabilitySuggestion.votes} vote{bestAvailabilitySuggestion.votes !== 1 ? "s" : ""}
+                    {` `}({bestAvailabilitySuggestion.preferredVotes} preferred)
+                  </p>
+
+                  {rankedAvailabilitySuggestions.length > 1 && (
+                    <div className="mt-3 pt-3 border-t border-primary/15">
+                      <p className="text-xs text-muted-foreground mb-2">Other strong options</p>
+                      <div className="space-y-1.5">
+                        {rankedAvailabilitySuggestions.slice(1, 3).map((slot) => (
+                          <div key={slot.key} className="text-xs text-foreground/80">
+                            {formatSuggestedSlot(slot.date, slot.startTime, slot.endTime)}
+                            {` `}
+                            <span className="text-muted-foreground">({slot.votes} votes)</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 
