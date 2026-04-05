@@ -13,6 +13,10 @@ interface HangoutDetailModalProps {
   onClose: () => void;
   onRespond?: (hangout: Hangout, response: "yes" | "no" | "maybe") => void;
   onSubmitAvailability?: (hangout: Hangout, availability: TimeRange[]) => void;
+  onApplySuggestedTime?: (
+    hangout: Hangout,
+    suggestedTime: { date: string; startTime: string; endTime: string }
+  ) => Promise<void> | void;
   onDeleteHangout?: (hangout: Hangout) => void;
   initialShowAvailability?: boolean;
   currentUserId?: string;
@@ -24,6 +28,7 @@ const HangoutDetailModal = ({
   onClose,
   onRespond,
   onSubmitAvailability,
+  onApplySuggestedTime,
   onDeleteHangout,
   initialShowAvailability,
   currentUserId,
@@ -32,6 +37,7 @@ const HangoutDetailModal = ({
 
   const [showAvailabilityEditor, setShowAvailabilityEditor] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [applyingSuggestedTime, setApplyingSuggestedTime] = useState(false);
   const [availabilitySlots, setAvailabilitySlots] = useState<Record<string, number>>({});
 
   const viewerId = currentUserId || "current-user";
@@ -165,6 +171,23 @@ const HangoutDetailModal = ({
       return `${dateLabel} • ${startTime} - ${endTime}`;
     } catch {
       return `${date} • ${startTime} - ${endTime}`;
+    }
+  };
+
+  const handleApplySuggestedTime = async () => {
+    if (!bestAvailabilitySuggestion || !onApplySuggestedTime) {
+      return;
+    }
+
+    setApplyingSuggestedTime(true);
+    try {
+      await onApplySuggestedTime(hangout, {
+        date: bestAvailabilitySuggestion.date,
+        startTime: bestAvailabilitySuggestion.startTime,
+        endTime: bestAvailabilitySuggestion.endTime,
+      });
+    } finally {
+      setApplyingSuggestedTime(false);
     }
   };
 
@@ -346,6 +369,14 @@ const HangoutDetailModal = ({
                     {bestAvailabilitySuggestion.votes} vote{bestAvailabilitySuggestion.votes !== 1 ? "s" : ""}
                     {` `}({bestAvailabilitySuggestion.preferredVotes} preferred)
                   </p>
+
+                  <button
+                    onClick={handleApplySuggestedTime}
+                    disabled={applyingSuggestedTime}
+                    className="mt-3 btn-primary px-3 py-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {applyingSuggestedTime ? "Applying..." : "Apply Suggested Time"}
+                  </button>
 
                   {rankedAvailabilitySuggestions.length > 1 && (
                     <div className="mt-3 pt-3 border-t border-primary/15">

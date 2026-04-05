@@ -1,6 +1,5 @@
 import { supabase } from "./supabase";
 import { Hangout, TimeRange } from "../data/friends";
-import { hasHangoutsIsPublicColumn } from "./hangoutsSchema";
 
 interface HangoutRow {
   id: string;
@@ -272,14 +271,10 @@ export async function createHangout(input: CreateHangoutInput): Promise<void> {
     is_flexible_location: input.location?.isFlexible ?? true,
   };
 
-  const supportsIsPublicColumn = await hasHangoutsIsPublicColumn();
-
-  const insertPayload = supportsIsPublicColumn
-    ? {
-        ...baseInsertPayload,
-        is_public: input.isPublic ?? false,
-      }
-    : baseInsertPayload;
+  const insertPayload = {
+    ...baseInsertPayload,
+    is_public: input.isPublic ?? false,
+  };
 
   const { data: insertedHangout, error: hangoutError } = await supabase
     .from("hangouts")
@@ -368,18 +363,22 @@ export async function respondToHangout(hangoutId: string, response: "yes" | "no"
   if (!user) throw new Error("You must be signed in to respond.");
 
   if (response === "no") {
-    const supportsIsPublicColumn = await hasHangoutsIsPublicColumn();
-    const selectFields = supportsIsPublicColumn ? "is_public, created_by" : "created_by";
+    let isPublicHangout = false;
 
-    const { data: hangoutRow, error: hangoutReadError } = await supabase
+    const publicProbe = await supabase
       .from("hangouts")
-      .select(selectFields)
+      .select("is_public")
       .eq("id", hangoutId)
       .single();
 
-    if (hangoutReadError) throw hangoutReadError;
+    if (publicProbe.error) {
+      if (!isMissingColumnError(publicProbe.error, "is_public")) {
+        throw publicProbe.error;
+      }
+    } else {
+      isPublicHangout = Boolean((publicProbe.data as { is_public?: boolean }).is_public);
+    }
 
-    const isPublicHangout = supportsIsPublicColumn && Boolean((hangoutRow as { is_public?: boolean }).is_public);
     if (isPublicHangout) {
       const { error: leaveError } = await supabase
         .from("hangout_invites")
@@ -468,6 +467,33 @@ export async function submitHangoutAvailability(hangoutId: string, availability:
   await syncHangoutStatus(hangoutId);
 }
 
+export async function applySuggestedHangoutTime(
+  hangoutId: string,
+  suggestedTime: { date: string; startTime: string; endTime: string }
+): Promise<void> {
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) throw new Error("You must be signed in to finalize a hangout time.");
+
+  const { error } = await supabase
+    .from("hangouts")
+    .update({
+      status: "confirmed",
+      proposed_date: suggestedTime.date,
+      proposed_start_time: suggestedTime.startTime,
+      proposed_end_time: suggestedTime.endTime,
+      confirmed_date: suggestedTime.date,
+      confirmed_start_time: suggestedTime.startTime,
+      confirmed_end_time: suggestedTime.endTime,
+    })
+    .eq("id", hangoutId)
+    .eq("created_by", user.id);
+
+  if (error) throw error;
+}
+
 export async function deleteHangout(hangoutId: string): Promise<void> {
   const {
     data: { user },
@@ -485,31 +511,32 @@ export async function deleteHangout(hangoutId: string): Promise<void> {
 }
 
 async function syncHangoutStatus(hangoutId: string): Promise<void> {
-  const supportsIsPublicColumn = await hasHangoutsIsPublicColumn();
-
   let hangoutRow: HangoutStatusSyncRow;
+  let isPublicHangout = false;
 
-  if (supportsIsPublicColumn) {
-    const { data, error } = await supabase
-      .from("hangouts")
-      .select("is_public,proposed_date,proposed_start_time,proposed_end_time")
-      .eq("id", hangoutId)
-      .single();
+  const withPublicColumn = await supabase
+    .from("hangouts")
+    .select("is_public,proposed_date,proposed_start_time,proposed_end_time")
+    .eq("id", hangoutId)
+    .single();
 
-    if (error) throw error;
-    hangoutRow = data as HangoutStatusSyncRow;
-  } else {
-    const { data, error } = await supabase
+  if (withPublicColumn.error) {
+    if (!isMissingColumnError(withPublicColumn.error, "is_public")) {
+      throw withPublicColumn.error;
+    }
+
+    const withoutPublicColumn = await supabase
       .from("hangouts")
       .select("proposed_date,proposed_start_time,proposed_end_time")
       .eq("id", hangoutId)
       .single();
 
-    if (error) throw error;
-    hangoutRow = data as HangoutStatusSyncRow;
+    if (withoutPublicColumn.error) throw withoutPublicColumn.error;
+    hangoutRow = withoutPublicColumn.data as HangoutStatusSyncRow;
+  } else {
+    hangoutRow = withPublicColumn.data as HangoutStatusSyncRow;
+    isPublicHangout = Boolean((withPublicColumn.data as { is_public?: boolean }).is_public);
   }
-
-  const isPublicHangout = supportsIsPublicColumn && Boolean((hangoutRow as { is_public?: boolean }).is_public);
 
   const { data: inviteRows, error: inviteError } = await supabase
     .from("hangout_invites")

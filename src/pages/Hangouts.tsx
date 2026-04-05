@@ -15,6 +15,7 @@ import { useToast } from "../hooks/use-toast";
 import { getFriends } from "../lib/friends";
 import { supabase } from "../lib/supabase";
 import {
+  applySuggestedHangoutTime,
   createHangout,
   deleteHangout,
   fetchHangoutsForCurrentUser,
@@ -356,6 +357,37 @@ const Hangouts = () => {
       console.error("Failed to submit availability", error);
       toast({
         title: "Could not submit availability",
+        description: "Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleApplySuggestedTime = async (
+    hangout: Hangout,
+    suggestedTime: { date: string; startTime: string; endTime: string }
+  ) => {
+    try {
+      await applySuggestedHangoutTime(hangout.id, suggestedTime);
+      toast({
+        title: "Time confirmed",
+        description: "Suggested best time has been applied.",
+      });
+      await loadHangouts();
+    } catch (error) {
+      if (isHangoutsSetupError(error)) {
+        setSchemaMissing(true);
+        toast({
+          title: "Hangouts schema is not set up",
+          description: "Run docs/db/hangouts_phase1.sql in Supabase first.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      console.error("Failed to apply suggested time", error);
+      toast({
+        title: "Could not apply suggested time",
         description: "Please try again.",
         variant: "destructive",
       });
@@ -811,6 +843,7 @@ const Hangouts = () => {
         }}
         onRespond={handleRespond}
         onSubmitAvailability={handleSubmitAvailability}
+        onApplySuggestedTime={handleApplySuggestedTime}
         onDeleteHangout={handleDeleteHangout}
         initialShowAvailability={openAvailabilityEditor}
         currentUserId={currentUserId}

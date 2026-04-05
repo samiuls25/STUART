@@ -514,7 +514,10 @@ const fetchPublicHangoutEvents = async (userId?: string): Promise<Event[]> => {
 
   const confirmedRows = (hangoutRows as HangoutPublicRow[] | null) || [];
 
-  const publicRows = supportsIsPublicColumn
+  const hasExplicitIsPublicFlag = confirmedRows.some((row) => typeof row.is_public === "boolean");
+  const useIsPublicFiltering = supportsIsPublicColumn || hasExplicitIsPublicFlag;
+
+  const publicRows = useIsPublicFiltering
     ? confirmedRows.filter((row) => row.is_public === true)
     : confirmedRows.filter((row) => !userId || row.created_by === userId);
 
@@ -586,7 +589,7 @@ const fetchPublicHangoutEvents = async (userId?: string): Promise<Event[]> => {
         genre: activityMetadata.genre,
         ticketUrl: "",
         source: "hangout",
-        sourceLabel: supportsIsPublicColumn ? "Public Hangout" : "Hangout",
+        sourceLabel: useIsPublicFiltering ? "Public Hangout" : "Hangout",
         organizerName: profileNameMap.get(row.created_by),
         isJoinedByCurrentUser: joinStatus ? joinStatus !== "no" : false,
         hangoutJoinStatus: joinStatus,
