@@ -44,10 +44,18 @@ type JoinedEventPayload = {
 
 type PersistedBadgeRow = {
   badge_type: string;
-  earned_at: string;
+  title?: string | null;
+  description?: string | null;
+  icon?: string | null;
+  earned_at?: string | null;
   metadata?: {
     level?: number;
     progress?: number;
+    unlocked?: boolean;
+    category?: string;
+    maxLevel?: number;
+    signalCount?: number;
+    lastComputedAt?: string;
   } | null;
 };
 
@@ -246,7 +254,7 @@ const fetchViewedEvents = async (userId: string): Promise<EventDetail[]> => {
 const fetchPersistedBadgeRows = async (userId: string): Promise<PersistedBadgeRow[]> => {
   const { data, error } = await supabase
     .from("badges")
-    .select("badge_type, earned_at, metadata")
+    .select("badge_type, title, description, icon, earned_at, metadata")
     .eq("user_id", userId);
 
   if (error || !data) {
@@ -254,6 +262,99 @@ const fetchPersistedBadgeRows = async (userId: string): Promise<PersistedBadgeRo
   }
 
   return data as PersistedBadgeRow[];
+};
+
+const normalizeCategory = (value: string | undefined, fallback: Badge["category"]): Badge["category"] => {
+  if (value === "social" || value === "explorer" || value === "vibe" || value === "special") {
+    return value;
+  }
+
+  return fallback;
+};
+
+const mapPersistedRowsToBadges = (
+  rows: PersistedBadgeRow[],
+  fallbackById: Map<string, Badge>
+): Badge[] => {
+  const byType = new Map(rows.map((row) => [row.badge_type, row]));
+
+  return badgeDefinitions.map((definition) => {
+    const row = byType.get(definition.id);
+    const fallback = fallbackById.get(definition.id) || {
+      ...definition,
+      level: 0,
+      progress: 0,
+      unlocked: false,
+    };
+
+    const rowLevel = Number(row?.metadata?.level);
+    const rowProgress = Number(row?.metadata?.progress);
+    const rowMaxLevel = Number(row?.metadata?.maxLevel);
+    const rowUnlocked = row?.metadata?.unlocked;
+
+    const level = Number.isFinite(rowLevel) ? Math.max(0, Math.floor(rowLevel)) : fallback.level;
+    const progress = Number.isFinite(rowProgress)
+      ? Math.max(0, Math.min(100, Math.floor(rowProgress)))
+      : fallback.progress;
+
+    const maxLevel = Number.isFinite(rowMaxLevel) && rowMaxLevel > 0
+      ? Math.floor(rowMaxLevel)
+      : fallback.maxLevel;
+
+    const unlocked = typeof rowUnlocked === "boolean" ? rowUnlocked : fallback.unlocked;
+
+    return {
+      ...definition,
+      name: row?.title || definition.name,
+      description: row?.description || definition.description,
+      icon: row?.icon || definition.icon,
+      category: normalizeCategory(row?.metadata?.category, definition.category),
+      maxLevel,
+      level,
+      progress,
+      unlocked,
+      unlockedAt: unlocked ? formatEarnedAt(row?.earned_at || undefined) : undefined,
+    };
+  });
+};
+
+const syncBadgesToSupabase = async (
+  userId: string,
+  badges: Badge[],
+  persistedRows: PersistedBadgeRow[]
+): Promise<void> => {
+  const persistedByType = new Map(persistedRows.map((row) => [row.badge_type, row]));
+  const nowIso = new Date().toISOString();
+
+  const rows = badges.map((badge) => {
+    const existing = persistedByType.get(badge.id);
+    const earnedAt = existing?.earned_at || (badge.unlocked ? nowIso : nowIso);
+
+    return {
+      user_id: userId,
+      badge_type: badge.id,
+      title: badge.name,
+      description: badge.description,
+      icon: badge.icon,
+      earned_at: earnedAt,
+      metadata: {
+        level: badge.level,
+        progress: badge.progress,
+        unlocked: badge.unlocked,
+        category: badge.category,
+        maxLevel: badge.maxLevel,
+        lastComputedAt: nowIso,
+      },
+    };
+  });
+
+  const { error } = await supabase
+    .from("badges")
+    .upsert(rows, { onConflict: "user_id,badge_type" });
+
+  if (error) {
+    console.warn("Failed to sync badges table", error);
+  }
 };
 
 const formatEarnedAt = (earnedAt: string | undefined) => {
@@ -379,11 +480,9 @@ export async function getUserBadges(userId: string): Promise<Badge[]> {
     "group-guru": hostedGroupHangoutCount,
   };
 
-  const persistedByType = new Map<string, PersistedBadgeRow>(
-    persistedRows.map((row) => [row.badge_type, row])
-  );
+  const persistedByType = new Map<string, PersistedBadgeRow>(persistedRows.map((row) => [row.badge_type, row]));
 
-  return badgeDefinitions.map((definition) => {
+  const computedBadges = badgeDefinitions.map((definition) => {
     const badgeId = definition.id as BadgeId;
     const targetLevels = LEVEL_TARGETS[badgeId];
     const computedCount = counters[badgeId] || 0;
@@ -407,4 +506,14 @@ export async function getUserBadges(userId: string): Promise<Badge[]> {
       unlockedAt: formatEarnedAt(persisted?.earned_at),
     };
   });
+
+  await syncBadgesToSupabase(userId, computedBadges, persistedRows);
+
+  const refreshedRows = await fetchPersistedBadgeRows(userId);
+  if (refreshedRows.length === 0) {
+    return computedBadges;
+  }
+
+  const computedById = new Map(computedBadges.map((badge) => [badge.id, badge]));
+  return mapPersistedRowsToBadges(refreshedRows, computedById);
 }
