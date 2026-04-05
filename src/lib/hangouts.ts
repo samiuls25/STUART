@@ -373,17 +373,33 @@ export async function respondToHangout(hangoutId: string, response: "yes" | "no"
     if (hangoutReadError) throw hangoutReadError;
 
     const isPublicHangout = supportsIsPublicColumn && Boolean((hangoutRow as { is_public?: boolean }).is_public);
-    if (isPublicHangout && hangoutRow.created_by !== user.id) {
+    if (isPublicHangout) {
       const { error: leaveError } = await supabase
         .from("hangout_invites")
         .delete()
         .eq("hangout_id", hangoutId)
         .eq("friend_id", user.id);
 
-      if (leaveError) throw leaveError;
+      if (!leaveError) {
+        await syncHangoutStatus(hangoutId);
+        return;
+      }
 
-      await syncHangoutStatus(hangoutId);
-      return;
+      const leaveMessage = `${(leaveError as { message?: string }).message || ""}`.toLowerCase();
+      const isDeletePolicyDenied =
+        (leaveError as { code?: string }).code === "42501"
+        || leaveMessage.includes("row-level security")
+        || leaveMessage.includes("permission denied");
+
+      if (!isDeletePolicyDenied) {
+        throw leaveError;
+      }
+
+      // Compatibility fallback for environments that still block invitee deletes.
+      // In this case, keep behavior functional by writing an explicit "no" response.
+      // UI will hide declined public attendees from membership lists.
+      console.warn("Public leave delete blocked by RLS; falling back to response_status='no'.");
+
     }
   }
 

@@ -38,6 +38,9 @@ const HangoutDetailModal = ({
   const activityType = getActivityType(hangout.activityType);
   const creator = getFriendById(hangout.createdBy);
   const currentUserResponse = hangout.responses.find((r) => r.friendId === viewerId);
+  const visibleResponses = hangout.isPublic
+    ? hangout.responses.filter((response) => response.status !== "no")
+    : hangout.responses;
   const isCreator = hangout.createdBy === viewerId;
   const timeRange = hangout.confirmedTime || hangout.proposedTimeRange;
   const canRespond = !!currentUserResponse;
@@ -264,10 +267,10 @@ const HangoutDetailModal = ({
               <div>
                 <h4 className="font-heading font-semibold text-foreground mb-3 flex items-center gap-2">
                   <Users className="w-4 h-4 text-primary" />
-                  Responses ({hangout.responses.length})
+                  Responses ({visibleResponses.length})
                 </h4>
                 <div className="space-y-2">
-                  {hangout.responses.map((response) => {
+                  {visibleResponses.map((response) => {
                     const friend = getFriendById(response.friendId);
                     const config = responseStatusConfig[response.status];
                     return (

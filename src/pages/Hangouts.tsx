@@ -37,6 +37,7 @@ const Hangouts = () => {
   const [hangoutsState, setHangoutsState] = useState<Hangout[]>(hangouts);
   const [inviteCandidates, setInviteCandidates] = useState<Friend[]>([]);
   const [hiddenDeclinedHangoutIds, setHiddenDeclinedHangoutIds] = useState<string[]>([]);
+  const [showHiddenDeclinedSection, setShowHiddenDeclinedSection] = useState(false);
   const [loadingHangouts, setLoadingHangouts] = useState(true);
   const [schemaMissing, setSchemaMissing] = useState(false);
 
@@ -206,6 +207,12 @@ const Hangouts = () => {
 
   const hiddenDeclinedCount = hiddenDeclinedPrivateInviteHangouts.length;
 
+  useEffect(() => {
+    if (hiddenDeclinedPrivateInviteHangouts.length === 0) {
+      setShowHiddenDeclinedSection(false);
+    }
+  }, [hiddenDeclinedPrivateInviteHangouts.length]);
+
   const suggestedHangouts = hangoutsState.filter(
     (h) =>
       !isExcludedFromPrimarySections(h) &&
@@ -285,6 +292,19 @@ const Hangouts = () => {
       await loadHangouts();
       setSelectedHangout(null);
     } catch (error) {
+      const message = `${(error as { message?: string })?.message || ""}`.toLowerCase();
+      const isPublicLeavePolicyBlock =
+        message.includes("row-level security") || message.includes("permission denied");
+
+      if (response === "no" && hangout.isPublic && isPublicLeavePolicyBlock) {
+        toast({
+          title: "Public leave policy needs update",
+          description: "Ask the host to run the latest hangouts SQL so public attendees can fully leave.",
+          variant: "destructive",
+        });
+        return;
+      }
+
       if (isHangoutsSetupError(error)) {
         setSchemaMissing(true);
         toast({
@@ -688,36 +708,49 @@ const Hangouts = () => {
 
           {hiddenDeclinedPrivateInviteHangouts.length > 0 && (
             <motion.section initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.38 }} className="mb-10">
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-2">
-                  <X className="w-5 h-5 text-muted-foreground" />
-                  <h2 className="font-heading text-lg font-semibold text-foreground">Hidden Declined Invites</h2>
-                  <span className="px-2 py-0.5 rounded-full bg-muted text-muted-foreground text-sm font-medium">
-                    {hiddenDeclinedPrivateInviteHangouts.length}
-                  </span>
-                </div>
+              <div className="rounded-xl border border-border bg-card">
                 <button
-                  onClick={handleRestoreHiddenDeclined}
-                  className="text-xs px-3 py-1.5 rounded-full border border-border hover:border-primary/30 text-muted-foreground hover:text-foreground transition-colors"
+                  onClick={() => setShowHiddenDeclinedSection((prev) => !prev)}
+                  className="w-full p-4 flex items-center justify-between gap-3 text-left"
                 >
-                  Restore all
+                  <div className="flex items-center gap-2">
+                    <X className="w-5 h-5 text-muted-foreground" />
+                    <h2 className="font-heading text-lg font-semibold text-foreground">Hidden Declined Invites</h2>
+                    <span className="px-2 py-0.5 rounded-full bg-muted text-muted-foreground text-sm font-medium">
+                      {hiddenDeclinedPrivateInviteHangouts.length}
+                    </span>
+                  </div>
+                  <ChevronRight className={`w-4 h-4 text-muted-foreground transition-transform ${showHiddenDeclinedSection ? "rotate-90" : ""}`} />
                 </button>
-              </div>
-              <div className="space-y-4">
-                {hiddenDeclinedPrivateInviteHangouts.map((hangout, index) => (
-                  <motion.div key={hangout.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.05 }}>
-                    <HangoutCard
-                      hangout={hangout}
-                      variant="declined"
-                      onRespond={handleRespond}
-                      onViewDetails={handleViewDetails}
-                      onOpenAvailability={handleOpenAvailabilityEditor}
-                      onDeleteHangout={handleDeleteHangout}
-                      onRestoreDeclined={(target) => handleRestoreDeclinedHangout(target.id)}
-                      currentUserId={currentUserId}
-                    />
-                  </motion.div>
-                ))}
+
+                {showHiddenDeclinedSection && (
+                  <div className="px-4 pb-4 border-t border-border">
+                    <div className="flex justify-end py-3">
+                      <button
+                        onClick={handleRestoreHiddenDeclined}
+                        className="text-xs px-3 py-1.5 rounded-full border border-border hover:border-primary/30 text-muted-foreground hover:text-foreground transition-colors"
+                      >
+                        Restore all
+                      </button>
+                    </div>
+                    <div className="space-y-4">
+                      {hiddenDeclinedPrivateInviteHangouts.map((hangout, index) => (
+                        <motion.div key={hangout.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.05 }}>
+                          <HangoutCard
+                            hangout={hangout}
+                            variant="declined"
+                            onRespond={handleRespond}
+                            onViewDetails={handleViewDetails}
+                            onOpenAvailability={handleOpenAvailabilityEditor}
+                            onDeleteHangout={handleDeleteHangout}
+                            onRestoreDeclined={(target) => handleRestoreDeclinedHangout(target.id)}
+                            currentUserId={currentUserId}
+                          />
+                        </motion.div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             </motion.section>
           )}

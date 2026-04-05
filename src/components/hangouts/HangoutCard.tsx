@@ -33,9 +33,12 @@ const HangoutCard = ({
   const viewerId = currentUserId || "current-user";
   const activityType = getActivityType(hangout.activityType);
   const creator = getFriendById(hangout.createdBy);
+  const visibleResponses = hangout.isPublic
+    ? hangout.responses.filter((response) => response.status !== "no")
+    : hangout.responses;
   
-  const yesResponses = hangout.responses.filter((r) => r.status === "yes").length;
-  const pendingResponses = hangout.responses.filter(
+  const yesResponses = visibleResponses.filter((r) => r.status === "yes").length;
+  const pendingResponses = visibleResponses.filter(
     (r) => r.status === "invited" || r.status === "pending-availability"
   ).length;
 
@@ -169,7 +172,7 @@ const HangoutCard = ({
 
         {/* Attendee Avatars */}
         <div className="flex items-center gap-1 pt-1">
-          {hangout.responses.slice(0, 5).map((response, idx) => {
+          {visibleResponses.slice(0, 5).map((response, idx) => {
             const friend = getFriendById(response.friendId);
             const statusBorder = {
               yes: "ring-2 ring-green-500",
@@ -190,9 +193,9 @@ const HangoutCard = ({
               </div>
             );
           })}
-          {hangout.responses.length > 5 && (
+          {visibleResponses.length > 5 && (
             <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center text-xs font-medium text-muted-foreground -ml-2">
-              +{hangout.responses.length - 5}
+              +{visibleResponses.length - 5}
             </div>
           )}
         </div>
