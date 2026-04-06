@@ -1,6 +1,6 @@
 import React from "react";
 import { motion } from "framer-motion";
-import { UserMinus, MessageCircle, MoreHorizontal } from "lucide-react";
+import { UserMinus, MoreHorizontal } from "lucide-react";
 import { Friend } from "../../lib/friends";
 import {
   DropdownMenu,
@@ -132,13 +132,6 @@ const FriendCard = ({ friend, onViewProfile, onRemove, compact = false }: Friend
 
       {/* Actions */}
       <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-        <button
-          className="p-2 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
-          title="Message"
-        >
-          <MessageCircle className="w-4 h-4" />
-        </button>
-
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <button className="p-2 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors">
