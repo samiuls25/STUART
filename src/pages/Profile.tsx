@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import React from "react";
 import { motion } from "framer-motion";
 import { Link } from "react-router-dom";
@@ -190,6 +190,32 @@ const Profile = () => {
   const handleMemoryCreated = () => {
     refreshMemories();
   };
+
+  const memoryTimelineGroups = useMemo(() => {
+    if (memoriesState.length === 0) return [] as Array<{ label: string; memories: Memory[] }>;
+
+    const sorted = [...memoriesState].sort((a, b) => b.sortTimestamp - a.sortTimestamp);
+    const groups = new Map<string, Memory[]>();
+
+    sorted.forEach((memory) => {
+      const parsedDate = new Date(memory.sortTimestamp);
+      const label = Number.isNaN(parsedDate.getTime())
+        ? "Unknown"
+        : parsedDate.toLocaleDateString(undefined, {
+            month: "long",
+            year: "numeric",
+          });
+
+      const current = groups.get(label) || [];
+      current.push(memory);
+      groups.set(label, current);
+    });
+
+    return Array.from(groups.entries()).map(([label, memories]) => ({
+      label,
+      memories,
+    }));
+  }, [memoriesState]);
 
   return (
     <div className="min-h-screen bg-background">
@@ -413,7 +439,7 @@ const Profile = () => {
                 <div className="flex items-center justify-between mb-4">
                   <h2 className="font-heading text-lg font-semibold text-foreground flex items-center gap-2">
                     <Camera className="w-5 h-5 text-primary" />
-                    Past Hangouts
+                    Memories Timeline
                   </h2>
                   <button
                     onClick={() => setCreatingMemory(true)}
@@ -422,21 +448,35 @@ const Profile = () => {
                     Add Memory
                   </button>
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {loadingMemories ? (
-                    <div className="col-span-1 md:col-span-2 py-6 text-center text-sm text-muted-foreground">Loading memories…</div>
-                  ) : memoriesState.length > 0 ? (
-                    memoriesState.map((memory, index) => (
-                      <motion.div key={memory.id} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.1 }}>
-                        <MemoryCard memory={memory} />
-                      </motion.div>
-                    ))
-                  ) : (
-                    <div className="col-span-1 md:col-span-2 py-8 text-center text-sm text-muted-foreground">
-                      You have no memories yet. Add one to start your timeline.
-                    </div>
-                  )}
-                </div>
+                {loadingMemories ? (
+                  <div className="py-6 text-center text-sm text-muted-foreground">Loading memories…</div>
+                ) : memoriesState.length > 0 ? (
+                  <div className="space-y-8">
+                    {memoryTimelineGroups.map((group, groupIndex) => (
+                      <section key={group.label} className="space-y-3">
+                        <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+                          {group.label}
+                        </h3>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          {group.memories.map((memory, index) => (
+                            <motion.div
+                              key={memory.id}
+                              initial={{ opacity: 0, y: 20 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              transition={{ delay: (groupIndex * 0.04) + (index * 0.04) }}
+                            >
+                              <MemoryCard memory={memory} />
+                            </motion.div>
+                          ))}
+                        </div>
+                      </section>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="py-8 text-center text-sm text-muted-foreground">
+                    You have no memories yet. Add one to start your timeline.
+                  </div>
+                )}
               </div>
             )}
           </motion.div>

@@ -19,6 +19,7 @@ export interface Memory {
   location: string;
   date: string;
   time: string;
+  sortTimestamp: number;
   attendees: MemoryAttendee[];
   photos: MemoryPhoto[];
   heroImage: string;
@@ -106,6 +107,18 @@ const formatTimeLabel = (value: string | null | undefined) => {
   });
 };
 
+const toSortTimestamp = (memoryDate: string | null, createdAt: string) => {
+  if (memoryDate) {
+    const parsedMemoryDate = Date.parse(`${memoryDate}T12:00:00`);
+    if (!Number.isNaN(parsedMemoryDate)) return parsedMemoryDate;
+  }
+
+  const parsedCreatedAt = Date.parse(createdAt);
+  if (!Number.isNaN(parsedCreatedAt)) return parsedCreatedAt;
+
+  return 0;
+};
+
 const normalizePhotoRowUrl = (row: MemoryPhotoRow) => row.photo_url || row.url || "";
 
 const compressImageFile = async (file: File): Promise<Blob> => {
@@ -185,6 +198,7 @@ const mapMemoryRowsToUi = (
       location: row.location || "New York",
       date: formatDateLabel(row.memory_date || undefined),
       time: formatTimeLabel(row.created_at),
+      sortTimestamp: toSortTimestamp(row.memory_date, row.created_at),
       attendees: resolvedAttendees,
       photos: resolvedPhotos,
       heroImage,
