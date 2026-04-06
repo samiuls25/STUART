@@ -6,6 +6,7 @@ import AuthModal from "../components/auth/AuthModal";
 import FriendCard from "../components/friends/FriendCard";
 import FriendProfileModal from "../components/friends/FriendProfileModal";
 import { getFriends, getPendingRequests, acceptFriendRequest, rejectFriendRequest, sendFriendRequest } from "../lib/friends";
+import type { Friend } from "../lib/friends";
 import { useAuth } from "../lib/AuthContext";
 import { toast } from "../hooks/use-toast";
 import { Input } from "../components/ui/input.tsx";
@@ -22,7 +23,7 @@ const Friends = () => {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedFriend, setSelectedFriend] = useState<Friend | null>(null);
   const [showProfileModal, setShowProfileModal] = useState(false);
-  const [filter, setFilter] = useState<"all" | "online" | "muted">("all");
+  const [filter, setFilter] = useState<"all" | "online">("all");
 
   useEffect(() => {
     if (!user) {
@@ -41,10 +42,6 @@ const Friends = () => {
   const handleViewProfile = (friend: Friend) => {
     setSelectedFriend(friend);
     setShowProfileModal(true);
-  };
-
-  const handleMute = (friend: Friend) => {
-    console.log("Toggle mute for:", friend.name);
   };
 
   const handleBlock = (friend: Friend) => {
@@ -96,8 +93,7 @@ const Friends = () => {
     const matchesSearch = friend.name.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesFilter =
       filter === "all" ||
-      (filter === "online" && friend.status === "online") ||
-      (filter === "muted" && friend.isMuted);
+      (filter === "online" && friend.status === "online");
     return matchesSearch && matchesFilter && !friend.isBlocked;
   });
 
@@ -180,7 +176,7 @@ const Friends = () => {
                 </div>
 
                 <div className="flex gap-2">
-                  {(["all", "online", "muted"] as const).map((f) => (
+                  {(["all", "online"] as const).map((f) => (
                     <button
                       key={f}
                       onClick={() => setFilter(f)}
@@ -209,7 +205,6 @@ const Friends = () => {
                       <FriendCard
                         friend={friend}
                         onViewProfile={handleViewProfile}
-                        onMute={handleMute}
                         onBlock={handleBlock}
                       />
                     </motion.div>
@@ -294,7 +289,6 @@ const Friends = () => {
         friend={selectedFriend}
         isOpen={showProfileModal}
         onClose={() => setShowProfileModal(false)}
-        onMute={handleMute}
         onBlock={handleBlock}
       />
 

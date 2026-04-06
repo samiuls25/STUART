@@ -1,19 +1,18 @@
 import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, Trophy, Camera, Calendar, UserMinus, VolumeX, Volume2 } from "lucide-react";
+import { X, Trophy, Camera, Calendar, UserMinus } from "lucide-react";
 import { Friend } from "../../lib/friends";
 import MemoryCard from "../profile/MemoryCard";
-import { fetchMemoriesForUser, type Memory } from "../../lib/memories";
+import { fetchSharedMemoriesWithUser, type Memory } from "../../lib/memories";
 
 interface FriendProfileModalProps {
   friend: Friend | null;
   isOpen: boolean;
   onClose: () => void;
-  onMute?: (friend: Friend) => void;
   onBlock?: (friend: Friend) => void;
 }
 
-const FriendProfileModal = ({ friend, isOpen, onClose, onMute, onBlock }: FriendProfileModalProps) => {
+const FriendProfileModal = ({ friend, isOpen, onClose, onBlock }: FriendProfileModalProps) => {
   const [visibleMemories, setVisibleMemories] = useState<Memory[]>([]);
   const [loadingMemories, setLoadingMemories] = useState(false);
   const friendId = friend?.id;
@@ -26,7 +25,7 @@ const FriendProfileModal = ({ friend, isOpen, onClose, onMute, onBlock }: Friend
     const loadVisibleMemories = async () => {
       setLoadingMemories(true);
       try {
-        const rows = await fetchMemoriesForUser(friendId);
+        const rows = await fetchSharedMemoriesWithUser(friendId);
         if (mounted) {
           setVisibleMemories(rows);
         }
@@ -161,7 +160,7 @@ const FriendProfileModal = ({ friend, isOpen, onClose, onMute, onBlock }: Friend
               <div>
                 <h4 className="font-heading font-semibold text-foreground flex items-center gap-2 mb-3">
                   <Camera className="w-4 h-4 text-primary" />
-                  Memories
+                  Shared Memories
                 </h4>
 
                 {loadingMemories ? (
@@ -171,12 +170,12 @@ const FriendProfileModal = ({ friend, isOpen, onClose, onMute, onBlock }: Friend
                 ) : visibleMemories.length > 0 ? (
                   <div className="space-y-3">
                     {visibleMemories.map((memory) => (
-                      <MemoryCard key={memory.id} memory={memory} compact allowDelete={false} editable={false} />
+                      <MemoryCard key={memory.id} memory={memory} allowDelete={false} editable={false} />
                     ))}
                   </div>
                 ) : (
                   <div className="rounded-xl border border-border bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
-                    No visible memories yet.
+                    No shared memories yet.
                   </div>
                 )}
               </div>
@@ -199,22 +198,6 @@ const FriendProfileModal = ({ friend, isOpen, onClose, onMute, onBlock }: Friend
             {/* Footer Actions */}
             <div className="p-6 border-t border-border flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <button
-                  onClick={() => onMute?.(friend)}
-                  className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-muted-foreground hover:bg-muted transition-colors"
-                >
-                  {friend.isMuted ? (
-                    <>
-                      <Volume2 className="w-4 h-4" />
-                      Unmute
-                    </>
-                  ) : (
-                    <>
-                      <VolumeX className="w-4 h-4" />
-                      Mute
-                    </>
-                  )}
-                </button>
                 <button
                   onClick={() => onBlock?.(friend)}
                   className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-destructive hover:bg-destructive/10 transition-colors"

@@ -1,6 +1,6 @@
 import React from "react";
 import { motion } from "framer-motion";
-import { UserMinus, VolumeX, Volume2, MessageCircle, MoreHorizontal } from "lucide-react";
+import { UserMinus, MessageCircle, MoreHorizontal } from "lucide-react";
 import { Friend } from "../../lib/friends";
 import {
   DropdownMenu,
@@ -13,12 +13,11 @@ import {
 interface FriendCardProps {
   friend: Friend;
   onViewProfile?: (friend: Friend) => void;
-  onMute?: (friend: Friend) => void;
   onBlock?: (friend: Friend) => void;
   compact?: boolean;
 }
 
-const FriendCard = ({ friend, onViewProfile, onMute, onBlock, compact = false }: FriendCardProps) => {
+const FriendCard = ({ friend, onViewProfile, onBlock, compact = false }: FriendCardProps) => {
   const statusColors = {
     online: "bg-green-500",
     offline: "bg-muted-foreground/50",
@@ -99,9 +98,6 @@ const FriendCard = ({ friend, onViewProfile, onMute, onBlock, compact = false }:
           >
             {friend.name}
           </button>
-          {friend.isMuted && (
-            <VolumeX className="w-3.5 h-3.5 text-muted-foreground" />
-          )}
         </div>
         
         {/* Badges */}
@@ -152,19 +148,6 @@ const FriendCard = ({ friend, onViewProfile, onMute, onBlock, compact = false }:
           <DropdownMenuContent align="end" className="w-48">
             <DropdownMenuItem onClick={() => onViewProfile?.(friend)}>
               View Profile
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => onMute?.(friend)}>
-              {friend.isMuted ? (
-                <>
-                  <Volume2 className="w-4 h-4 mr-2" />
-                  Unmute
-                </>
-              ) : (
-                <>
-                  <VolumeX className="w-4 h-4 mr-2" />
-                  Mute
-                </>
-              )}
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem

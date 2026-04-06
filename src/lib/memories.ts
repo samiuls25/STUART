@@ -67,6 +67,11 @@ interface MemoryAttendeeRow {
   created_at?: string | null;
 }
 
+interface MemoryAttendeeMembershipRow {
+  memory_id: string;
+  is_owner?: boolean | null;
+}
+
 interface CreateMemoryInput {
   title: string;
   description?: string;
@@ -401,6 +406,80 @@ async function fetchMemoryAttendees(memoryIds: string[]): Promise<Map<string, Me
   return map;
 }
 
+async function mapMemoryRowsWithRelations(memoryRows: MemoryRow[]): Promise<Memory[]> {
+  const memories = memoryRows || [];
+  if (memories.length === 0) {
+    return [];
+  }
+
+  const memoryIds = memories.map((row) => row.id);
+  const profileIds = [...new Set(memories.map((row) => row.user_id))];
+
+  const [photoMap, attendeeMap, profileRowsResult] = await Promise.all([
+    fetchMemoryPhotos(memoryIds),
+    fetchMemoryAttendees(memoryIds),
+    supabase.from("profiles").select("id,name,avatar_url").in("id", profileIds),
+  ]);
+
+  const profileMap = new Map<string, ProfileRow>();
+  if (!profileRowsResult.error) {
+    ((profileRowsResult.data as ProfileRow[] | null) || []).forEach((row) => {
+      profileMap.set(row.id, row);
+    });
+  }
+
+  return mapMemoryRowsToUi(memories, profileMap, photoMap, attendeeMap);
+}
+
+async function fetchSharedMemoryRowsForUser(
+  currentUserId: string,
+  ownerUserId?: string
+): Promise<MemoryRow[]> {
+  const { data: attendeeRows, error: attendeeError } = await supabase
+    .from("memory_attendees")
+    .select("memory_id,is_owner")
+    .eq("user_id", currentUserId);
+
+  if (attendeeError) {
+    if (isMissingTableError(attendeeError)) {
+      return [];
+    }
+    throw attendeeError;
+  }
+
+  const sharedMemoryIds = [
+    ...new Set(
+      (((attendeeRows as MemoryAttendeeMembershipRow[] | null) || [])
+        .filter((row) => !row.is_owner)
+        .map((row) => row.memory_id))
+    ),
+  ];
+
+  if (sharedMemoryIds.length === 0) {
+    return [];
+  }
+
+  let query = supabase
+    .from("memories")
+    .select("id,user_id,title,description,image_url,event_id,hangout_id,location,memory_date,created_at")
+    .in("id", sharedMemoryIds)
+    .neq("user_id", currentUserId);
+
+  if (ownerUserId) {
+    query = query.eq("user_id", ownerUserId);
+  }
+
+  const { data: memoryRows, error: memoryError } = await query
+    .order("memory_date", { ascending: false })
+    .order("created_at", { ascending: false });
+
+  if (memoryError) {
+    throw memoryError;
+  }
+
+  return (memoryRows as MemoryRow[] | null) || [];
+}
+
 export async function fetchMemoriesForCurrentUser(): Promise<Memory[]> {
   const {
     data: { user },
@@ -410,7 +489,17 @@ export async function fetchMemoriesForCurrentUser(): Promise<Memory[]> {
     return [];
   }
 
-  return fetchMemoriesForUser(user.id);
+  const [ownedMemories, sharedMemories] = await Promise.all([
+    fetchMemoriesForUser(user.id),
+    fetchSharedMemoriesForCurrentUser(),
+  ]);
+
+  const mergedById = new Map<string, Memory>();
+  [...ownedMemories, ...sharedMemories].forEach((memory) => {
+    mergedById.set(memory.id, memory);
+  });
+
+  return [...mergedById.values()].sort((a, b) => b.sortTimestamp - a.sortTimestamp);
 }
 
 export async function fetchMemoriesForUser(userId: string): Promise<Memory[]> {
@@ -437,28 +526,37 @@ export async function fetchMemoriesForUser(userId: string): Promise<Memory[]> {
     throw memoryError;
   }
 
-  const memories = (memoryRows as MemoryRow[] | null) || [];
-  if (memories.length === 0) {
+  return mapMemoryRowsWithRelations((memoryRows as MemoryRow[] | null) || []);
+}
+
+export async function fetchSharedMemoriesForCurrentUser(): Promise<Memory[]> {
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
     return [];
   }
 
-  const memoryIds = memories.map((row) => row.id);
-  const profileIds = [...new Set(memories.map((row) => row.user_id))];
+  const sharedRows = await fetchSharedMemoryRowsForUser(user.id);
+  return mapMemoryRowsWithRelations(sharedRows);
+}
 
-  const [photoMap, attendeeMap, profileRowsResult] = await Promise.all([
-    fetchMemoryPhotos(memoryIds),
-    fetchMemoryAttendees(memoryIds),
-    supabase.from("profiles").select("id,name,avatar_url").in("id", profileIds),
-  ]);
-
-  const profileMap = new Map<string, ProfileRow>();
-  if (!profileRowsResult.error) {
-    ((profileRowsResult.data as ProfileRow[] | null) || []).forEach((row) => {
-      profileMap.set(row.id, row);
-    });
+export async function fetchSharedMemoriesWithUser(ownerUserId: string): Promise<Memory[]> {
+  if (!ownerUserId) {
+    return [];
   }
 
-  return mapMemoryRowsToUi(memories, profileMap, photoMap, attendeeMap);
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return [];
+  }
+
+  const sharedRows = await fetchSharedMemoryRowsForUser(user.id, ownerUserId);
+  return mapMemoryRowsWithRelations(sharedRows);
 }
 
 export async function createMemory(input: CreateMemoryInput): Promise<{ id: string }> {
