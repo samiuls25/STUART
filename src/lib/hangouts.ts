@@ -1,5 +1,6 @@
 import { supabase } from "./supabase";
 import { Hangout, TimeRange } from "../data/friends";
+import { createNotification, createNotificationsBatch } from "./notifications";
 
 interface HangoutRow {
   id: string;
@@ -63,6 +64,87 @@ export interface CreateHangoutInput {
 }
 
 const setupIssueCodes = new Set(["42P01", "PGRST205", "42P17"]);
+
+const getUserDisplayName = (user: { email?: string | null; user_metadata?: { full_name?: string } }) => {
+  return user.user_metadata?.full_name || user.email || "A friend";
+};
+
+const createHangoutInviteNotifications = async (
+  creator: { id: string; email?: string | null; user_metadata?: { full_name?: string } },
+  invitedUserIds: string[],
+  hangoutId: string,
+  hangoutTitle: string
+) => {
+  if (invitedUserIds.length === 0) return;
+
+  const creatorName = getUserDisplayName(creator);
+
+  await createNotificationsBatch({
+    recipientUserIds: invitedUserIds,
+    type: "hangout_invite",
+    title: "New hangout invite",
+    message: `${creatorName} invited you to \"${hangoutTitle}\".`,
+    entityType: "hangout",
+    entityId: hangoutId,
+    metadata: {
+      hangoutId,
+      hangoutTitle,
+    },
+  });
+};
+
+const notifyHangoutHostOfResponse = async (args: {
+  actor: { id: string; email?: string | null; user_metadata?: { full_name?: string } };
+  hostUserId: string;
+  hangoutId: string;
+  hangoutTitle: string;
+  response: "yes" | "no" | "maybe";
+}) => {
+  if (args.actor.id === args.hostUserId) return;
+
+  const actorName = getUserDisplayName(args.actor);
+  const responseLabel =
+    args.response === "yes" ? "is in" : args.response === "maybe" ? "is maybe" : "can't make it";
+
+  await createNotification({
+    recipientUserId: args.hostUserId,
+    type: "hangout_response",
+    title: "Hangout response update",
+    message: `${actorName} ${responseLabel} for \"${args.hangoutTitle}\".`,
+    entityType: "hangout",
+    entityId: args.hangoutId,
+    metadata: {
+      hangoutId: args.hangoutId,
+      hangoutTitle: args.hangoutTitle,
+      response: args.response,
+      responderId: args.actor.id,
+    },
+  });
+};
+
+const fetchHangoutOwnerAndTitle = async (
+  hangoutId: string
+): Promise<{ createdBy: string; title: string } | null> => {
+  const { data, error } = await supabase
+    .from("hangouts")
+    .select("created_by,title")
+    .eq("id", hangoutId)
+    .maybeSingle();
+
+  if (error || !data) {
+    return null;
+  }
+
+  const row = data as { created_by?: string; title?: string };
+  if (!row.created_by || !row.title) {
+    return null;
+  }
+
+  return {
+    createdBy: row.created_by,
+    title: row.title,
+  };
+};
 
 const isMissingColumnError = (error: unknown, columnName: string) => {
   if (!error || typeof error !== "object") return false;
@@ -329,6 +411,12 @@ export async function createHangout(input: CreateHangoutInput): Promise<void> {
 
     if (inviteError) throw inviteError;
 
+    try {
+      await createHangoutInviteNotifications(user, uniqueInvites, fallbackInserted.id, input.title);
+    } catch (notificationError) {
+      console.warn("Hangout invite notifications skipped", notificationError);
+    }
+
     await syncHangoutStatus(fallbackInserted.id);
     return;
   }
@@ -366,6 +454,12 @@ export async function createHangout(input: CreateHangoutInput): Promise<void> {
 
   if (inviteError) throw inviteError;
 
+  try {
+    await createHangoutInviteNotifications(user, uniqueInvites, insertedHangout.id, input.title);
+  } catch (notificationError) {
+    console.warn("Hangout invite notifications skipped", notificationError);
+  }
+
   await syncHangoutStatus(insertedHangout.id);
 }
 
@@ -375,6 +469,8 @@ export async function respondToHangout(hangoutId: string, response: "yes" | "no"
   } = await supabase.auth.getUser();
 
   if (!user) throw new Error("You must be signed in to respond.");
+
+  const hangoutContext = await fetchHangoutOwnerAndTitle(hangoutId);
 
   if (response === "no") {
     let isPublicHangout = false;
@@ -402,6 +498,21 @@ export async function respondToHangout(hangoutId: string, response: "yes" | "no"
 
       if (!leaveError) {
         await syncHangoutStatus(hangoutId);
+
+        if (hangoutContext) {
+          try {
+            await notifyHangoutHostOfResponse({
+              actor: user,
+              hostUserId: hangoutContext.createdBy,
+              hangoutId,
+              hangoutTitle: hangoutContext.title,
+              response,
+            });
+          } catch (notificationError) {
+            console.warn("Hangout response notification skipped", notificationError);
+          }
+        }
+
         return;
       }
 
@@ -445,6 +556,20 @@ export async function respondToHangout(hangoutId: string, response: "yes" | "no"
   if (error) throw error;
 
   await syncHangoutStatus(hangoutId);
+
+  if (hangoutContext) {
+    try {
+      await notifyHangoutHostOfResponse({
+        actor: user,
+        hostUserId: hangoutContext.createdBy,
+        hangoutId,
+        hangoutTitle: hangoutContext.title,
+        response,
+      });
+    } catch (notificationError) {
+      console.warn("Hangout response notification skipped", notificationError);
+    }
+  }
 }
 
 export async function submitHangoutAvailability(hangoutId: string, availability: TimeRange[]): Promise<void> {
@@ -507,6 +632,46 @@ export async function applySuggestedHangoutTime(
     .eq("created_by", user.id);
 
   if (error) throw error;
+
+  const [hangoutContext, inviteesResult] = await Promise.all([
+    fetchHangoutOwnerAndTitle(hangoutId),
+    supabase
+      .from("hangout_invites")
+      .select("friend_id,response_status")
+      .eq("hangout_id", hangoutId),
+  ]);
+
+  if (inviteesResult.error) {
+    console.warn("Could not fetch hangout invitees for notifications", inviteesResult.error);
+    return;
+  }
+
+  const recipientUserIds = ((inviteesResult.data as Array<{ friend_id: string; response_status: string }> | null) || [])
+    .filter((row) => row.friend_id !== user.id && row.response_status !== "no")
+    .map((row) => row.friend_id);
+
+  if (recipientUserIds.length === 0) {
+    return;
+  }
+
+  try {
+    await createNotificationsBatch({
+      recipientUserIds,
+      type: "hangout_confirmed",
+      title: "Hangout time confirmed",
+      message: `\"${hangoutContext?.title || "Your hangout"}\" is confirmed for ${suggestedTime.date} at ${suggestedTime.startTime}.`,
+      entityType: "hangout",
+      entityId: hangoutId,
+      metadata: {
+        hangoutId,
+        date: suggestedTime.date,
+        startTime: suggestedTime.startTime,
+        endTime: suggestedTime.endTime,
+      },
+    });
+  } catch (notificationError) {
+    console.warn("Hangout confirmation notifications skipped", notificationError);
+  }
 }
 
 export async function deleteHangout(hangoutId: string): Promise<void> {

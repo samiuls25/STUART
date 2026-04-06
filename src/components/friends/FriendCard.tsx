@@ -1,6 +1,6 @@
 import React from "react";
 import { motion } from "framer-motion";
-import { UserMinus, VolumeX, Volume2, MessageCircle, MoreHorizontal } from "lucide-react";
+import { UserMinus, MoreHorizontal } from "lucide-react";
 import { Friend } from "../../lib/friends";
 import {
   DropdownMenu,
@@ -13,12 +13,11 @@ import {
 interface FriendCardProps {
   friend: Friend;
   onViewProfile?: (friend: Friend) => void;
-  onMute?: (friend: Friend) => void;
-  onBlock?: (friend: Friend) => void;
+  onRemove?: (friend: Friend) => void;
   compact?: boolean;
 }
 
-const FriendCard = ({ friend, onViewProfile, onMute, onBlock, compact = false }: FriendCardProps) => {
+const FriendCard = ({ friend, onViewProfile, onRemove, compact = false }: FriendCardProps) => {
   const statusColors = {
     online: "bg-green-500",
     offline: "bg-muted-foreground/50",
@@ -99,9 +98,6 @@ const FriendCard = ({ friend, onViewProfile, onMute, onBlock, compact = false }:
           >
             {friend.name}
           </button>
-          {friend.isMuted && (
-            <VolumeX className="w-3.5 h-3.5 text-muted-foreground" />
-          )}
         </div>
         
         {/* Badges */}
@@ -136,13 +132,6 @@ const FriendCard = ({ friend, onViewProfile, onMute, onBlock, compact = false }:
 
       {/* Actions */}
       <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-        <button
-          className="p-2 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
-          title="Message"
-        >
-          <MessageCircle className="w-4 h-4" />
-        </button>
-
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <button className="p-2 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors">
@@ -153,26 +142,13 @@ const FriendCard = ({ friend, onViewProfile, onMute, onBlock, compact = false }:
             <DropdownMenuItem onClick={() => onViewProfile?.(friend)}>
               View Profile
             </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => onMute?.(friend)}>
-              {friend.isMuted ? (
-                <>
-                  <Volume2 className="w-4 h-4 mr-2" />
-                  Unmute
-                </>
-              ) : (
-                <>
-                  <VolumeX className="w-4 h-4 mr-2" />
-                  Mute
-                </>
-              )}
-            </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem
-              onClick={() => onBlock?.(friend)}
+              onClick={() => onRemove?.(friend)}
               className="text-destructive focus:text-destructive"
             >
               <UserMinus className="w-4 h-4 mr-2" />
-              Block
+              Remove Friend
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>

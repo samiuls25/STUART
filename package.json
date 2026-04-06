@@ -9,8 +9,9 @@
         "build:dev": "vite build --mode development",
         "lint": "eslint .",
         "preview": "vite preview",
-        "events:sync": "python3 src/scripts/sync_ticketmaster.py",
+        "events:sync": "python3 src/scripts/sync_ticketmaster.py && python3 src/scripts/recompute_event_intelligence.py",
         "events:intelligence": "python3 src/scripts/recompute_event_intelligence.py",
+        "events:intelligence:incremental": "python3 src/scripts/recompute_event_intelligence.py --mode incremental --window-minutes 20",
         "events:prune:dry-run": "python3 src/scripts/sync_ticketmaster.py --prune-only --dry-run-prune",
         "events:prune": "python3 src/scripts/sync_ticketmaster.py --prune-only"
     },

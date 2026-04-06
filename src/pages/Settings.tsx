@@ -1,24 +1,17 @@
-import React from   "react";
 import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import { useNavigate } from "react-router-dom";    
+import { useNavigate } from "react-router-dom";
 import {
   User,
-  Settings as SettingsIcon,
   Shield,
   Bell,
-  Eye,
-  Lock,
-  UserX,
   ChevronRight,
   Moon,
   Sun,
-  Palette,
   Trash2,
   LogOut,
   ArrowLeft,
   Check,
-  AlertCircle,
   Camera,
 } from "lucide-react";
 import Navbar from "../components/layout/Navbar";
@@ -30,6 +23,7 @@ import {
   AlertDialogCancel,
   AlertDialogContent,
   AlertDialogDescription,
+  AlertDialogFooter,
   AlertDialogTitle,
 } from "../components/ui/alert-dialog";
 import { Switch } from "../components/ui/switch";
@@ -37,7 +31,17 @@ import { Input } from "../components/ui/input";
 import { supabase } from "../lib/supabase";
 import { toast } from "../hooks/use-toast";
 
-type SettingsSection = "main" | "profile" | "privacy" | "notifications" | "blocked";
+type SettingsSection = "main" | "profile" | "privacy" | "notifications";
+
+const AVATAR_BUCKETS = Array.from(
+  new Set(
+    [
+      import.meta.env.VITE_AVATAR_BUCKET as string | undefined,
+      (import.meta.env.VITE_MEMORY_PHOTOS_BUCKET as string | undefined) || "memory-photos",
+      "avatars",
+    ].filter(Boolean) as string[]
+  )
+);
 
 const Settings = () => {
   const navigate = useNavigate();
@@ -64,7 +68,6 @@ const Settings = () => {
     darkMode: typeof window !== 'undefined' && localStorage.getItem('theme') === 'dark',
   });
   const [saving, setSaving] = useState(false);
-  const [blockedUsers, setBlockedUsers] = useState<any[]>([]);
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
 
@@ -102,30 +105,54 @@ const Settings = () => {
 
   // Initialize profile fields from user data
   useEffect(() => {
-    if (user) {
-      const displayName = (user as any)?.user_metadata?.full_name || 
-                         (user?.email ? user.email.split("@")[0] : "Your Name");
-      const userMetadata = (user as any)?.user_metadata ?? {};
-      
-      setSettings((prev) => ({
-        ...prev,
-        name: displayName,
-        bio: userMetadata.bio || "",
-        avatarUrl: userMetadata.avatar_url || "",
-        // Load privacy settings from user metadata
-        profileVisibility: (userMetadata.profile_visibility ?? "friends") as "public" | "friends" | "private",
-        showBadges: userMetadata.show_badges !== false,
-        showMemories: userMetadata.show_memories !== false,
-        showUpcomingHangouts: userMetadata.show_upcoming_hangouts !== false,
-        // Load notification settings from user metadata
-        hangoutInvites: userMetadata.notification_hangout_invites !== false,
-        friendRequests: userMetadata.notification_friend_requests !== false,
-        eventReminders: userMetadata.notification_event_reminders !== false,
-        friendActivity: userMetadata.notification_friend_activity !== false,
-      }));
-      
-      setAvatarPreview(userMetadata.avatar_url || null);
-    }
+    if (!user) return;
+
+    let mounted = true;
+    const displayName = (user as any)?.user_metadata?.full_name ||
+      (user?.email ? user.email.split("@")[0] : "Your Name");
+    const userMetadata = (user as any)?.user_metadata ?? {};
+
+    setSettings((prev) => ({
+      ...prev,
+      name: displayName,
+      bio: userMetadata.bio || "",
+      avatarUrl: userMetadata.avatar_url || "",
+      // Load privacy settings from user metadata
+      profileVisibility: (userMetadata.profile_visibility ?? "friends") as "public" | "friends" | "private",
+      showBadges: userMetadata.show_badges !== false,
+      showMemories: userMetadata.show_memories !== false,
+      showUpcomingHangouts: userMetadata.show_upcoming_hangouts !== false,
+      // Load notification settings from user metadata
+      hangoutInvites: userMetadata.notification_hangout_invites !== false,
+      friendRequests: userMetadata.notification_friend_requests !== false,
+      eventReminders: userMetadata.notification_event_reminders !== false,
+      friendActivity: userMetadata.notification_friend_activity !== false,
+    }));
+
+    setAvatarPreview(userMetadata.avatar_url || null);
+
+    // Pull profile row too so Settings reflects fresh values even if auth metadata lags.
+    supabase
+      .from("profiles")
+      .select("name,bio,avatar_url")
+      .eq("id", user.id)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (!mounted || !data) return;
+        setSettings((prev) => ({
+          ...prev,
+          name: data.name || prev.name,
+          bio: data.bio || prev.bio,
+          avatarUrl: data.avatar_url || prev.avatarUrl,
+        }));
+        if (data.avatar_url) {
+          setAvatarPreview(data.avatar_url);
+        }
+      });
+
+    return () => {
+      mounted = false;
+    };
   }, [user]);
 
   // Handle avatar file selection
@@ -138,22 +165,114 @@ const Settings = () => {
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0] ?? null;
+    if (file && !file.type.startsWith("image/")) {
+      toast({
+        title: "Invalid file type",
+        description: "Please choose an image file.",
+        variant: "destructive",
+      });
+      return;
+    }
     setAvatarFile(file);
   };
 
   const uploadAvatar = async (file: File) => {
-    if (!user) return null;
-    const fileExt = file.name.split(".").pop();
-    const filePath = `avatars/${user.id}-${Date.now()}.${fileExt}`;
+    if (!user) throw new Error("You must be signed in to change your avatar.");
+    const fileExt = file.name.split(".").pop() || "jpg";
+    const safeExt = fileExt.replace(/[^a-zA-Z0-9]/g, "") || "jpg";
 
-    const { error: uploadError } = await supabase.storage.from("avatars").upload(filePath, file);
-    if (uploadError) {
-      console.error("Upload failed", uploadError);
-      return null;
+    let lastError: unknown = null;
+    for (const bucket of AVATAR_BUCKETS) {
+      const filePath = `${user.id}/avatars/${Date.now()}.${safeExt}`;
+      const { error: uploadError } = await supabase.storage
+        .from(bucket)
+        .upload(filePath, file, {
+          cacheControl: "3600",
+          upsert: true,
+          contentType: file.type,
+        });
+
+      if (uploadError) {
+        lastError = uploadError;
+        continue;
+      }
+
+      const { data } = supabase.storage.from(bucket).getPublicUrl(filePath);
+      return data.publicUrl;
     }
 
-    const { data } = supabase.storage.from("avatars").getPublicUrl(filePath);
-    return data.publicUrl;
+    throw new Error(
+      lastError instanceof Error ? lastError.message : "Unable to upload avatar."
+    );
+  };
+
+  const tryDeleteAccountViaRpc = async (userId: string): Promise<boolean> => {
+    const rpcAttempts: Array<{ fn: string; args: Record<string, unknown> }> = [
+      { fn: "delete_user_account", args: { user_id: userId } },
+      { fn: "delete_user_account", args: { target_user_id: userId } },
+      { fn: "delete_user_account", args: {} },
+      { fn: "delete_current_user_account", args: {} },
+    ];
+
+    for (const attempt of rpcAttempts) {
+      const { error } = await supabase.rpc(attempt.fn, attempt.args);
+      if (!error) {
+        return true;
+      }
+
+      const notConfigured =
+        error.code === "PGRST202" ||
+        error.code === "PGRST204" ||
+        /function .* does not exist|not found/i.test(error.message || "");
+
+      if (notConfigured) {
+        continue;
+      }
+
+      throw error;
+    }
+
+    return false;
+  };
+
+  const runClientSideAccountCleanup = async (userId: string) => {
+    const now = new Date().toISOString();
+
+    await Promise.allSettled([
+      supabase
+        .from("friendships")
+        .delete()
+        .or(`user_id.eq.${userId},friend_id.eq.${userId}`),
+      supabase.from("blocked_users").delete().eq("user_id", userId),
+      supabase.from("saved_events").delete().eq("user_id", userId),
+      supabase.from("event_recommendation_feedback").delete().eq("user_id", userId),
+      supabase.from("user_event_recommendations").delete().eq("user_id", userId),
+      supabase.from("memory_attendees").delete().eq("user_id", userId),
+      supabase
+        .from("profiles")
+        .upsert(
+          {
+            id: userId,
+            name: "Deleted User",
+            bio: null,
+            avatar_url: null,
+            profile_visibility: "private",
+            show_badges: false,
+            show_memories: false,
+            show_upcoming_hangouts: false,
+            updated_at: now,
+          },
+          { onConflict: "id" }
+        ),
+      supabase.auth.updateUser({
+        data: {
+          full_name: "Deleted User",
+          bio: null,
+          avatar_url: null,
+          account_deleted: true,
+        },
+      }),
+    ]);
   };
 
   const handleDeleteAccount = async () => {
@@ -161,40 +280,22 @@ const Settings = () => {
     
     setDeletingAccount(true);
     try {
-      // Delete user data from profiles table first (if it exists)
-      await supabase.from("profiles").delete().eq("id", user.id).select();
-      
-      // Delete user account via Supabase Auth
-      // Note: This requires RLS policies or admin privileges
-      // As a client-side fallback, we'll use a different approach:
-      // Create an RPC function in Supabase that your backend can call
-      // For now, we'll delete data and sign out
-      
-      // Call a Supabase function to delete the user account (you need to create this)
-      const { error: rpcError } = await supabase.rpc('delete_user_account', {
-        user_id: user.id,
-      });
-      
-      // If RPC doesn't exist, just sign out (manual deletion path)
-      if (rpcError?.code === 'PGRST204' || rpcError?.message.includes('not found')) {
-        console.log("RPC not available, proceeding with sign out");
-      } else if (rpcError) {
-        throw rpcError;
+      const deletedViaRpc = await tryDeleteAccountViaRpc(user.id);
+
+      if (!deletedViaRpc) {
+        await runClientSideAccountCleanup(user.id);
       }
-      
-      // Sign out the user
+
       await signOut();
-      
-      // Show success message
+
       toast({
         title: "Account Deleted",
-        description: "Your account has been successfully deleted. You are being signed out.",
+        description: deletedViaRpc
+          ? "Your account was deleted successfully."
+          : "Your account has been deactivated and your app data was cleared.",
       });
-      
-      // Redirect to home page
-      setTimeout(() => {
-        navigate("/");
-      }, 1000);
+
+      navigate("/");
     } catch (error) {
       console.error("Failed to delete account:", error);
       toast({
@@ -260,19 +361,21 @@ const Settings = () => {
     
     setSaving(true);
     try {
-      let avatarUrl = settings.avatarUrl;
+      let avatarUrl = settings.avatarUrl || null;
+      const normalizedName = settings.name.trim() || user.email?.split("@")[0] || "Your Name";
+      const normalizedBio = settings.bio.trim();
 
       // Upload new avatar if selected
       if (avatarFile) {
         const uploaded = await uploadAvatar(avatarFile);
-        if (uploaded) avatarUrl = uploaded;
+        avatarUrl = uploaded;
       }
 
       // Update user metadata
       const { error: authError } = await supabase.auth.updateUser({
         data: { 
-          full_name: settings.name,
-          bio: settings.bio,
+          full_name: normalizedName,
+          bio: normalizedBio,
           avatar_url: avatarUrl,
         },
       });
@@ -282,8 +385,8 @@ const Settings = () => {
       // Save to profiles table
       const { error: profileError } = await supabase.from("profiles").upsert({
         id: user.id,
-        name: settings.name,
-        bio: settings.bio,
+        name: normalizedName,
+        bio: normalizedBio,
         avatar_url: avatarUrl,
         updated_at: new Date().toISOString(),
       }, { onConflict: "id" }).select();
@@ -296,6 +399,14 @@ const Settings = () => {
         title: "Success",
         description: "Profile updated successfully!",
       });
+
+      setSettings((prev) => ({
+        ...prev,
+        name: normalizedName,
+        bio: normalizedBio,
+        avatarUrl: avatarUrl || "",
+      }));
+      setAvatarPreview(avatarUrl);
     } catch (error) {
       console.error("Failed to save profile:", error);
       toast({
@@ -356,50 +467,6 @@ const Settings = () => {
     }
   };
 
-  // Fetch blocked users from Supabase
-  // MUST be called before any early returns (React hooks rule)
-  useEffect(() => {
-    if (!user) return;
-
-    const fetchBlockedUsers = async () => {
-      try {
-        // Get blocked user IDs
-        const { data: blocks, error: blocksError } = await supabase
-          .from("blocked_users")
-          .select("blocked_user_id")
-          .eq("user_id", user.id);
-
-        if (blocksError) {
-          console.error("Error fetching blocked users:", blocksError);
-          return;
-        }
-
-        if (!blocks || blocks.length === 0) {
-          setBlockedUsers([]);
-          return;
-        }
-
-        // Get profiles of blocked users
-        const blockedIds = blocks.map(b => b.blocked_user_id);
-        const { data: profiles, error: profilesError } = await supabase
-          .from("profiles")
-          .select("id, name, email, avatar_url")
-          .in("id", blockedIds);
-
-        if (profilesError) {
-          console.error("Error fetching blocked profiles:", profilesError);
-          return;
-        }
-
-        setBlockedUsers(profiles || []);
-      } catch (error) {
-        console.error("Failed to fetch blocked users:", error);
-      }
-    };
-
-    fetchBlockedUsers();
-  }, [user]);
-
   if (!user) {
     return (
       <div className="min-h-screen bg-background">
@@ -441,12 +508,6 @@ const Settings = () => {
         title="Notifications"
         subtitle="Manage your notification preferences"
         onClick={() => setActiveSection("notifications")}
-      />
-      <SettingsItem
-        icon={UserX}
-        title="Blocked Users"
-        subtitle={`${blockedUsers.length} blocked`}
-        onClick={() => setActiveSection("blocked")}
       />
 
       <div className="pt-6 border-t border-border space-y-3">
@@ -597,13 +658,13 @@ const Settings = () => {
 
       {/* Delete Account Confirmation Dialog */}
       <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
-        <AlertDialogContent className="max-w-md">
-          <AlertDialogTitle className="text-destructive">Delete Account</AlertDialogTitle>
+        <AlertDialogContent className="max-w-md rounded-2xl">
+          <AlertDialogTitle className="text-destructive">Delete Account?</AlertDialogTitle>
           <AlertDialogDescription className="space-y-3">
             <p>
               Are you absolutely sure you want to delete your account? This action cannot be undone.
             </p>
-            <div className="bg-destructive/10 border border-destructive/30 rounded-lg p-3">
+            <div className="bg-destructive/10 border border-destructive/30 rounded-xl p-3">
               <p className="text-sm text-foreground">
                 <strong>This will:</strong>
               </p>
@@ -615,10 +676,8 @@ const Settings = () => {
               </ul>
             </div>
           </AlertDialogDescription>
-          <div className="flex gap-3 justify-end mt-6">
-            <AlertDialogCancel disabled={deletingAccount}>
-              Cancel
-            </AlertDialogCancel>
+          <AlertDialogFooter className="mt-2">
+            <AlertDialogCancel disabled={deletingAccount}>Keep Account</AlertDialogCancel>
             <AlertDialogAction
               onClick={handleDeleteAccount}
               disabled={deletingAccount}
@@ -632,7 +691,7 @@ const Settings = () => {
                 "Delete Account"
               )}
             </AlertDialogAction>
-          </div>
+          </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
     </motion.div>
@@ -837,55 +896,6 @@ const Settings = () => {
     </motion.div>
   );
 
-  const renderBlocked = () => (
-    <motion.div
-      initial={{ opacity: 0, x: 20 }}
-      animate={{ opacity: 1, x: 0 }}
-      className="space-y-6"
-    >
-      <button
-        onClick={() => setActiveSection("main")}
-        className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors"
-      >
-        <ArrowLeft className="w-4 h-4" />
-        Back to Settings
-      </button>
-
-      <div className="bg-card rounded-2xl border border-border p-6">
-        <h2 className="font-heading text-lg font-semibold text-foreground mb-4">
-          Blocked Users
-        </h2>
-
-        {blockedUsers.length > 0 ? (
-          <div className="space-y-3">
-            {blockedUsers.map((blockedUser) => (
-              <div
-                key={blockedUser.id}
-                className="flex items-center justify-between p-3 rounded-xl bg-muted/50"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center">
-                    <span className="font-medium text-muted-foreground">
-                      {blockedUser.name?.charAt(0) || "?"}
-                    </span>
-                  </div>
-                  <span className="font-medium text-foreground">{blockedUser.name || blockedUser.email}</span>
-                </div>
-                <button className="text-sm text-primary hover:underline">
-                  Unblock
-                </button>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <p className="text-muted-foreground text-center py-8">
-            You haven't blocked anyone
-          </p>
-        )}
-      </div>
-    </motion.div>
-  );
-
   return (
     <div className="min-h-screen bg-background">
       <Navbar />
@@ -911,7 +921,6 @@ const Settings = () => {
           {activeSection === "profile" && renderProfile()}
           {activeSection === "privacy" && renderPrivacy()}
           {activeSection === "notifications" && renderNotifications()}
-          {activeSection === "blocked" && renderBlocked()}
         </div>
       </main>
     </div>

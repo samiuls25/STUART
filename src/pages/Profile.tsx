@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import React from "react";
 import { motion } from "framer-motion";
 import { Link } from "react-router-dom";
@@ -16,15 +16,22 @@ import Navbar from "../components/layout/Navbar";
 import AuthModal from "../components/auth/AuthModal";
 import BadgeCard from "../components/profile/BadgeCard";
 import MemoryCard from "../components/profile/MemoryCard";
+import CreateMemoryModal from "../components/profile/CreateMemoryModal";
 import EditProfileModal from "../components/profile/EditProfileModal";
-import { memories as localMemories } from "../data/badges";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/AuthContext";
 import { getFriends } from "../lib/friends";
 import { getSavedEventIds } from "../lib/SavedEvents";
 import { getUserBadges } from "../lib/badges";
+import {
+  fetchMemoriesForCurrentUser,
+  memoryMonitoringConfig,
+  summarizeMemoryUsage,
+  type Memory,
+} from "../lib/memories";
 
 type TabType = "overview" | "badges" | "memories";
+type MemoryViewMode = "timeline" | "gallery";
 
 const Profile = () => {
   const [activeTab, setActiveTab] = useState<TabType>("overview");
@@ -34,29 +41,60 @@ const Profile = () => {
   const [groupsCount, setGroupsCount] = useState(0);
   const [friendsCount, setFriendsCount] = useState<number>(0);
   const [badges, setBadges] = useState([]);
-  const [memoriesState, setMemoriesState] = useState(localMemories);
+  const [memoriesState, setMemoriesState] = useState<Memory[]>([]);
   const [loadingBadges, setLoadingBadges] = useState(false);
   const [loadingMemories, setLoadingMemories] = useState(false);
+  const [creatingMemory, setCreatingMemory] = useState(false);
+  const [memoryViewMode, setMemoryViewMode] = useState<MemoryViewMode>("timeline");
+  const [profileName, setProfileName] = useState<string>("");
+  const [profileAvatarUrl, setProfileAvatarUrl] = useState<string | null>(null);
   const [bio, setBio] = useState<string>("");
   
   const { user, loading, signOut } = useAuth();
 
+  const refreshMemories = useCallback(async () => {
+    if (!user) {
+      setMemoriesState([]);
+      return;
+    }
+
+    setLoadingMemories(true);
+    try {
+      const nextMemories = await fetchMemoriesForCurrentUser();
+      setMemoriesState(nextMemories);
+    } catch (err) {
+      setMemoriesState([]);
+      console.warn("Failed to fetch memories, using empty data", err);
+    } finally {
+      setLoadingMemories(false);
+    }
+  }, [user]);
+
   // Fetch bio from user metadata or profiles table
   useEffect(() => {
-    if (user) {
-      const userBio = (user as any)?.user_metadata?.bio || "";
-      setBio(userBio);
-      
-      // Optionally fetch from profiles table as backup
-      supabase
-        .from("profiles")
-        .select("bio")
-        .eq("id", user.id)
-        .maybeSingle()
-        .then(({ data }) => {
-          if (data?.bio) setBio(data.bio);
-        });
+    if (!user) {
+      setProfileName("");
+      setProfileAvatarUrl(null);
+      setBio("");
+      return;
     }
+
+    const meta: any = (user as any)?.user_metadata ?? {};
+    setProfileName(meta.full_name || user.email?.split("@")[0] || "Your Name");
+    setProfileAvatarUrl(meta.avatar_url || null);
+    setBio(meta.bio || "");
+
+    supabase
+      .from("profiles")
+      .select("name,bio,avatar_url")
+      .eq("id", user.id)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (!data) return;
+        if (data.name) setProfileName(data.name);
+        if (data.bio) setBio(data.bio);
+        if (data.avatar_url) setProfileAvatarUrl(data.avatar_url);
+      });
   }, [user]);
 
   // useEffect MUST be called before any early returns to maintain consistent hook order
@@ -75,19 +113,6 @@ const Profile = () => {
         console.warn("Failed to compute badges, using empty data", err);
       } finally {
         if (mounted) setLoadingBadges(false);
-      }
-    };
-
-    const fetchMemories = async () => {
-      setLoadingMemories(true);
-      try {
-        const { data, error } = await supabase.from("memories").select("*");
-        if (!error && data && mounted) setMemoriesState(data as any);
-      } catch (err) {
-        setMemoriesState([]);
-        console.warn("Failed to fetch memories, using empty data", err);
-      } finally {
-        if (mounted) setLoadingMemories(false);
       }
     };
 
@@ -113,13 +138,62 @@ const Profile = () => {
     };
 
     fetchBadges();
-    fetchMemories();
+    refreshMemories();
     fetchCounts();
 
     return () => {
       mounted = false;
     };
-  }, [user]);
+  }, [user, refreshMemories]);
+
+  const sortedMemories = useMemo(
+    () => [...memoriesState].sort((a, b) => b.sortTimestamp - a.sortTimestamp),
+    [memoriesState]
+  );
+
+  const memoryTimelineGroups = useMemo(() => {
+    if (sortedMemories.length === 0) return [] as Array<{ label: string; memories: Memory[] }>;
+
+    const groups = new Map<string, Memory[]>();
+
+    sortedMemories.forEach((memory) => {
+      const parsedDate = new Date(memory.sortTimestamp);
+      const label = Number.isNaN(parsedDate.getTime())
+        ? "Unknown"
+        : parsedDate.toLocaleDateString(undefined, {
+            month: "long",
+            year: "numeric",
+          });
+
+      const current = groups.get(label) || [];
+      current.push(memory);
+      groups.set(label, current);
+    });
+
+    return Array.from(groups.entries()).map(([label, memories]) => ({
+      label,
+      memories,
+    }));
+  }, [sortedMemories]);
+
+  const memoryUsage = useMemo(() => summarizeMemoryUsage(memoriesState), [memoriesState]);
+
+  const memoryWarningThreshold = Math.ceil(
+    memoryMonitoringConfig.memorySoftCap * memoryMonitoringConfig.warningRatio
+  );
+  const photoWarningThreshold = Math.ceil(
+    memoryMonitoringConfig.photoSoftCap * memoryMonitoringConfig.warningRatio
+  );
+
+  const memoryAtOrOverSoftCap = memoryUsage.memoryCount >= memoryMonitoringConfig.memorySoftCap;
+  const photoAtOrOverSoftCap = memoryUsage.photoCount >= memoryMonitoringConfig.photoSoftCap;
+
+  const memoryNearSoftCap =
+    !memoryAtOrOverSoftCap && memoryUsage.memoryCount >= memoryWarningThreshold;
+  const photoNearSoftCap = !photoAtOrOverSoftCap && memoryUsage.photoCount >= photoWarningThreshold;
+
+  const showUsageWarning =
+    memoryAtOrOverSoftCap || photoAtOrOverSoftCap || memoryNearSoftCap || photoNearSoftCap;
 
   // Now handle early returns AFTER all hooks
   if (loading) {
@@ -155,9 +229,10 @@ const Profile = () => {
 
   // Derive display fields from Supabase user metadata with safe fallbacks
   const displayName =
+    profileName ||
     (user as any)?.user_metadata?.full_name ||
     (user?.email ? user.email.split("@")[0] : "Your Name");
-  const avatarUrl = (user as any)?.user_metadata?.avatar_url ?? null;
+  const avatarUrl = profileAvatarUrl ?? (user as any)?.user_metadata?.avatar_url ?? null;
   const joinedDate = user?.created_at
     ? new Date(user.created_at).toLocaleString(undefined, { month: "long", year: "numeric" })
     : "Member";
@@ -178,6 +253,24 @@ const Profile = () => {
     } catch (err) {
       console.error("Sign out failed", err);
     }
+  };
+
+  const handleMemoryCreated = () => {
+    refreshMemories();
+  };
+
+  const handleProfileSaved = ({
+    name,
+    bio: nextBio,
+    avatarUrl,
+  }: {
+    name: string;
+    bio: string;
+    avatarUrl: string | null;
+  }) => {
+    setProfileName(name);
+    setBio(nextBio);
+    setProfileAvatarUrl(avatarUrl);
   };
 
   return (
@@ -308,17 +401,29 @@ const Profile = () => {
                       <Camera className="w-5 h-5 text-primary" />
                       Recent Memories
                     </h2>
-                    <button onClick={() => setActiveTab("memories")} className="text-sm text-primary hover:underline">
-                      View all →
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => setCreatingMemory(true)}
+                        className="btn-secondary px-3 py-1.5 text-sm"
+                      >
+                        Add memory
+                      </button>
+                      <button onClick={() => setActiveTab("memories")} className="text-sm text-primary hover:underline">
+                        View all →
+                      </button>
+                    </div>
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     {loadingMemories ? (
                       <div className="col-span-1 md:col-span-2 py-6 text-center text-sm text-muted-foreground">Loading memories…</div>
-                    ) : (
+                    ) : memoriesState.length > 0 ? (
                       memoriesState.slice(0, 2).map((memory) => (
-                        <MemoryCard key={memory.id} memory={memory} />
+                        <MemoryCard key={memory.id} memory={memory} onMemoryUpdated={refreshMemories} />
                       ))
+                    ) : (
+                      <div className="col-span-1 md:col-span-2 py-6 text-center text-sm text-muted-foreground">
+                        No memories yet. Capture your first moment.
+                      </div>
                     )}
                   </div>
                 </div>
@@ -387,27 +492,124 @@ const Profile = () => {
 
             {activeTab === "memories" && (
               <div>
-                <h2 className="font-heading text-lg font-semibold text-foreground mb-4 flex items-center gap-2">
-                  <Camera className="w-5 h-5 text-primary" />
-                  Past Hangouts
-                </h2>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {loadingMemories ? (
-                    <div className="col-span-1 md:col-span-2 py-6 text-center text-sm text-muted-foreground">Loading memories…</div>
-                  ) : (
-                    memoriesState.map((memory, index) => (
-                      <motion.div key={memory.id} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.1 }}>
-                        <MemoryCard memory={memory} />
-                      </motion.div>
-                    ))
-                  )}
+                <div className="flex items-center justify-between mb-4">
+                  <h2 className="font-heading text-lg font-semibold text-foreground flex items-center gap-2">
+                    <Camera className="w-5 h-5 text-primary" />
+                    {memoryViewMode === "timeline" ? "Memories Timeline" : "Memories Gallery"}
+                  </h2>
+                  <div className="flex items-center gap-2">
+                    <div className="rounded-lg border border-border p-1 flex items-center">
+                      <button
+                        onClick={() => setMemoryViewMode("timeline")}
+                        className={`px-3 py-1.5 text-xs rounded-md transition-colors ${
+                          memoryViewMode === "timeline"
+                            ? "bg-primary text-primary-foreground"
+                            : "text-muted-foreground hover:text-foreground"
+                        }`}
+                      >
+                        Timeline
+                      </button>
+                      <button
+                        onClick={() => setMemoryViewMode("gallery")}
+                        className={`px-3 py-1.5 text-xs rounded-md transition-colors ${
+                          memoryViewMode === "gallery"
+                            ? "bg-primary text-primary-foreground"
+                            : "text-muted-foreground hover:text-foreground"
+                        }`}
+                      >
+                        Gallery
+                      </button>
+                    </div>
+                    <button
+                      onClick={() => setCreatingMemory(true)}
+                      className="btn-primary px-4 py-2 text-sm"
+                    >
+                      Add Memory
+                    </button>
+                  </div>
                 </div>
+
+                <div className="mb-4 rounded-xl border border-border bg-card p-3">
+                  <p className="text-sm text-foreground">
+                    Usage: <span className="font-medium">{memoryUsage.memoryCount}</span> memories, <span className="font-medium">{memoryUsage.photoCount}</span> photos
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Soft caps: {memoryMonitoringConfig.memorySoftCap} memories and {memoryMonitoringConfig.photoSoftCap} photos per user.
+                  </p>
+                </div>
+
+                {showUsageWarning && (
+                  <div className={`mb-4 rounded-xl border p-3 text-sm ${memoryAtOrOverSoftCap || photoAtOrOverSoftCap ? "border-destructive/30 bg-destructive/5 text-destructive" : "border-amber-400/30 bg-amber-50 text-amber-700"}`}>
+                    {memoryAtOrOverSoftCap || photoAtOrOverSoftCap
+                      ? "You are over the recommended memory/photo soft cap. Consider cleaning older media if uploads start failing."
+                      : "You are approaching the recommended memory/photo soft cap. Consider pruning older uploads soon."}
+                  </div>
+                )}
+
+                {loadingMemories ? (
+                  <div className="py-6 text-center text-sm text-muted-foreground">Loading memories…</div>
+                ) : memoriesState.length > 0 ? (
+                  memoryViewMode === "timeline" ? (
+                    <div className="space-y-8">
+                      {memoryTimelineGroups.map((group, groupIndex) => (
+                        <section key={group.label} className="space-y-3">
+                          <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+                            {group.label}
+                          </h3>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            {group.memories.map((memory, index) => (
+                              <motion.div
+                                key={memory.id}
+                                initial={{ opacity: 0, y: 20 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                transition={{ delay: (groupIndex * 0.04) + (index * 0.04) }}
+                              >
+                                <MemoryCard memory={memory} onMemoryUpdated={refreshMemories} />
+                              </motion.div>
+                            ))}
+                          </div>
+                        </section>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="columns-1 md:columns-2 gap-4 [column-fill:_balance]">
+                      {sortedMemories.map((memory, index) => (
+                        <motion.div
+                          key={memory.id}
+                          className="mb-4 break-inside-avoid"
+                          initial={{ opacity: 0, y: 20 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ delay: index * 0.03 }}
+                        >
+                          <MemoryCard
+                            memory={memory}
+                            displayMode="gallery"
+                            onMemoryUpdated={refreshMemories}
+                          />
+                        </motion.div>
+                      ))}
+                    </div>
+                  )
+                ) : (
+                  <div className="py-8 text-center text-sm text-muted-foreground">
+                    You have no memories yet. Add one to start your timeline.
+                  </div>
+                )}
               </div>
             )}
           </motion.div>
         </div>
       </main>
-      <EditProfileModal isOpen={editing} onClose={() => setEditing(false)} />
+      <EditProfileModal
+        isOpen={editing}
+        onClose={() => setEditing(false)}
+        onSaved={handleProfileSaved}
+      />
+      <CreateMemoryModal
+        isOpen={creatingMemory}
+        onClose={() => setCreatingMemory(false)}
+        onCreated={handleMemoryCreated}
+      />
     </div>
   );
 };

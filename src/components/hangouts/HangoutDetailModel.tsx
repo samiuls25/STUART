@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, MapPin, Clock, Calendar, Users, Check, HelpCircle, Sparkles, MessageCircle, Trash2 } from "lucide-react";
 import { Hangout, TimeRange, getFriendById, getActivityType } from "../../data/friends";
-import { format, parseISO } from "date-fns";
+import { format, parseISO, isBefore, startOfDay } from "date-fns";
 import AvailabilityHeatmap from "../availability/AvailabilityHeatmap";
 import ConfirmDeleteHangoutDialog from "./ConfirmDeleteHangoutDialog";
 import { scoreAvailabilitySlots } from "../../lib/hangoutFinalization";
@@ -18,6 +18,7 @@ interface HangoutDetailModalProps {
     suggestedTime: { date: string; startTime: string; endTime: string }
   ) => Promise<void> | void;
   onDeleteHangout?: (hangout: Hangout) => void;
+  onCreateMemory?: (hangout: Hangout) => void;
   initialShowAvailability?: boolean;
   currentUserId?: string;
 }
@@ -30,6 +31,7 @@ const HangoutDetailModal = ({
   onSubmitAvailability,
   onApplySuggestedTime,
   onDeleteHangout,
+  onCreateMemory,
   initialShowAvailability,
   currentUserId,
 }: HangoutDetailModalProps) => {
@@ -54,6 +56,12 @@ const HangoutDetailModal = ({
   const timeRange = hangout.confirmedTime || hangout.proposedTimeRange;
   const canRespond = !!currentUserResponse;
   const canShareAvailability = !!currentUserResponse && currentUserResponse.status !== "no";
+  const canCreateMemory =
+    !!onCreateMemory
+    && (
+      hangout.status === "completed"
+      || (hangout.status === "confirmed" && isBefore(parseISO(timeRange.date), startOfDay(new Date())))
+    );
 
   const toggleAvailabilitySlot = (key: string) => {
     setAvailabilitySlots((prev) => {
@@ -331,6 +339,21 @@ const HangoutDetailModal = ({
                 )}
               </div>
 
+                {canCreateMemory && (
+                  <div className="rounded-xl border border-primary/20 bg-primary/5 p-4">
+                    <h4 className="font-heading font-semibold text-foreground mb-1">Save This Moment</h4>
+                    <p className="text-sm text-muted-foreground mb-3">
+                      Turn this past hangout into a memory with photos and attendees.
+                    </p>
+                    <button
+                      onClick={() => onCreateMemory?.(hangout)}
+                      className="btn-primary px-3 py-1.5"
+                    >
+                      Create Memory
+                    </button>
+                  </div>
+                )}
+
               {/* Highlighted friends */}
               {hangout.highlightedFriends.length > 0 && (
                 <div className="p-3 rounded-xl bg-primary/5 border border-primary/10">
@@ -365,9 +388,17 @@ const HangoutDetailModal = ({
                       <div key={response.friendId} className="flex items-center justify-between p-3 rounded-xl bg-muted/30">
                         <div className="flex items-center gap-3">
                           <div className="w-9 h-9 rounded-full bg-gradient-to-br from-primary/20 to-accent/20 flex items-center justify-center">
-                            <span className="font-heading text-sm font-bold text-primary">
-                              {friend?.name.charAt(0) || "?"}
-                            </span>
+                            {friend?.avatar_url ? (
+                              <img
+                                src={friend.avatar_url}
+                                alt={friend.name}
+                                className="w-full h-full rounded-full object-cover"
+                              />
+                            ) : (
+                              <span className="font-heading text-sm font-bold text-primary">
+                                {friend?.name.charAt(0) || "?"}
+                              </span>
+                            )}
                           </div>
                           <span className="text-sm font-medium text-foreground">{friend?.name || "Unknown"}</span>
                         </div>

@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from "react";
 import { motion } from "framer-motion";
-import { Search, Sparkles, X, Heart, MapPin, ArrowUp } from "lucide-react";
+import { Search, Sparkles, X, Heart, MapPin, ArrowUp, Users } from "lucide-react";
 import React from "react";
 import Fuse from "fuse.js";
 import Navbar from "../components/layout/Navbar.tsx";
@@ -39,6 +39,7 @@ const Explore = () => {
   const [selectedDistance, setSelectedDistance] = useState<number>(5);
   const [selectedMood, setSelectedMood] = useState<string | null>(null);
   const [detailEvent, setDetailEvent] = useState<Event | null>(null);
+  const [detailOpenSuggest, setDetailOpenSuggest] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [placeholderIndex] = useState(Math.floor(Math.random() * searchPlaceholders.length));
 
@@ -189,9 +190,37 @@ const Explore = () => {
   ]);
 
   const handleEventClick = (event: Event) => {
+    setDetailOpenSuggest(false);
     setDetailEvent(event);
     if (event.isTrackable !== false) {
       void trackEventView(event.id, "explore-card");
+    }
+  };
+
+  const handleSuggestFromCard = (event: Event, reactEvent: React.MouseEvent) => {
+    reactEvent.stopPropagation();
+
+    if (event.source === "hangout") {
+      toast({
+        title: "Suggest not available",
+        description: "Public hangouts are already shared through Hangouts.",
+      });
+      return;
+    }
+
+    if (!user) {
+      toast({
+        title: "Sign in required",
+        description: "Please sign in to suggest events.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setDetailOpenSuggest(true);
+    setDetailEvent(event);
+    if (event.isTrackable !== false) {
+      void trackEventView(event.id, "explore-card-suggest");
     }
   };
 
@@ -395,6 +424,7 @@ const Explore = () => {
                     key={event.id}
                     event={event}
                     onClick={handleEventClick}
+                    onSuggest={handleSuggestFromCard}
                     index={index}
                   />
                 ))}
@@ -478,7 +508,14 @@ const Explore = () => {
         </section>
       </main>
 
-      <EventDetailModal event={detailEvent} onClose={() => setDetailEvent(null)} />
+      <EventDetailModal
+        event={detailEvent}
+        initialSuggestOpen={detailOpenSuggest}
+        onClose={() => {
+          setDetailEvent(null);
+          setDetailOpenSuggest(false);
+        }}
+      />
     </div>
   );
 };
@@ -487,10 +524,12 @@ const Explore = () => {
 const EventCardGrid = ({
   event,
   onClick,
+  onSuggest,
   index,
 }: {
   event: Event;
   onClick: (event: Event) => void;
+  onSuggest: (event: Event, reactEvent: React.MouseEvent) => void;
   index: number;
 }) => {
   const { user } = useAuth();
@@ -628,6 +667,29 @@ const EventCardGrid = ({
         {event.price && (
           <p className="text-primary font-semibold text-sm mt-2">{event.price}</p>
         )}
+
+        <div className="mt-3 flex items-center gap-2">
+          <button
+            type="button"
+            onClick={(reactEvent) => {
+              reactEvent.stopPropagation();
+              onClick(event);
+            }}
+            className="text-xs px-2.5 py-1.5 rounded-full border border-border text-muted-foreground hover:text-foreground hover:border-primary/30 transition-colors"
+          >
+            View details
+          </button>
+          {event.source !== "hangout" && (
+            <button
+              type="button"
+              onClick={(reactEvent) => onSuggest(event, reactEvent)}
+              className="text-xs px-2.5 py-1.5 rounded-full bg-primary/10 text-primary hover:bg-primary/15 transition-colors flex items-center gap-1"
+            >
+              <Users className="w-3 h-3" />
+              Suggest
+            </button>
+          )}
+        </div>
       </div>
     </motion.div>
   );

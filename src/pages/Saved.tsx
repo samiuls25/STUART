@@ -5,6 +5,7 @@ import { Heart, Trash2 } from "lucide-react";
 import Navbar from "../components/layout/Navbar";
 import AuthModal from "../components/auth/AuthModal";
 import EventDetailModal from "../components/events/EventDetailModel";
+import CreateMemoryModal, { CreateMemoryInitialValues } from "../components/profile/CreateMemoryModal";
 import { type Event, fetchEvents } from "../data/events";
 import { getSavedEventIds, unsaveEvent } from "../lib/SavedEvents";
 import { useAuth } from "../lib/AuthContext";
@@ -45,6 +46,8 @@ const Saved = () => {
   const [loading, setLoading] = useState(true);
   const [detailEvent, setDetailEvent] = useState<Event | null>(null);
   const [savedView, setSavedView] = useState<SavedView>("upcoming");
+  const [creatingMemory, setCreatingMemory] = useState(false);
+  const [memoryPrefill, setMemoryPrefill] = useState<CreateMemoryInitialValues | null>(null);
 
   useEffect(() => {
     if (!user) {
@@ -78,6 +81,24 @@ const Saved = () => {
     .filter((event) => isPastEvent(event))
     .sort((a, b) => compareByDateAsc(b, a));
   const activeSavedEvents = savedView === "upcoming" ? upcomingSavedEvents : pastSavedEvents;
+
+  const toIsoMemoryDate = (value: string) => {
+    const parsed = parseSavedEventDate(value);
+    if (!parsed) return new Date().toISOString().slice(0, 10);
+    return parsed.toISOString().slice(0, 10);
+  };
+
+  const handleCreateMemoryFromSavedEvent = (event: Event) => {
+    setMemoryPrefill({
+      title: event.name,
+      description: event.description || "",
+      location: event.venue,
+      memoryDate: toIsoMemoryDate(event.date),
+      eventId: event.id,
+      prefillImageUrl: event.heroImage,
+    });
+    setCreatingMemory(true);
+  };
 
   if (loading) {
     return (
@@ -161,6 +182,8 @@ const Saved = () => {
                       index={index}
                       onUnsave={() => handleUnsave(event.id)}
                       onClick={() => setDetailEvent(event)}
+                      showAddMemory={savedView === "past"}
+                      onAddMemory={() => handleCreateMemoryFromSavedEvent(event)}
                     />
                   ))}
                 </div>
@@ -170,6 +193,14 @@ const Saved = () => {
         </div>
       </main>
       <EventDetailModal event={detailEvent} onClose={() => setDetailEvent(null)} />
+      <CreateMemoryModal
+        isOpen={creatingMemory}
+        onClose={() => {
+          setCreatingMemory(false);
+          setMemoryPrefill(null);
+        }}
+        initialValues={memoryPrefill}
+      />
     </div>
   );
 };
@@ -179,9 +210,11 @@ interface SavedEventCardProps {
   onUnsave: () => void;
   index: number;
   onClick: () => void;
+  showAddMemory?: boolean;
+  onAddMemory?: () => void;
 }
 
-const SavedEventCard = ({ event, onUnsave, index, onClick }: SavedEventCardProps) => {
+const SavedEventCard = ({ event, onUnsave, index, onClick, showAddMemory = false, onAddMemory }: SavedEventCardProps) => {
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
@@ -224,6 +257,19 @@ const SavedEventCard = ({ event, onUnsave, index, onClick }: SavedEventCardProps
         <p className="text-sm text-muted-foreground truncate">{event.venue}</p>
         {event.price && (
           <p className="text-primary font-semibold text-sm mt-2">{event.price}</p>
+        )}
+
+        {showAddMemory && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onAddMemory?.();
+            }}
+            className="mt-3 w-full rounded-lg bg-primary/10 px-3 py-2 text-sm font-medium text-primary hover:bg-primary/20 transition-colors"
+          >
+            Add Memory
+          </button>
         )}
       </div>
     </motion.div>

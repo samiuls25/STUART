@@ -12,6 +12,7 @@ import Friends from "../pages/Friends";
 import Saved from "../pages/Saved";
 import Profile from "../pages/Profile";
 import Settings from "../pages/Settings";
+import Notifications from "../pages/Notifications";
 import NotFound from "../pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -30,6 +31,7 @@ const App = () => (
             <Route path="/friends" element={<Friends />} />
             <Route path="/saved" element={<Saved />} />
             <Route path="/profile" element={<Profile />} />
+            <Route path="/notifications" element={<Notifications />} />
             <Route path="/settings" element={<Settings />} />
             {/* Redirect old groups routes */}
             <Route path="/groups" element={<Navigate to="/hangouts" replace />} />

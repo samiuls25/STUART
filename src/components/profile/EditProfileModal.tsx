@@ -3,13 +3,25 @@ import { motion, AnimatePresence } from "framer-motion";
 import { X, Camera } from "lucide-react";
 import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../lib/AuthContext";
+import { toast } from "../../hooks/use-toast";
 
 interface EditProfileModalProps {
   isOpen: boolean;
   onClose: () => void;
+  onSaved?: (profile: { name: string; bio: string; avatarUrl: string | null }) => void;
 }
 
-const EditProfileModal = ({ isOpen, onClose }: EditProfileModalProps) => {
+const AVATAR_BUCKETS = Array.from(
+  new Set(
+    [
+      import.meta.env.VITE_AVATAR_BUCKET as string | undefined,
+      (import.meta.env.VITE_MEMORY_PHOTOS_BUCKET as string | undefined) || "memory-photos",
+      "avatars",
+    ].filter(Boolean) as string[]
+  )
+);
+
+const EditProfileModal = ({ isOpen, onClose, onSaved }: EditProfileModalProps) => {
   const { user } = useAuth();
   const [name, setName] = useState("");
   const [bio, setBio] = useState("");
@@ -18,12 +30,32 @@ const EditProfileModal = ({ isOpen, onClose }: EditProfileModalProps) => {
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen || !user) return;
+
+    let mounted = true;
+
     // populate with metadata where available
     const meta: any = (user as any)?.user_metadata ?? {};
     setName(meta.full_name || user?.email?.split("@")[0] || "");
     setBio(meta.bio || "");
     setPreview(meta.avatar_url || null);
+
+    // Also hydrate from profiles table in case metadata is stale.
+    supabase
+      .from("profiles")
+      .select("name,bio,avatar_url")
+      .eq("id", user.id)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (!mounted || !data) return;
+        if (data.name) setName(data.name);
+        if (data.bio) setBio(data.bio);
+        if (data.avatar_url) setPreview(data.avatar_url);
+      });
+
+    return () => {
+      mounted = false;
+    };
   }, [isOpen, user]);
 
   useEffect(() => {
@@ -35,22 +67,46 @@ const EditProfileModal = ({ isOpen, onClose }: EditProfileModalProps) => {
 
   const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0] ?? null;
+    if (f && !f.type.startsWith("image/")) {
+      toast({
+        title: "Invalid file type",
+        description: "Please pick an image file for your avatar.",
+        variant: "destructive",
+      });
+      return;
+    }
     setAvatarFile(f);
   };
 
   const uploadAvatar = async (file: File) => {
-    if (!user) return null;
-    const fileExt = file.name.split(".").pop();
-    const filePath = `avatars/${user.id}-${Date.now()}.${fileExt}`;
+    if (!user) throw new Error("You must be signed in to change your avatar.");
+    const fileExt = file.name.split(".").pop() || "jpg";
+    const safeExt = fileExt.replace(/[^a-zA-Z0-9]/g, "") || "jpg";
 
-    const { error: uploadError } = await supabase.storage.from("avatars").upload(filePath, file);
-    if (uploadError) {
-      console.error("Upload failed", uploadError);
-      return null;
+    let lastError: unknown = null;
+
+    for (const bucket of AVATAR_BUCKETS) {
+      const filePath = `${user.id}/avatars/${Date.now()}.${safeExt}`;
+      const { error: uploadError } = await supabase.storage
+        .from(bucket)
+        .upload(filePath, file, {
+          cacheControl: "3600",
+          upsert: true,
+          contentType: file.type,
+        });
+
+      if (uploadError) {
+        lastError = uploadError;
+        continue;
+      }
+
+      const { data } = supabase.storage.from(bucket).getPublicUrl(filePath);
+      return data.publicUrl;
     }
 
-    const { data } = supabase.storage.from("avatars").getPublicUrl(filePath);
-    return data.publicUrl;
+    throw new Error(
+      lastError instanceof Error ? lastError.message : "Avatar upload failed."
+    );
   };
 
   const handleSave = async () => {
@@ -58,22 +114,52 @@ const EditProfileModal = ({ isOpen, onClose }: EditProfileModalProps) => {
     setSaving(true);
 
     try {
+      const normalizedName = name.trim() || user.email?.split("@")[0] || "Your Name";
+      const normalizedBio = bio.trim();
       let avatarUrl = (user as any)?.user_metadata?.avatar_url ?? null;
 
       if (avatarFile) {
         const uploaded = await uploadAvatar(avatarFile);
-        if (uploaded) avatarUrl = uploaded;
+        avatarUrl = uploaded;
       }
 
       // Update profiles table (if exists)
-      await supabase.from("profiles").upsert({ id: user.id, name, avatar_url: avatarUrl, bio });
+      const { error: profileError } = await supabase
+        .from("profiles")
+        .upsert({
+          id: user.id,
+          name: normalizedName,
+          avatar_url: avatarUrl,
+          bio: normalizedBio,
+          updated_at: new Date().toISOString(),
+        });
+
+      if (profileError) {
+        console.warn("Profile table update skipped (may not exist):", profileError);
+      }
 
       // Update auth user metadata so UI that reads user metadata updates
-      await supabase.auth.updateUser({ data: { full_name: name, avatar_url: avatarUrl, bio } });
+      const { error: authError } = await supabase.auth.updateUser({
+        data: { full_name: normalizedName, avatar_url: avatarUrl, bio: normalizedBio },
+      });
+
+      if (authError) throw authError;
+
+      onSaved?.({ name: normalizedName, bio: normalizedBio, avatarUrl });
+
+      toast({
+        title: "Profile updated",
+        description: "Your profile changes were saved.",
+      });
 
       onClose();
     } catch (err) {
       console.error("Failed to save profile", err);
+      toast({
+        title: "Could not save profile",
+        description: err instanceof Error ? err.message : "Please try again.",
+        variant: "destructive",
+      });
     } finally {
       setSaving(false);
     }
