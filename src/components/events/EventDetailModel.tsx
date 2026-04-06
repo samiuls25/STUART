@@ -33,9 +33,10 @@ import { Button } from "../ui/button";
 interface EventDetailModalProps {
   event: Event | null;
   onClose: () => void;
+  initialSuggestOpen?: boolean;
 }
 
-const EventDetailModal = ({ event, onClose }: EventDetailModalProps) => {
+const EventDetailModal = ({ event, onClose, initialSuggestOpen = false }: EventDetailModalProps) => {
   const { user } = useAuth();
   const [isSaved, setIsSaved] = useState(false);
   const [hangoutMembershipState, setHangoutMembershipState] = useState<"checking" | "joined" | "not-joined">("not-joined");
@@ -192,6 +193,21 @@ const EventDetailModal = ({ event, onClose }: EventDetailModalProps) => {
 
     setShowSuggestModal(true);
   };
+
+  useEffect(() => {
+    if (!event || !initialSuggestOpen || isHangoutEvent) return;
+
+    if (!user) {
+      toast({
+        title: "Sign in required",
+        description: "Please sign in to suggest events.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setShowSuggestModal(true);
+  }, [event?.id, initialSuggestOpen, isHangoutEvent, user]);
 
   const handleSendSuggestion = async () => {
     if (!user || !event) return;

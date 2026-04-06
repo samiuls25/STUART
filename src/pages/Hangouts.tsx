@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import React from "react";
 import { motion } from "framer-motion";
-import { Plus, Calendar, Clock, Users, ChevronRight, Sparkles, Filter, X, Camera } from "lucide-react";
+import { Plus, Calendar, Clock, Users, ChevronRight, Sparkles, Filter, X, Camera, PencilLine, Trash2 } from "lucide-react";
 import Navbar from "../components/layout/Navbar.tsx";
 import HangoutCard from "../components/hangouts/HangoutCard";
 import CreateHangoutModal from "../components/hangouts/CreateHangoutModal";
@@ -15,7 +15,7 @@ import { Input } from "../components/ui/input.tsx";
 import { useAuth } from "../lib/AuthContext";
 import { useToast } from "../hooks/use-toast";
 import { getFriends } from "../lib/friends";
-import { fetchGroupsForCurrentUser, type UserGroup } from "../lib/groups";
+import { deleteGroup, fetchGroupsForCurrentUser, type UserGroup } from "../lib/groups";
 import { supabase } from "../lib/supabase";
 import {
   applySuggestedHangoutTime,
@@ -436,6 +436,25 @@ const Hangouts = () => {
     }
   };
 
+  const handleDeleteGroup = async (group: UserGroup) => {
+    try {
+      await deleteGroup(group.id);
+      setGroupsState((prev) => prev.filter((candidate) => candidate.id !== group.id));
+      setEditingGroup((prev) => (prev?.id === group.id ? null : prev));
+      toast({
+        title: "Group deleted",
+        description: `${group.name} was removed.`,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to delete group.";
+      toast({
+        title: "Could not delete group",
+        description: message,
+        variant: "destructive",
+      });
+    }
+  };
+
   const handleCreate = async (hangout: Partial<Hangout> & { creatorAvailability?: TimeRange[] }) => {
     if (!user) {
       toast({
@@ -655,32 +674,99 @@ const Hangouts = () => {
           )}
 
           <section className="mb-8 rounded-xl border border-border bg-card p-4">
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="font-heading text-base font-semibold text-foreground">Invite Groups</h2>
-              <button
-                onClick={() => setShowCreateGroupModal(true)}
-                className="text-xs text-primary hover:underline"
-              >
-                Create group
-              </button>
+            <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
+              <div>
+                <h2 className="font-heading text-base font-semibold text-foreground">Invite Groups</h2>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Save your go-to crews once, then reuse them in suggestions and hangouts.
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="px-2.5 py-1 rounded-full bg-primary/10 text-primary text-xs font-medium">
+                  {groupsState.length} group{groupsState.length !== 1 ? "s" : ""}
+                </span>
+                <button
+                  onClick={() => setShowCreateGroupModal(true)}
+                  className="text-xs px-3 py-1.5 rounded-full border border-border text-muted-foreground hover:text-foreground hover:border-primary/30 transition-colors"
+                >
+                  + Create group
+                </button>
+              </div>
             </div>
 
             {groupsState.length === 0 ? (
-              <p className="text-sm text-muted-foreground">
+              <div className="rounded-xl border border-dashed border-border p-4 text-sm text-muted-foreground">
                 No groups yet. Create one to invite a full crew in one click.
-              </p>
+              </div>
             ) : (
-              <div className="flex flex-wrap gap-2">
-                {groupsState.map((group) => (
-                  <button
-                    key={group.id}
-                    onClick={() => setEditingGroup(group)}
-                    className="px-3 py-2 rounded-lg border border-border text-left hover:border-primary/30 hover:bg-muted/30 transition-colors"
-                  >
-                    <p className="text-sm font-medium text-foreground">{group.name}</p>
-                    <p className="text-xs text-muted-foreground">{group.members.length} member{group.members.length !== 1 ? "s" : ""}</p>
-                  </button>
-                ))}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {groupsState.map((group) => {
+                  const nonAdminMembers = group.members.filter((member) => member.role !== "admin");
+                  const previewMembers = nonAdminMembers.slice(0, 4);
+
+                  return (
+                    <div
+                      key={group.id}
+                      className="rounded-xl border border-border bg-card/60 p-3 hover:border-primary/30 hover:bg-muted/20 transition-colors"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="text-sm font-semibold text-foreground truncate">{group.name}</p>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            {group.description || "No description"}
+                          </p>
+                        </div>
+                        <span className="text-[10px] px-2 py-1 rounded-full bg-muted text-muted-foreground whitespace-nowrap">
+                          {nonAdminMembers.length} member{nonAdminMembers.length !== 1 ? "s" : ""}
+                        </span>
+                      </div>
+
+                      <div className="mt-3 flex items-center justify-between gap-2">
+                        <div className="flex items-center -space-x-2">
+                          {previewMembers.map((member) => (
+                            <div
+                              key={member.userId}
+                              className="w-7 h-7 rounded-full border-2 border-background bg-muted text-[10px] font-semibold text-foreground overflow-hidden flex items-center justify-center"
+                              title={member.name}
+                            >
+                              {member.avatarUrl ? (
+                                <img src={member.avatarUrl} alt={member.name} className="w-full h-full object-cover" />
+                              ) : (
+                                member.name.charAt(0)
+                              )}
+                            </div>
+                          ))}
+                          {nonAdminMembers.length > previewMembers.length ? (
+                            <span className="ml-2 text-[10px] text-muted-foreground">
+                              +{nonAdminMembers.length - previewMembers.length} more
+                            </span>
+                          ) : null}
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => setEditingGroup(group)}
+                            className="text-xs px-2.5 py-1.5 rounded-full border border-border hover:border-primary/30 text-muted-foreground hover:text-foreground transition-colors inline-flex items-center gap-1"
+                          >
+                            <PencilLine className="w-3 h-3" />
+                            Edit
+                          </button>
+                          <button
+                            onClick={async () => {
+                              const shouldDelete = window.confirm(`Delete \"${group.name}\"? This cannot be undone.`);
+                              if (!shouldDelete) return;
+                              await handleDeleteGroup(group);
+                            }}
+                            className="text-xs px-2.5 py-1.5 rounded-full border border-destructive/30 text-destructive hover:bg-destructive/10 transition-colors inline-flex items-center gap-1"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                            Delete
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             )}
           </section>
@@ -956,6 +1042,11 @@ const Hangouts = () => {
       <CreateGroupModal
         isOpen={showCreateGroupModal || Boolean(editingGroup)}
         onClose={() => {
+          setShowCreateGroupModal(false);
+          setEditingGroup(null);
+        }}
+        onDelete={async (group) => {
+          await handleDeleteGroup(group);
           setShowCreateGroupModal(false);
           setEditingGroup(null);
         }}

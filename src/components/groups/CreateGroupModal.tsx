@@ -1,9 +1,18 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Loader2 } from "lucide-react";
+import { Loader2, Trash2 } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../ui/dialog";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Textarea } from "../ui/textarea";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogTitle,
+} from "../ui/alert-dialog";
 import { getFriends, type Friend } from "../../lib/friends";
 import { createGroup, type UserGroup, updateGroup } from "../../lib/groups";
 import { useToast } from "../../hooks/use-toast";
@@ -12,6 +21,7 @@ interface CreateGroupModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSaved?: (group: UserGroup) => void;
+  onDelete?: (group: UserGroup) => Promise<void> | void;
   initialGroup?: UserGroup | null;
   defaultMemberIds?: string[];
 }
@@ -20,6 +30,7 @@ const CreateGroupModal = ({
   isOpen,
   onClose,
   onSaved,
+  onDelete,
   initialGroup,
   defaultMemberIds,
 }: CreateGroupModalProps) => {
@@ -30,6 +41,8 @@ const CreateGroupModal = ({
   const [selectedMemberIds, setSelectedMemberIds] = useState<string[]>([]);
   const [loadingFriends, setLoadingFriends] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   const isEditMode = Boolean(initialGroup);
 
@@ -127,6 +140,26 @@ const CreateGroupModal = ({
     }
   };
 
+  const handleDelete = async () => {
+    if (!initialGroup || !onDelete) return;
+
+    setDeleting(true);
+    try {
+      await onDelete(initialGroup);
+      setShowDeleteConfirm(false);
+      onClose();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to delete group.";
+      toast({
+        title: "Could not delete group",
+        description: message,
+        variant: "destructive",
+      });
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="max-w-xl max-h-[85vh] overflow-y-auto">
@@ -200,15 +233,53 @@ const CreateGroupModal = ({
           </div>
         </div>
 
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose} disabled={saving}>
-            Cancel
-          </Button>
-          <Button onClick={handleSave} disabled={saving}>
-            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
-            {isEditMode ? "Save Changes" : "Create Group"}
-          </Button>
+        <DialogFooter className="sm:justify-between">
+          <div>
+            {isEditMode && onDelete ? (
+              <Button
+                variant="outline"
+                onClick={() => setShowDeleteConfirm(true)}
+                disabled={saving || deleting}
+                className="text-destructive hover:text-destructive"
+              >
+                <Trash2 className="w-4 h-4" />
+                Delete Group
+              </Button>
+            ) : null}
+          </div>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={onClose} disabled={saving || deleting}>
+              Cancel
+            </Button>
+            <Button onClick={handleSave} disabled={saving || deleting}>
+              {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+              {isEditMode ? "Save Changes" : "Create Group"}
+            </Button>
+          </div>
         </DialogFooter>
+
+        <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
+          <AlertDialogContent className="max-w-md rounded-2xl">
+            <AlertDialogTitle className="text-destructive">Delete Group?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently remove <span className="font-semibold text-foreground">{initialGroup?.name}</span>.
+              You can recreate it later, but member selection will be lost.
+            </AlertDialogDescription>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={deleting}>Keep Group</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={(event) => {
+                  event.preventDefault();
+                  void handleDelete();
+                }}
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                disabled={deleting}
+              >
+                {deleting ? "Deleting..." : "Delete Group"}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </DialogContent>
     </Dialog>
   );

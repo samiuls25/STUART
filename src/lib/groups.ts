@@ -292,6 +292,24 @@ export async function updateGroup(input: {
   return updated;
 }
 
+export async function deleteGroup(groupId: string): Promise<void> {
+  const userId = await getCurrentUserId();
+  if (!userId) throw new Error("You must be signed in to delete groups.");
+
+  const { error } = await supabase
+    .from("groups")
+    .delete()
+    .eq("id", groupId)
+    .eq("owner_id", userId);
+
+  if (error) {
+    if (isGroupsSetupError(error)) {
+      throw new Error("Groups schema is not active yet. Please run the groups SQL in Supabase first.");
+    }
+    throw error;
+  }
+}
+
 export const groupMemberIds = (group: UserGroup, excludeUserId?: string) => {
   return group.members
     .map((member) => member.userId)
