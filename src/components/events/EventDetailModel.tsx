@@ -144,6 +144,21 @@ const EventDetailModal = ({ event, onClose, initialSuggestOpen = false }: EventD
     };
   }, [showSuggestModal, user]);
 
+  useEffect(() => {
+    if (!event || !initialSuggestOpen || isHangoutEvent) return;
+
+    if (!user) {
+      toast({
+        title: "Sign in required",
+        description: "Please sign in to suggest events.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setShowSuggestModal(true);
+  }, [event?.id, initialSuggestOpen, isHangoutEvent, user]);
+
   if (!event) return null;
 
   const handleSave = async () => {
@@ -193,21 +208,6 @@ const EventDetailModal = ({ event, onClose, initialSuggestOpen = false }: EventD
 
     setShowSuggestModal(true);
   };
-
-  useEffect(() => {
-    if (!event || !initialSuggestOpen || isHangoutEvent) return;
-
-    if (!user) {
-      toast({
-        title: "Sign in required",
-        description: "Please sign in to suggest events.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    setShowSuggestModal(true);
-  }, [event?.id, initialSuggestOpen, isHangoutEvent, user]);
 
   const handleSendSuggestion = async () => {
     if (!user || !event) return;
