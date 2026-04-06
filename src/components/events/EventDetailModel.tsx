@@ -8,7 +8,6 @@ import {
   MapPin,
   ExternalLink,
   Heart,
-  Share2,
   Navigation,
   Users,
   Car,
@@ -24,6 +23,12 @@ import { toast } from "../../hooks/use-toast";
 import { saveEvent, unsaveEvent, getSavedEventIds } from "../../lib/SavedEvents";
 import { useAuth } from "../../lib/AuthContext";
 import { getCurrentUserHangoutMembership, joinPublicHangout, leavePublicHangout } from "../../lib/hangouts";
+import { getFriends, type Friend } from "../../lib/friends";
+import { createNotificationsBatch } from "../../lib/notifications";
+import { fetchGroupsForCurrentUser, groupMemberIds, type UserGroup } from "../../lib/groups";
+import CreateGroupModal from "../groups/CreateGroupModal";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../ui/dialog";
+import { Button } from "../ui/button";
 
 interface EventDetailModalProps {
   event: Event | null;
@@ -36,6 +41,14 @@ const EventDetailModal = ({ event, onClose }: EventDetailModalProps) => {
   const [hangoutMembershipState, setHangoutMembershipState] = useState<"checking" | "joined" | "not-joined">("not-joined");
   const [joiningHangout, setJoiningHangout] = useState(false);
   const [leavingHangout, setLeavingHangout] = useState(false);
+  const [showSuggestModal, setShowSuggestModal] = useState(false);
+  const [showCreateGroupModal, setShowCreateGroupModal] = useState(false);
+  const [loadingSuggestTargets, setLoadingSuggestTargets] = useState(false);
+  const [sendingSuggestion, setSendingSuggestion] = useState(false);
+  const [suggestGroups, setSuggestGroups] = useState<UserGroup[]>([]);
+  const [suggestFriends, setSuggestFriends] = useState<Friend[]>([]);
+  const [selectedGroupIds, setSelectedGroupIds] = useState<string[]>([]);
+  const [selectedFriendIds, setSelectedFriendIds] = useState<string[]>([]);
 
   const toScoreLabel = (score?: number) => {
     if (typeof score !== "number" || Number.isNaN(score) || score <= 0) {
@@ -96,6 +109,40 @@ const EventDetailModal = ({ event, onClose }: EventDetailModalProps) => {
     };
   }, [event?.id, event?.isJoinedByCurrentUser, isHangoutEvent, resolvedHangoutId, user?.id]);
 
+  useEffect(() => {
+    if (!showSuggestModal || !user) return;
+
+    let mounted = true;
+    setLoadingSuggestTargets(true);
+
+    Promise.all([fetchGroupsForCurrentUser(), getFriends()])
+      .then(([groups, friends]) => {
+        if (!mounted) return;
+        setSuggestGroups(groups);
+        setSuggestFriends(friends.filter((friend) => !friend.isBlocked));
+        if (groups.length > 0) {
+          setSelectedGroupIds([]);
+          setSelectedFriendIds([]);
+        } else {
+          setSelectedGroupIds([]);
+          setSelectedFriendIds([]);
+        }
+      })
+      .catch((error) => {
+        console.error("Unable to load suggestion targets", error);
+        if (!mounted) return;
+        setSuggestGroups([]);
+        setSuggestFriends([]);
+      })
+      .finally(() => {
+        if (mounted) setLoadingSuggestTargets(false);
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, [showSuggestModal, user]);
+
   if (!event) return null;
 
   const handleSave = async () => {
@@ -134,10 +181,78 @@ const EventDetailModal = ({ event, onClose }: EventDetailModalProps) => {
   };
 
   const handleSuggestToGroup = () => {
-    toast({
-      title: "Suggest to group",
-      description: "Choose a group to share this event with",
-    });
+    if (!user) {
+      toast({
+        title: "Sign in required",
+        description: "Please sign in to suggest events.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setShowSuggestModal(true);
+  };
+
+  const handleSendSuggestion = async () => {
+    if (!user || !event) return;
+
+    const recipientIds = suggestGroups.length > 0
+      ? [...new Set(
+          selectedGroupIds.flatMap((groupId) => {
+            const group = suggestGroups.find((candidate) => candidate.id === groupId);
+            return group ? groupMemberIds(group, user.id) : [];
+          })
+        )]
+      : [...new Set(selectedFriendIds.filter((id) => id !== user.id))];
+
+    if (recipientIds.length === 0) {
+      toast({
+        title: suggestGroups.length > 0 ? "Select at least one group" : "Select at least one friend",
+        description: "Choose who should receive this suggestion.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setSendingSuggestion(true);
+    try {
+      const senderName =
+        (user as { user_metadata?: { full_name?: string } }).user_metadata?.full_name
+        || user.email
+        || "A friend";
+
+      await createNotificationsBatch({
+        recipientUserIds: recipientIds,
+        type: "friend_activity",
+        title: "Event suggestion",
+        message: `${senderName} suggested \"${event.name}\".`,
+        entityType: "event",
+        entityId: event.id,
+        metadata: {
+          eventId: event.id,
+          eventName: event.name,
+          venue: event.venue,
+          date: event.date,
+          time: event.time,
+          ticketUrl: event.ticketUrl,
+        },
+      });
+
+      toast({
+        title: "Suggestion sent",
+        description: `Sent to ${recipientIds.length} friend${recipientIds.length !== 1 ? "s" : ""}.`,
+      });
+      setShowSuggestModal(false);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to send event suggestion.";
+      toast({
+        title: "Could not send suggestion",
+        description: message,
+        variant: "destructive",
+      });
+    } finally {
+      setSendingSuggestion(false);
+    }
   };
 
   const handleFeedback = (type: string) => {
@@ -256,9 +371,6 @@ const EventDetailModal = ({ event, onClose }: EventDetailModalProps) => {
                         <Heart className={`w-5 h-5 ${isSaved ? 'fill-current' : ''}`} />
                       </button>
                     )}
-                    <button className="p-2 rounded-full bg-background/80 backdrop-blur-sm hover:bg-primary/20 transition-colors">
-                      <Share2 className="w-5 h-5 text-foreground" />
-                    </button>
                   </div>
 
                   <div className="absolute bottom-4 left-6 flex items-center gap-2">
@@ -417,6 +529,99 @@ const EventDetailModal = ({ event, onClose }: EventDetailModalProps) => {
               </div>
             </motion.div>
           </div>
+
+          <Dialog open={showSuggestModal} onOpenChange={setShowSuggestModal}>
+            <DialogContent className="max-w-xl max-h-[85vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle>Suggest This Event</DialogTitle>
+                <DialogDescription>
+                  {suggestGroups.length > 0
+                    ? "Share with one or more of your saved groups."
+                    : "No groups yet. Suggest directly to friends, or create a group first."}
+                </DialogDescription>
+              </DialogHeader>
+
+              <div className="space-y-3">
+                <div className="flex justify-end">
+                  <button
+                    type="button"
+                    onClick={() => setShowCreateGroupModal(true)}
+                    className="text-xs text-primary hover:underline"
+                  >
+                    Create group
+                  </button>
+                </div>
+
+                <div className="rounded-lg border border-border divide-y divide-border/60 max-h-72 overflow-y-auto">
+                  {loadingSuggestTargets ? (
+                    <div className="p-3 text-sm text-muted-foreground">Loading suggestions...</div>
+                  ) : suggestGroups.length > 0 ? (
+                    suggestGroups.map((group) => {
+                      const selected = selectedGroupIds.includes(group.id);
+                      return (
+                        <button
+                          key={group.id}
+                          type="button"
+                          onClick={() => {
+                            setSelectedGroupIds((prev) =>
+                              prev.includes(group.id) ? prev.filter((id) => id !== group.id) : [...prev, group.id]
+                            );
+                          }}
+                          className={`w-full px-3 py-2 text-left hover:bg-muted/40 transition-colors ${selected ? "bg-primary/5" : ""}`}
+                        >
+                          <p className="text-sm text-foreground">{group.name}</p>
+                          <p className="text-xs text-muted-foreground">{group.members.length} members</p>
+                        </button>
+                      );
+                    })
+                  ) : suggestFriends.length > 0 ? (
+                    suggestFriends.map((friend) => {
+                      const selected = selectedFriendIds.includes(friend.id);
+                      return (
+                        <button
+                          key={friend.id}
+                          type="button"
+                          onClick={() => {
+                            setSelectedFriendIds((prev) =>
+                              prev.includes(friend.id) ? prev.filter((id) => id !== friend.id) : [...prev, friend.id]
+                            );
+                          }}
+                          className={`w-full px-3 py-2 text-left hover:bg-muted/40 transition-colors ${selected ? "bg-primary/5" : ""}`}
+                        >
+                          <p className="text-sm text-foreground">{friend.name}</p>
+                          <p className="text-xs text-muted-foreground">{friend.email || "Friend"}</p>
+                        </button>
+                      );
+                    })
+                  ) : (
+                    <div className="p-3 text-sm text-muted-foreground">No friends available to suggest to yet.</div>
+                  )}
+                </div>
+              </div>
+
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setShowSuggestModal(false)} disabled={sendingSuggestion}>
+                  Cancel
+                </Button>
+                <Button onClick={handleSendSuggestion} disabled={sendingSuggestion || loadingSuggestTargets}>
+                  {sendingSuggestion ? "Sending..." : "Send Suggestion"}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
+          <CreateGroupModal
+            isOpen={showCreateGroupModal}
+            onClose={() => setShowCreateGroupModal(false)}
+            onSaved={(group) => {
+              setSuggestGroups((prev) => {
+                const withoutOld = prev.filter((candidate) => candidate.id !== group.id);
+                return [...withoutOld, group].sort((a, b) => a.name.localeCompare(b.name));
+              });
+              setSelectedGroupIds((prev) => (prev.includes(group.id) ? prev : [...prev, group.id]));
+              setShowCreateGroupModal(false);
+            }}
+          />
         </>
       )}
     </AnimatePresence>

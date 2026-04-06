@@ -406,6 +406,42 @@
   },
   {
     "schemaname": "public",
+    "tablename": "notifications",
+    "policyname": "Users can delete own notifications",
+    "cmd": "DELETE",
+    "roles": "{authenticated}",
+    "qual": "(recipient_user_id = auth.uid())",
+    "with_check": null
+  },
+  {
+    "schemaname": "public",
+    "tablename": "notifications",
+    "policyname": "Users can insert own-actor notifications",
+    "cmd": "INSERT",
+    "roles": "{authenticated}",
+    "qual": null,
+    "with_check": "((actor_user_id = auth.uid()) AND (recipient_user_id IS NOT NULL))"
+  },
+  {
+    "schemaname": "public",
+    "tablename": "notifications",
+    "policyname": "Users can update own notifications",
+    "cmd": "UPDATE",
+    "roles": "{authenticated}",
+    "qual": "(recipient_user_id = auth.uid())",
+    "with_check": "(recipient_user_id = auth.uid())"
+  },
+  {
+    "schemaname": "public",
+    "tablename": "notifications",
+    "policyname": "Users can view own notifications",
+    "cmd": "SELECT",
+    "roles": "{authenticated}",
+    "qual": "(recipient_user_id = auth.uid())",
+    "with_check": null
+  },
+  {
+    "schemaname": "public",
     "tablename": "profiles",
     "policyname": "Authenticated users can view all profiles",
     "cmd": "SELECT",

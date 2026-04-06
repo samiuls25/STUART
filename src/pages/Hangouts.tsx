@@ -7,6 +7,7 @@ import HangoutCard from "../components/hangouts/HangoutCard";
 import CreateHangoutModal from "../components/hangouts/CreateHangoutModal";
 import HangoutDetailModal from "../components/hangouts/HangoutDetailModel.tsx";
 import CreateMemoryModal, { CreateMemoryInitialValues } from "../components/profile/CreateMemoryModal";
+import CreateGroupModal from "../components/groups/CreateGroupModal";
 import AuthModal from "../components/auth/AuthModal";
 import { hangouts, Hangout, setFriendsDirectory, Friend, TimeRange } from "../data/friends.ts";
 import { format, isAfter, isBefore, parseISO, startOfDay, addWeeks } from "date-fns";
@@ -14,6 +15,7 @@ import { Input } from "../components/ui/input.tsx";
 import { useAuth } from "../lib/AuthContext";
 import { useToast } from "../hooks/use-toast";
 import { getFriends } from "../lib/friends";
+import { fetchGroupsForCurrentUser, type UserGroup } from "../lib/groups";
 import { supabase } from "../lib/supabase";
 import {
   applySuggestedHangoutTime,
@@ -38,6 +40,9 @@ const Hangouts = () => {
   const [filterTo, setFilterTo] = useState("");
   const [hangoutsState, setHangoutsState] = useState<Hangout[]>(hangouts);
   const [inviteCandidates, setInviteCandidates] = useState<Friend[]>([]);
+  const [groupsState, setGroupsState] = useState<UserGroup[]>([]);
+  const [showCreateGroupModal, setShowCreateGroupModal] = useState(false);
+  const [editingGroup, setEditingGroup] = useState<UserGroup | null>(null);
   const [hiddenDeclinedHangoutIds, setHiddenDeclinedHangoutIds] = useState<string[]>([]);
   const [showHiddenDeclinedSection, setShowHiddenDeclinedSection] = useState(false);
   const [loadingHangouts, setLoadingHangouts] = useState(true);
@@ -55,9 +60,10 @@ const Hangouts = () => {
     setLoadingHangouts(true);
 
     try {
-      const [friendsData, fetchedHangouts] = await Promise.all([
+      const [friendsData, fetchedHangouts, fetchedGroups] = await Promise.all([
         getFriends(),
         fetchHangoutsForCurrentUser(),
+        fetchGroupsForCurrentUser(),
       ]);
 
       const nextDirectory: Friend[] = friendsData.map((friend) => ({
@@ -74,6 +80,7 @@ const Hangouts = () => {
       }));
 
       setInviteCandidates(nextDirectory.map((friend) => ({ ...friend })));
+      setGroupsState(fetchedGroups);
 
       const participantIds = new Set<string>();
       fetchedHangouts.forEach((hangout) => {
@@ -137,6 +144,7 @@ const Hangouts = () => {
     if (!user) {
       setHangoutsState([]);
       setInviteCandidates([]);
+      setGroupsState([]);
       setLoadingHangouts(false);
       setSchemaMissing(false);
       setHiddenDeclinedHangoutIds([]);
@@ -578,6 +586,15 @@ const Hangouts = () => {
               <motion.button
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
+                onClick={() => setShowCreateGroupModal(true)}
+                className="btn-secondary px-5 py-3 flex items-center gap-2"
+              >
+                <Users className="w-5 h-5" />
+                <span>New Group</span>
+              </motion.button>
+              <motion.button
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
                 onClick={() => setShowCreateModal(true)}
                 className="btn-primary px-5 py-3 flex items-center gap-2"
               >
@@ -636,6 +653,37 @@ const Hangouts = () => {
               Hangouts backend is not initialized yet. Run docs/db/hangouts_phase1.sql in Supabase, then refresh this page.
             </div>
           )}
+
+          <section className="mb-8 rounded-xl border border-border bg-card p-4">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="font-heading text-base font-semibold text-foreground">Invite Groups</h2>
+              <button
+                onClick={() => setShowCreateGroupModal(true)}
+                className="text-xs text-primary hover:underline"
+              >
+                Create group
+              </button>
+            </div>
+
+            {groupsState.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                No groups yet. Create one to invite a full crew in one click.
+              </p>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {groupsState.map((group) => (
+                  <button
+                    key={group.id}
+                    onClick={() => setEditingGroup(group)}
+                    className="px-3 py-2 rounded-lg border border-border text-left hover:border-primary/30 hover:bg-muted/30 transition-colors"
+                  >
+                    <p className="text-sm font-medium text-foreground">{group.name}</p>
+                    <p className="text-xs text-muted-foreground">{group.members.length} member{group.members.length !== 1 ? "s" : ""}</p>
+                  </button>
+                ))}
+              </div>
+            )}
+          </section>
 
           {loadingHangouts && (
             <div className="mb-6 rounded-xl border border-border bg-card p-4 text-sm text-muted-foreground">
@@ -902,6 +950,21 @@ const Hangouts = () => {
         onClose={() => setShowCreateModal(false)}
         onCreate={handleCreate}
         inviteCandidates={inviteCandidates}
+        inviteGroups={groupsState}
+        onCreateGroupRequest={() => setShowCreateGroupModal(true)}
+      />
+      <CreateGroupModal
+        isOpen={showCreateGroupModal || Boolean(editingGroup)}
+        onClose={() => {
+          setShowCreateGroupModal(false);
+          setEditingGroup(null);
+        }}
+        initialGroup={editingGroup}
+        onSaved={() => {
+          void loadHangouts();
+          setEditingGroup(null);
+          setShowCreateGroupModal(false);
+        }}
       />
       <HangoutDetailModal
         hangout={selectedHangout}

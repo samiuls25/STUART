@@ -13,7 +13,8 @@ import {
   DialogTitle,
 } from "../ui/dialog";
 import { useToast } from "../../hooks/use-toast";
-import { createMemoryWithPhotos, memoryUploadConfig } from "../../lib/memories";
+import { addMemoryAttendee, createMemoryWithPhotos, memoryUploadConfig } from "../../lib/memories";
+import { fetchGroupsForCurrentUser, groupMemberIds, type UserGroup } from "../../lib/groups";
 
 export interface CreateMemoryInitialValues {
   title?: string;
@@ -42,6 +43,9 @@ const CreateMemoryModal = ({ isOpen, onClose, onCreated, initialValues }: Create
   const [location, setLocation] = useState("");
   const [memoryDate, setMemoryDate] = useState(() => getTodayIsoDate());
   const [files, setFiles] = useState<File[]>([]);
+  const [groups, setGroups] = useState<UserGroup[]>([]);
+  const [selectedGroups, setSelectedGroups] = useState<string[]>([]);
+  const [loadingGroups, setLoadingGroups] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
   const previews = useMemo(
@@ -62,6 +66,8 @@ const CreateMemoryModal = ({ isOpen, onClose, onCreated, initialValues }: Create
       setLocation("");
       setMemoryDate(getTodayIsoDate());
       setFiles([]);
+      setGroups([]);
+      setSelectedGroups([]);
       setSubmitting(false);
       return;
     }
@@ -71,8 +77,33 @@ const CreateMemoryModal = ({ isOpen, onClose, onCreated, initialValues }: Create
     setLocation(initialValues?.location || "");
     setMemoryDate(initialValues?.memoryDate || getTodayIsoDate());
     setFiles([]);
+    setSelectedGroups([]);
     setSubmitting(false);
   }, [isOpen, initialValues]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    let mounted = true;
+    setLoadingGroups(true);
+
+    fetchGroupsForCurrentUser()
+      .then((rows) => {
+        if (!mounted) return;
+        setGroups(rows);
+      })
+      .catch((error) => {
+        console.error("Unable to load groups for memory modal", error);
+        if (mounted) setGroups([]);
+      })
+      .finally(() => {
+        if (mounted) setLoadingGroups(false);
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, [isOpen]);
 
   const addFiles = (incoming: FileList | null) => {
     if (!incoming || incoming.length === 0) return;
@@ -140,6 +171,19 @@ const CreateMemoryModal = ({ isOpen, onClose, onCreated, initialValues }: Create
         },
         files
       );
+
+      const selectedGroupMemberIds = [...new Set(
+        selectedGroups.flatMap((groupId) => {
+          const group = groups.find((candidate) => candidate.id === groupId);
+          return group ? groupMemberIds(group) : [];
+        })
+      )];
+
+      if (selectedGroupMemberIds.length > 0) {
+        await Promise.allSettled(
+          selectedGroupMemberIds.map((memberId) => addMemoryAttendee(result.id, memberId))
+        );
+      }
 
       toast({
         title: "Memory saved",
@@ -213,6 +257,41 @@ const CreateMemoryModal = ({ isOpen, onClose, onCreated, initialValues }: Create
               rows={4}
               maxLength={600}
             />
+          </div>
+
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <label className="text-sm font-medium text-foreground">Add Groups (optional)</label>
+              {selectedGroups.length > 0 && (
+                <span className="text-xs text-muted-foreground">{selectedGroups.length} selected</span>
+              )}
+            </div>
+            <div className="rounded-lg border border-border divide-y divide-border/60 max-h-48 overflow-y-auto">
+              {loadingGroups ? (
+                <div className="p-3 text-sm text-muted-foreground">Loading groups...</div>
+              ) : groups.length === 0 ? (
+                <div className="p-3 text-sm text-muted-foreground">No groups yet. You can still add attendees later.</div>
+              ) : (
+                groups.map((group) => {
+                  const selected = selectedGroups.includes(group.id);
+                  return (
+                    <button
+                      key={group.id}
+                      type="button"
+                      onClick={() => {
+                        setSelectedGroups((prev) =>
+                          prev.includes(group.id) ? prev.filter((id) => id !== group.id) : [...prev, group.id]
+                        );
+                      }}
+                      className={`w-full px-3 py-2 text-left hover:bg-muted/40 transition-colors ${selected ? "bg-primary/5" : ""}`}
+                    >
+                      <p className="text-sm text-foreground">{group.name}</p>
+                      <p className="text-xs text-muted-foreground">{group.members.length} members</p>
+                    </button>
+                  );
+                })
+              )}
+            </div>
           </div>
 
           <div className="space-y-3">
