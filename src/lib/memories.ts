@@ -79,6 +79,7 @@ interface CreateMemoryInput {
   memoryDate?: string;
   eventId?: string;
   hangoutId?: string;
+  prefillImageUrl?: string;
 }
 
 const MEMORY_PHOTOS_BUCKET = (import.meta.env.VITE_MEMORY_PHOTOS_BUCKET as string | undefined) || "memory-photos";
@@ -339,15 +340,55 @@ async function fetchMemoryPhotos(memoryIds: string[]): Promise<Map<string, Memor
     return map;
   }
 
-  ((data as MemoryPhotoRow[] | null) || []).forEach((row) => {
+  const photoRows = (data as MemoryPhotoRow[] | null) || [];
+  const uploaderIds = [
+    ...new Set(
+      photoRows
+        .map((row) => row.uploaded_by)
+        .filter((id): id is string => Boolean(id))
+    ),
+  ];
+
+  let currentUserId: string | null = null;
+  try {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    currentUserId = user?.id || null;
+  } catch {
+    currentUserId = null;
+  }
+
+  const uploaderNameMap = new Map<string, string>();
+  if (uploaderIds.length > 0) {
+    const { data: uploaderProfiles, error: uploaderProfilesError } = await supabase
+      .from("profiles")
+      .select("id,name")
+      .in("id", uploaderIds);
+
+    if (!uploaderProfilesError) {
+      ((uploaderProfiles as Array<{ id: string; name: string | null }> | null) || []).forEach((row) => {
+        if (row.name) {
+          uploaderNameMap.set(row.id, row.name);
+        }
+      });
+    }
+  }
+
+  photoRows.forEach((row) => {
     const url = normalizePhotoRowUrl(row);
     if (!url) return;
+
+    const uploaderLabel = row.uploaded_by
+      ? uploaderNameMap.get(row.uploaded_by)
+        || (row.uploaded_by === currentUserId ? "You" : "Friend")
+      : "You";
 
     const list = map.get(row.memory_id) || [];
     list.push({
       id: row.id,
       url,
-      uploadedBy: row.uploaded_by || "You",
+      uploadedBy: uploaderLabel,
       uploadedAt: row.created_at || new Date().toISOString(),
     });
     map.set(row.memory_id, list);
@@ -568,6 +609,8 @@ export async function createMemory(input: CreateMemoryInput): Promise<{ id: stri
     throw new Error("You must be signed in to create memories.");
   }
 
+  const prefillImageUrl = input.prefillImageUrl?.trim() || null;
+
   const payload = {
     user_id: user.id,
     title: input.title.trim(),
@@ -576,6 +619,7 @@ export async function createMemory(input: CreateMemoryInput): Promise<{ id: stri
     memory_date: input.memoryDate || new Date().toISOString().slice(0, 10),
     event_id: input.eventId || null,
     hangout_id: input.hangoutId || null,
+    image_url: prefillImageUrl,
   };
 
   const { data, error } = await supabase
@@ -597,6 +641,19 @@ export async function createMemory(input: CreateMemoryInput): Promise<{ id: stri
 
   if (attendeeInsertError && !isMissingTableError(attendeeInsertError)) {
     console.warn("Failed to add owner attendee row for memory", attendeeInsertError);
+  }
+
+  if (prefillImageUrl) {
+    const { error: prefillPhotoInsertError } = await supabase.from("memory_photos").insert({
+      memory_id: data.id,
+      photo_url: prefillImageUrl,
+      uploaded_by: user.id,
+      display_order: 0,
+    });
+
+    if (prefillPhotoInsertError && !isMissingTableError(prefillPhotoInsertError)) {
+      console.warn("Failed to add prefilled memory photo row", prefillPhotoInsertError);
+    }
   }
 
   return { id: data.id };

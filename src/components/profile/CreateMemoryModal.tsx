@@ -22,6 +22,7 @@ export interface CreateMemoryInitialValues {
   memoryDate?: string;
   eventId?: string;
   hangoutId?: string;
+  prefillImageUrl?: string;
 }
 
 interface CreateMemoryModalProps {
@@ -135,6 +136,7 @@ const CreateMemoryModal = ({ isOpen, onClose, onCreated, initialValues }: Create
           memoryDate,
           eventId: initialValues?.eventId,
           hangoutId: initialValues?.hangoutId,
+          prefillImageUrl: initialValues?.prefillImageUrl,
         },
         files
       );
@@ -220,6 +222,12 @@ const CreateMemoryModal = ({ isOpen, onClose, onCreated, initialValues }: Create
                 {files.length}/{memoryUploadConfig.maxPhotosPerMemory}
               </span>
             </div>
+
+            {initialValues?.prefillImageUrl && (
+              <p className="text-xs text-muted-foreground">
+                This memory will start with the event cover photo. You can keep, replace, or delete it later.
+              </p>
+            )}
 
             <label className="flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-border p-4 cursor-pointer hover:border-primary/40 transition-colors">
               <Plus className="w-4 h-4" />
