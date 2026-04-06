@@ -78,12 +78,19 @@ const IMAGE_QUALITY = 0.82;
 const FALLBACK_HERO_IMAGE = "https://images.unsplash.com/photo-1511632765486-a01980e01a18?w=1200&q=80";
 
 const missingTableCodes = new Set(["42P01", "PGRST205"]);
+const duplicateValueCodes = new Set(["23505"]);
 
 const isMissingTableError = (error: unknown) => {
   if (!error || typeof error !== "object") return false;
   const candidate = error as { code?: string; message?: string };
   if (candidate.code && missingTableCodes.has(candidate.code)) return true;
   return (candidate.message || "").toLowerCase().includes("does not exist");
+};
+
+const isDuplicateValueError = (error: unknown) => {
+  if (!error || typeof error !== "object") return false;
+  const candidate = error as { code?: string };
+  return Boolean(candidate.code && duplicateValueCodes.has(candidate.code));
 };
 
 const formatDateLabel = (value: string | null | undefined) => {
@@ -503,6 +510,83 @@ export async function createMemoryWithPhotos(
     id: created.id,
     uploadedPhotos: uploaded.length,
   };
+}
+
+export async function addMemoryAttendee(memoryId: string, userId: string): Promise<void> {
+  if (!memoryId || !userId) {
+    throw new Error("Memory and attendee ids are required.");
+  }
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    throw new Error("You must be signed in to edit memory attendees.");
+  }
+
+  const { error } = await supabase.from("memory_attendees").insert({
+    memory_id: memoryId,
+    user_id: userId,
+    added_by: user.id,
+    is_owner: false,
+  });
+
+  if (error) {
+    if (isMissingTableError(error)) {
+      throw new Error("Memory attendees are not enabled yet. Run docs/db/memories_phase1.sql first.");
+    }
+    if (isDuplicateValueError(error)) {
+      return;
+    }
+    throw error;
+  }
+}
+
+export async function removeMemoryAttendee(memoryId: string, userId: string): Promise<void> {
+  if (!memoryId || !userId) {
+    throw new Error("Memory and attendee ids are required.");
+  }
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    throw new Error("You must be signed in to edit memory attendees.");
+  }
+
+  const { data: existingRow, error: existingError } = await supabase
+    .from("memory_attendees")
+    .select("is_owner")
+    .eq("memory_id", memoryId)
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (existingError) {
+    if (isMissingTableError(existingError)) {
+      throw new Error("Memory attendees are not enabled yet. Run docs/db/memories_phase1.sql first.");
+    }
+    throw existingError;
+  }
+
+  if (!existingRow) {
+    return;
+  }
+
+  if (existingRow.is_owner) {
+    throw new Error("Memory owner cannot be removed from attendees.");
+  }
+
+  const { error: deleteError } = await supabase
+    .from("memory_attendees")
+    .delete()
+    .eq("memory_id", memoryId)
+    .eq("user_id", userId);
+
+  if (deleteError) {
+    throw deleteError;
+  }
 }
 
 export const memoryUploadConfig = {

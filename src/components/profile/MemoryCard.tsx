@@ -1,17 +1,27 @@
 import React from "react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { MapPin, Clock, Users, Camera, X, ChevronLeft, ChevronRight } from "lucide-react";
-import type { Memory } from "../../lib/memories";
+import { MapPin, Clock, Users, Camera, X, ChevronLeft, ChevronRight, Plus } from "lucide-react";
+import type { Friend } from "../../lib/friends";
+import { getFriends } from "../../lib/friends";
+import { addMemoryAttendee, removeMemoryAttendee, type Memory } from "../../lib/memories";
+import { useToast } from "../../hooks/use-toast";
 
 interface MemoryCardProps {
   memory: Memory;
   compact?: boolean;
+  onMemoryUpdated?: () => void | Promise<void>;
 }
 
-const MemoryCard = ({ memory, compact = false }: MemoryCardProps) => {
+const MemoryCard = ({ memory, compact = false, onMemoryUpdated }: MemoryCardProps) => {
+  const { toast } = useToast();
   const [isExpanded, setIsExpanded] = useState(false);
   const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
+  const [friends, setFriends] = useState<Friend[]>([]);
+  const [selectedFriendId, setSelectedFriendId] = useState<string>("");
+  const [loadingFriends, setLoadingFriends] = useState(false);
+  const [isAddingAttendee, setIsAddingAttendee] = useState(false);
+  const [attendeeActionId, setAttendeeActionId] = useState<string | null>(null);
 
   const galleryPhotos = useMemo(
     () =>
@@ -32,6 +42,94 @@ const MemoryCard = ({ memory, compact = false }: MemoryCardProps) => {
     memory.attendees.length > 0
       ? memory.attendees.map((attendee) => attendee.name.split(" ")[0]).join(", ")
       : "you";
+
+  const addableFriends = useMemo(
+    () => friends.filter((friend) => !memory.attendees.some((attendee) => attendee.id === friend.id)),
+    [friends, memory.attendees]
+  );
+
+  useEffect(() => {
+    if (!isExpanded) return;
+
+    let mounted = true;
+
+    const loadFriends = async () => {
+      setLoadingFriends(true);
+      try {
+        const friendRows = await getFriends();
+        if (mounted) {
+          setFriends(friendRows);
+        }
+      } catch (error) {
+        console.warn("Unable to fetch friends for memory attendees", error);
+      } finally {
+        if (mounted) {
+          setLoadingFriends(false);
+        }
+      }
+    };
+
+    loadFriends();
+
+    return () => {
+      mounted = false;
+    };
+  }, [isExpanded]);
+
+  useEffect(() => {
+    if (addableFriends.length === 0) {
+      setSelectedFriendId("");
+      return;
+    }
+
+    if (!addableFriends.some((friend) => friend.id === selectedFriendId)) {
+      setSelectedFriendId(addableFriends[0].id);
+    }
+  }, [addableFriends, selectedFriendId]);
+
+  const handleAddAttendee = async () => {
+    if (!selectedFriendId) return;
+
+    setIsAddingAttendee(true);
+    try {
+      await addMemoryAttendee(memory.id, selectedFriendId);
+      toast({
+        title: "Attendee added",
+        description: "Friend added to this memory.",
+      });
+      await onMemoryUpdated?.();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to add attendee.";
+      toast({
+        title: "Could not add attendee",
+        description: message,
+        variant: "destructive",
+      });
+    } finally {
+      setIsAddingAttendee(false);
+    }
+  };
+
+  const handleRemoveAttendee = async (attendeeId: string) => {
+    setAttendeeActionId(attendeeId);
+    try {
+      await removeMemoryAttendee(memory.id, attendeeId);
+      toast({
+        title: "Attendee removed",
+        description: "Friend removed from this memory.",
+      });
+      await onMemoryUpdated?.();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to remove attendee.";
+      toast({
+        title: "Could not remove attendee",
+        description: message,
+        variant: "destructive",
+      });
+    } finally {
+      setAttendeeActionId(null);
+    }
+  };
 
   const nextPhoto = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -222,7 +320,7 @@ const MemoryCard = ({ memory, compact = false }: MemoryCardProps) => {
                   </h3>
                   <div className="flex flex-wrap gap-2">
                     {memory.attendees.length > 0 ? (
-                      memory.attendees.map((attendee) => (
+                      memory.attendees.map((attendee, index) => (
                         <div
                           key={attendee.id}
                           className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-muted"
@@ -233,6 +331,16 @@ const MemoryCard = ({ memory, compact = false }: MemoryCardProps) => {
                             </span>
                           </div>
                           <span className="text-sm text-foreground">{attendee.name}</span>
+                          {index > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveAttendee(attendee.id)}
+                              disabled={attendeeActionId === attendee.id}
+                              className="rounded-full p-1 text-muted-foreground hover:text-foreground hover:bg-background transition-colors"
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                          )}
                         </div>
                       ))
                     ) : (
@@ -240,6 +348,35 @@ const MemoryCard = ({ memory, compact = false }: MemoryCardProps) => {
                         Just you
                       </div>
                     )}
+                  </div>
+
+                  <div className="mt-3 flex flex-col sm:flex-row gap-2">
+                    <select
+                      value={selectedFriendId}
+                      onChange={(e) => setSelectedFriendId(e.target.value)}
+                      className="h-10 rounded-md border border-input bg-background px-3 text-sm text-foreground sm:flex-1"
+                      disabled={loadingFriends || addableFriends.length === 0}
+                    >
+                      {addableFriends.length === 0 ? (
+                        <option value="">No more friends to add</option>
+                      ) : (
+                        addableFriends.map((friend) => (
+                          <option key={friend.id} value={friend.id}>
+                            {friend.name}
+                          </option>
+                        ))
+                      )}
+                    </select>
+
+                    <button
+                      type="button"
+                      onClick={handleAddAttendee}
+                      disabled={isAddingAttendee || !selectedFriendId || addableFriends.length === 0}
+                      className="h-10 px-3 rounded-md bg-primary text-primary-foreground text-sm font-medium disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-1.5"
+                    >
+                      <Plus className="w-4 h-4" />
+                      Add friend
+                    </button>
                   </div>
                 </div>
 

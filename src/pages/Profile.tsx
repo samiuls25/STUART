@@ -362,7 +362,7 @@ const Profile = () => {
                       <div className="col-span-1 md:col-span-2 py-6 text-center text-sm text-muted-foreground">Loading memories…</div>
                     ) : memoriesState.length > 0 ? (
                       memoriesState.slice(0, 2).map((memory) => (
-                        <MemoryCard key={memory.id} memory={memory} />
+                        <MemoryCard key={memory.id} memory={memory} onMemoryUpdated={refreshMemories} />
                       ))
                     ) : (
                       <div className="col-span-1 md:col-span-2 py-6 text-center text-sm text-muted-foreground">
@@ -465,7 +465,7 @@ const Profile = () => {
                               animate={{ opacity: 1, y: 0 }}
                               transition={{ delay: (groupIndex * 0.04) + (index * 0.04) }}
                             >
-                              <MemoryCard memory={memory} />
+                              <MemoryCard memory={memory} onMemoryUpdated={refreshMemories} />
                             </motion.div>
                           ))}
                         </div>
