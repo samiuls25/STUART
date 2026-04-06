@@ -268,6 +268,43 @@ export async function markAllNotificationsAsRead(): Promise<void> {
   }
 }
 
+export async function deleteNotification(notificationId: string): Promise<void> {
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) return;
+
+  const { error } = await supabase
+    .from("notifications")
+    .delete()
+    .eq("id", notificationId)
+    .eq("recipient_user_id", user.id);
+
+  if (error) {
+    if (isNotificationsSetupError(error)) return;
+    throw error;
+  }
+}
+
+export async function deleteAllNotificationsForCurrentUser(): Promise<void> {
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) return;
+
+  const { error } = await supabase
+    .from("notifications")
+    .delete()
+    .eq("recipient_user_id", user.id);
+
+  if (error) {
+    if (isNotificationsSetupError(error)) return;
+    throw error;
+  }
+}
+
 export async function createNotification(input: {
   recipientUserId: string;
   type: NotificationType;

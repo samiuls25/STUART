@@ -8,6 +8,7 @@ import {
   CheckCheck,
   Clock,
   HeartHandshake,
+  Trash2,
   Users,
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
@@ -46,7 +47,15 @@ const getNotificationMeta = (notification: AppNotification): NotificationMeta =>
 const Notifications = () => {
   const { user, loading: authLoading } = useAuth();
   const [showAuth, setShowAuth] = useState(false);
-  const { notifications, unreadCount, loading, markRead, markAllRead } = useNotificationsFeed(100);
+  const {
+    notifications,
+    unreadCount,
+    loading,
+    markRead,
+    markAllRead,
+    removeNotification,
+    clearAllNotifications,
+  } = useNotificationsFeed(100);
 
   if (authLoading || loading) {
     return (
@@ -90,17 +99,32 @@ const Notifications = () => {
               <p className="text-muted-foreground">
                 {notifications.length} total, {unreadCount} unread
               </p>
+              <p className="text-xs text-muted-foreground mt-1">
+                Notifications are kept until you remove them.
+              </p>
             </div>
-            <button
-              onClick={() => {
-                void markAllRead();
-              }}
-              disabled={unreadCount === 0}
-              className="btn-secondary px-4 py-2 disabled:opacity-60"
-            >
-              <CheckCheck className="w-4 h-4 mr-2 inline" />
-              Mark all as read
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => {
+                  void markAllRead();
+                }}
+                disabled={unreadCount === 0}
+                className="btn-secondary px-4 py-2 disabled:opacity-60"
+              >
+                <CheckCheck className="w-4 h-4 mr-2 inline" />
+                Mark all as read
+              </button>
+              <button
+                onClick={() => {
+                  void clearAllNotifications();
+                }}
+                disabled={notifications.length === 0}
+                className="btn-secondary px-4 py-2 disabled:opacity-60"
+              >
+                <Trash2 className="w-4 h-4 mr-2 inline" />
+                Clear all
+              </button>
+            </div>
           </motion.div>
 
           {notifications.length === 0 ? (
@@ -179,6 +203,16 @@ const Notifications = () => {
                           Mark read
                         </button>
                       )}
+
+                      <button
+                        onClick={() => {
+                          void removeNotification(notification.id);
+                        }}
+                        className="btn-secondary px-3 py-2 text-xs"
+                      >
+                        <Trash2 className="w-3.5 h-3.5 mr-1 inline" />
+                        Delete
+                      </button>
                     </div>
                   </motion.div>
                 );

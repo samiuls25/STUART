@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAuth } from "../lib/AuthContext";
 import { supabase } from "../lib/supabase";
 import {
+  deleteAllNotificationsForCurrentUser,
+  deleteNotification,
   type AppNotification,
   fetchNotificationsForCurrentUser,
   fetchUnreadNotificationCount,
@@ -150,6 +152,16 @@ export function useNotificationsFeed(limit = 100) {
     );
   }, []);
 
+  const removeNotification = useCallback(async (notificationId: string) => {
+    await deleteNotification(notificationId);
+    setNotifications((current) => current.filter((notification) => notification.id !== notificationId));
+  }, []);
+
+  const clearAllNotifications = useCallback(async () => {
+    await deleteAllNotificationsForCurrentUser();
+    setNotifications([]);
+  }, []);
+
   return {
     notifications,
     unreadCount,
@@ -157,5 +169,7 @@ export function useNotificationsFeed(limit = 100) {
     refreshFeed,
     markRead,
     markAllRead,
+    removeNotification,
+    clearAllNotifications,
   };
 }
