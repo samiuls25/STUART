@@ -5,12 +5,21 @@ import Navbar from "../components/layout/Navbar";
 import AuthModal from "../components/auth/AuthModal";
 import FriendCard from "../components/friends/FriendCard";
 import FriendProfileModal from "../components/friends/FriendProfileModal";
-import { getFriends, getPendingRequests, acceptFriendRequest, rejectFriendRequest, sendFriendRequest } from "../lib/friends";
+import { getFriends, getPendingRequests, acceptFriendRequest, rejectFriendRequest, removeFriend, sendFriendRequest } from "../lib/friends";
 import type { Friend } from "../lib/friends";
 import { useAuth } from "../lib/AuthContext";
 import { toast } from "../hooks/use-toast";
 import { Input } from "../components/ui/input.tsx";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogTitle,
+} from "../components/ui/alert-dialog";
 
 const Friends = () => {
   const { user } = useAuth();
@@ -24,6 +33,15 @@ const Friends = () => {
   const [selectedFriend, setSelectedFriend] = useState<Friend | null>(null);
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [filter, setFilter] = useState<"all" | "online">("all");
+  const [friendToRemove, setFriendToRemove] = useState<Friend | null>(null);
+  const [removingFriend, setRemovingFriend] = useState(false);
+
+  const refreshFriends = () => {
+    return Promise.all([getFriends(), getPendingRequests()]).then(([friendsData, requestsData]) => {
+      setFriends(friendsData);
+      setPendingRequests(requestsData);
+    });
+  };
 
   useEffect(() => {
     if (!user) {
@@ -31,11 +49,7 @@ const Friends = () => {
       return;
     }
 
-    Promise.all([getFriends(), getPendingRequests()])
-      .then(([friendsData, requestsData]) => {
-        setFriends(friendsData);
-        setPendingRequests(requestsData);
-      })
+    refreshFriends()
       .finally(() => setLoading(false));
   }, [user]);
 
@@ -44,18 +58,35 @@ const Friends = () => {
     setShowProfileModal(true);
   };
 
-  const handleBlock = (friend: Friend) => {
-    console.log("Block:", friend.name);
+  const handleRequestRemoveFriend = (friend: Friend) => {
+    setFriendToRemove(friend);
+  };
+
+  const handleConfirmRemoveFriend = async () => {
+    if (!friendToRemove) return;
+
+    setRemovingFriend(true);
+    const success = await removeFriend(friendToRemove.id);
+
+    if (success) {
+      if (selectedFriend?.id === friendToRemove.id) {
+        setShowProfileModal(false);
+        setSelectedFriend(null);
+      }
+      await refreshFriends();
+      toast({ title: `${friendToRemove.name} was removed from your friends.` });
+      setFriendToRemove(null);
+    } else {
+      toast({ title: "Failed to remove friend", variant: "destructive" });
+    }
+
+    setRemovingFriend(false);
   };
 
   const handleAcceptRequest = async (friendId: string) => {
     const success = await acceptFriendRequest(friendId);
     if (success) {
-      Promise.all([getFriends(), getPendingRequests()])
-        .then(([friendsData, requestsData]) => {
-          setFriends(friendsData);
-          setPendingRequests(requestsData);
-        });
+      await refreshFriends();
       toast({ title: "Friend request accepted!" });
     } else {
       toast({ title: "Failed to accept request", variant: "destructive" });
@@ -94,7 +125,7 @@ const Friends = () => {
     const matchesFilter =
       filter === "all" ||
       (filter === "online" && friend.status === "online");
-    return matchesSearch && matchesFilter && !friend.isBlocked;
+    return matchesSearch && matchesFilter;
   });
 
   const pendingRequestsData = pendingRequests;
@@ -148,7 +179,7 @@ const Friends = () => {
             <TabsList className="grid w-full grid-cols-2">
               <TabsTrigger value="friends" className="flex items-center gap-2">
                 <UserCheck className="w-4 h-4" />
-                Friends ({friends.filter((f) => !f.isBlocked).length})
+                Friends ({friends.length})
               </TabsTrigger>
               <TabsTrigger value="requests" className="flex items-center gap-2 relative">
                 <Bell className="w-4 h-4" />
@@ -205,7 +236,7 @@ const Friends = () => {
                       <FriendCard
                         friend={friend}
                         onViewProfile={handleViewProfile}
-                        onBlock={handleBlock}
+                        onRemove={handleRequestRemoveFriend}
                       />
                     </motion.div>
                   ))
@@ -289,8 +320,43 @@ const Friends = () => {
         friend={selectedFriend}
         isOpen={showProfileModal}
         onClose={() => setShowProfileModal(false)}
-        onBlock={handleBlock}
+        onRemove={handleRequestRemoveFriend}
       />
+
+      <AlertDialog
+        open={Boolean(friendToRemove)}
+        onOpenChange={(open) => {
+          if (!open && !removingFriend) {
+            setFriendToRemove(null);
+          }
+        }}
+      >
+        <AlertDialogContent className="max-w-md rounded-2xl">
+          <AlertDialogTitle className="text-destructive">Remove Friend?</AlertDialogTitle>
+          <AlertDialogDescription className="space-y-3">
+            <p>
+              Are you sure you want to remove this friend?
+            </p>
+            <div className="rounded-xl border border-destructive/30 bg-destructive/10 p-3">
+              <p className="text-sm text-foreground">
+                <strong>{friendToRemove?.name || "This friend"}</strong> will be removed from your friends list.
+              </p>
+            </div>
+          </AlertDialogDescription>
+          <AlertDialogFooter className="mt-2">
+            <AlertDialogCancel disabled={removingFriend}>Keep Friend</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                void handleConfirmRemoveFriend();
+              }}
+              disabled={removingFriend}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {removingFriend ? "Removing..." : "Remove Friend"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Add Friend Modal */}
       <AnimatePresence>

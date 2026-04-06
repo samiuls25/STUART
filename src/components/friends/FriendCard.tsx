@@ -13,11 +13,11 @@ import {
 interface FriendCardProps {
   friend: Friend;
   onViewProfile?: (friend: Friend) => void;
-  onBlock?: (friend: Friend) => void;
+  onRemove?: (friend: Friend) => void;
   compact?: boolean;
 }
 
-const FriendCard = ({ friend, onViewProfile, onBlock, compact = false }: FriendCardProps) => {
+const FriendCard = ({ friend, onViewProfile, onRemove, compact = false }: FriendCardProps) => {
   const statusColors = {
     online: "bg-green-500",
     offline: "bg-muted-foreground/50",
@@ -151,11 +151,11 @@ const FriendCard = ({ friend, onViewProfile, onBlock, compact = false }: FriendC
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem
-              onClick={() => onBlock?.(friend)}
+              onClick={() => onRemove?.(friend)}
               className="text-destructive focus:text-destructive"
             >
               <UserMinus className="w-4 h-4 mr-2" />
-              Block
+              Remove Friend
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>

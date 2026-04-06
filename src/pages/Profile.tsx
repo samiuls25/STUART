@@ -46,6 +46,8 @@ const Profile = () => {
   const [loadingMemories, setLoadingMemories] = useState(false);
   const [creatingMemory, setCreatingMemory] = useState(false);
   const [memoryViewMode, setMemoryViewMode] = useState<MemoryViewMode>("timeline");
+  const [profileName, setProfileName] = useState<string>("");
+  const [profileAvatarUrl, setProfileAvatarUrl] = useState<string | null>(null);
   const [bio, setBio] = useState<string>("");
   
   const { user, loading, signOut } = useAuth();
@@ -70,20 +72,29 @@ const Profile = () => {
 
   // Fetch bio from user metadata or profiles table
   useEffect(() => {
-    if (user) {
-      const userBio = (user as any)?.user_metadata?.bio || "";
-      setBio(userBio);
-      
-      // Optionally fetch from profiles table as backup
-      supabase
-        .from("profiles")
-        .select("bio")
-        .eq("id", user.id)
-        .maybeSingle()
-        .then(({ data }) => {
-          if (data?.bio) setBio(data.bio);
-        });
+    if (!user) {
+      setProfileName("");
+      setProfileAvatarUrl(null);
+      setBio("");
+      return;
     }
+
+    const meta: any = (user as any)?.user_metadata ?? {};
+    setProfileName(meta.full_name || user.email?.split("@")[0] || "Your Name");
+    setProfileAvatarUrl(meta.avatar_url || null);
+    setBio(meta.bio || "");
+
+    supabase
+      .from("profiles")
+      .select("name,bio,avatar_url")
+      .eq("id", user.id)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (!data) return;
+        if (data.name) setProfileName(data.name);
+        if (data.bio) setBio(data.bio);
+        if (data.avatar_url) setProfileAvatarUrl(data.avatar_url);
+      });
   }, [user]);
 
   // useEffect MUST be called before any early returns to maintain consistent hook order
@@ -218,9 +229,10 @@ const Profile = () => {
 
   // Derive display fields from Supabase user metadata with safe fallbacks
   const displayName =
+    profileName ||
     (user as any)?.user_metadata?.full_name ||
     (user?.email ? user.email.split("@")[0] : "Your Name");
-  const avatarUrl = (user as any)?.user_metadata?.avatar_url ?? null;
+  const avatarUrl = profileAvatarUrl ?? (user as any)?.user_metadata?.avatar_url ?? null;
   const joinedDate = user?.created_at
     ? new Date(user.created_at).toLocaleString(undefined, { month: "long", year: "numeric" })
     : "Member";
@@ -245,6 +257,20 @@ const Profile = () => {
 
   const handleMemoryCreated = () => {
     refreshMemories();
+  };
+
+  const handleProfileSaved = ({
+    name,
+    bio: nextBio,
+    avatarUrl,
+  }: {
+    name: string;
+    bio: string;
+    avatarUrl: string | null;
+  }) => {
+    setProfileName(name);
+    setBio(nextBio);
+    setProfileAvatarUrl(avatarUrl);
   };
 
   return (
@@ -574,7 +600,11 @@ const Profile = () => {
           </motion.div>
         </div>
       </main>
-      <EditProfileModal isOpen={editing} onClose={() => setEditing(false)} />
+      <EditProfileModal
+        isOpen={editing}
+        onClose={() => setEditing(false)}
+        onSaved={handleProfileSaved}
+      />
       <CreateMemoryModal
         isOpen={creatingMemory}
         onClose={() => setCreatingMemory(false)}

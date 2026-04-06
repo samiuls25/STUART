@@ -9,10 +9,10 @@ interface FriendProfileModalProps {
   friend: Friend | null;
   isOpen: boolean;
   onClose: () => void;
-  onBlock?: (friend: Friend) => void;
+  onRemove?: (friend: Friend) => void;
 }
 
-const FriendProfileModal = ({ friend, isOpen, onClose, onBlock }: FriendProfileModalProps) => {
+const FriendProfileModal = ({ friend, isOpen, onClose, onRemove }: FriendProfileModalProps) => {
   const [visibleMemories, setVisibleMemories] = useState<Memory[]>([]);
   const [loadingMemories, setLoadingMemories] = useState(false);
   const friendId = friend?.id;
@@ -71,6 +71,10 @@ const FriendProfileModal = ({ friend, isOpen, onClose, onBlock }: FriendProfileM
     busy: "Busy",
   };
 
+  const resolvedStatus = (friend.status as string) in statusColors
+    ? (friend.status as "online" | "offline" | "busy")
+    : "offline";
+
   return (
     <AnimatePresence>
       {isOpen && (
@@ -116,14 +120,14 @@ const FriendProfileModal = ({ friend, isOpen, onClose, onBlock }: FriendProfileM
                       </span>
                     )}
                   </div>
-                  <div className={`absolute -bottom-1 -right-1 w-5 h-5 rounded-full border-2 border-card ${statusColors[friend.status]}`} />
+                  <div className={`absolute -bottom-1 -right-1 w-5 h-5 rounded-full border-2 border-card ${statusColors[resolvedStatus]}`} />
                 </div>
 
                 <div className="flex-1">
                   <h3 className="font-heading text-xl font-bold text-foreground">{friend.name}</h3>
                   <p className="text-sm text-muted-foreground flex items-center gap-2 mt-1">
-                    <span className={`w-2 h-2 rounded-full ${statusColors[friend.status]}`} />
-                    {statusLabels[friend.status]}
+                    <span className={`w-2 h-2 rounded-full ${statusColors[resolvedStatus]}`} />
+                    {statusLabels[resolvedStatus]}
                   </p>
 
                   <div className="flex items-center gap-3 mt-3 text-sm text-muted-foreground">
@@ -199,11 +203,11 @@ const FriendProfileModal = ({ friend, isOpen, onClose, onBlock }: FriendProfileM
             <div className="p-6 border-t border-border flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <button
-                  onClick={() => onBlock?.(friend)}
+                  onClick={() => onRemove?.(friend)}
                   className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-destructive hover:bg-destructive/10 transition-colors"
                 >
                   <UserMinus className="w-4 h-4" />
-                  Block
+                  Remove Friend
                 </button>
               </div>
 
