@@ -3,6 +3,7 @@ import React from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   X,
+  Check,
   Calendar,
   Clock,
   MapPin,
@@ -22,13 +23,67 @@ import type { Event } from "../../data/events";
 import { toast } from "../../hooks/use-toast";
 import { saveEvent, unsaveEvent, getSavedEventIds } from "../../lib/SavedEvents";
 import { useAuth } from "../../lib/AuthContext";
-import { getCurrentUserHangoutMembership, joinPublicHangout, leavePublicHangout } from "../../lib/hangouts";
+import { createHangout, getCurrentUserHangoutMembership, joinPublicHangout, leavePublicHangout, type CreateHangoutInput } from "../../lib/hangouts";
 import { getFriends, type Friend } from "../../lib/friends";
-import { createNotificationsBatch } from "../../lib/notifications";
 import { fetchGroupsForCurrentUser, groupMemberIds, type UserGroup } from "../../lib/groups";
+import { parseEventDate } from "../../lib/eventFilters";
 import CreateGroupModal from "../groups/CreateGroupModal";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../ui/dialog";
 import { Button } from "../ui/button";
+
+const pad2 = (value: number) => String(value).padStart(2, "0");
+
+const toDateInputValue = (date: Date) => {
+  return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
+};
+
+const toStartTime = (rawTime: string) => {
+  const normalized = rawTime.trim();
+
+  if (/^\d{1,2}:\d{2}$/.test(normalized)) {
+    return normalized;
+  }
+
+  const match = normalized.match(/(\d{1,2})(?::(\d{2}))?\s*(AM|PM)/i);
+  if (match) {
+    let hours = Number(match[1]);
+    const minutes = Number(match[2] || "0");
+    const meridiem = match[3].toUpperCase();
+
+    if (meridiem === "PM" && hours !== 12) hours += 12;
+    if (meridiem === "AM" && hours === 12) hours = 0;
+
+    return `${pad2(hours)}:${pad2(minutes)}`;
+  }
+
+  return "19:00";
+};
+
+const plusTwoHours = (startTime: string) => {
+  const [rawHours, rawMinutes] = startTime.split(":");
+  const hours = Number(rawHours);
+  const minutes = Number(rawMinutes);
+  if (Number.isNaN(hours) || Number.isNaN(minutes)) return "21:00";
+
+  const totalMinutes = hours * 60 + minutes + 120;
+  const endHours = Math.floor((totalMinutes % (24 * 60)) / 60);
+  const endMinutes = totalMinutes % 60;
+  return `${pad2(endHours)}:${pad2(endMinutes)}`;
+};
+
+const mapEventToHangoutType = (event: Event): CreateHangoutInput["activityType"] => {
+  const segment = event.segment.toLowerCase();
+  const genre = event.genre.toLowerCase();
+  const tags = (event.tags || []).map((tag) => tag.toLowerCase());
+
+  if (segment.includes("sports") || tags.includes("sports") || tags.includes("fitness")) return "active";
+  if (segment.includes("arts") || tags.includes("art") || genre.includes("theater")) return "creative";
+  if (tags.includes("outdoor") || tags.includes("park") || tags.includes("hike")) return "outdoor";
+  if (genre.includes("electronic") || tags.includes("nightlife") || tags.includes("club")) return "late-night";
+  if (segment.includes("music") || tags.includes("concert")) return "social";
+
+  return "chill";
+};
 
 interface EventDetailModalProps {
   event: Event | null;
@@ -209,22 +264,30 @@ const EventDetailModal = ({ event, onClose, initialSuggestOpen = false }: EventD
     setShowSuggestModal(true);
   };
 
+  const collectSelectedRecipientIds = () => {
+    if (!user) return [];
+
+    const fromGroups = selectedGroupIds.flatMap((groupId) => {
+      const group = suggestGroups.find((candidate) => candidate.id === groupId);
+      return group ? groupMemberIds(group, user.id) : [];
+    });
+
+    const fromFriends = selectedFriendIds.filter((id) => id !== user.id);
+
+    return [...new Set([...fromGroups, ...fromFriends])];
+  };
+
+  const selectedRecipientCount = collectSelectedRecipientIds().length;
+
   const handleSendSuggestion = async () => {
     if (!user || !event) return;
 
-    const recipientIds = suggestGroups.length > 0
-      ? [...new Set(
-          selectedGroupIds.flatMap((groupId) => {
-            const group = suggestGroups.find((candidate) => candidate.id === groupId);
-            return group ? groupMemberIds(group, user.id) : [];
-          })
-        )]
-      : [...new Set(selectedFriendIds.filter((id) => id !== user.id))];
+    const recipientIds = collectSelectedRecipientIds();
 
     if (recipientIds.length === 0) {
       toast({
-        title: suggestGroups.length > 0 ? "Select at least one group" : "Select at least one friend",
-        description: "Choose who should receive this suggestion.",
+        title: "Select at least one friend or group",
+        description: "Pick who should be invited to this event hangout.",
         variant: "destructive",
       });
       return;
@@ -232,37 +295,44 @@ const EventDetailModal = ({ event, onClose, initialSuggestOpen = false }: EventD
 
     setSendingSuggestion(true);
     try {
-      const senderName =
-        (user as { user_metadata?: { full_name?: string } }).user_metadata?.full_name
-        || user.email
-        || "A friend";
+      const parsedDate = parseEventDate(event.date);
+      const date = parsedDate ? toDateInputValue(parsedDate) : toDateInputValue(new Date());
+      const startTime = toStartTime(event.time);
+      const endTime = plusTwoHours(startTime);
 
-      await createNotificationsBatch({
-        recipientUserIds: recipientIds,
-        type: "friend_activity",
-        title: "Event suggestion",
-        message: `${senderName} suggested \"${event.name}\".`,
-        entityType: "event",
-        entityId: event.id,
-        metadata: {
-          eventId: event.id,
-          eventName: event.name,
-          venue: event.venue,
-          date: event.date,
-          time: event.time,
-          ticketUrl: event.ticketUrl,
+      const hangoutTitle = `${event.name} Hangout`;
+      const ticketLine = event.ticketUrl ? `\nTickets: ${event.ticketUrl}` : "";
+
+      await createHangout({
+        title: hangoutTitle,
+        description: `Event plan based on \"${event.name}\".${ticketLine}`,
+        activityType: mapEventToHangoutType(event),
+        isPublic: false,
+        proposedTimeRange: {
+          date,
+          startTime,
+          endTime,
         },
+        location: {
+          name: event.venue,
+          address: event.neighborhood ? `${event.neighborhood}, New York, NY` : undefined,
+          isFlexible: false,
+        },
+        invitedFriends: recipientIds,
+        highlightedFriends: [],
       });
 
       toast({
-        title: "Suggestion sent",
-        description: `Sent to ${recipientIds.length} friend${recipientIds.length !== 1 ? "s" : ""}.`,
+        title: "Hangout invite sent",
+        description: `Created a hangout and invited ${recipientIds.length} friend${recipientIds.length !== 1 ? "s" : ""}.`,
       });
       setShowSuggestModal(false);
+      setSelectedGroupIds([]);
+      setSelectedFriendIds([]);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Failed to send event suggestion.";
+      const message = error instanceof Error ? error.message : "Failed to create hangout invite.";
       toast({
-        title: "Could not send suggestion",
+        title: "Could not create hangout",
         description: message,
         variant: "destructive",
       });
@@ -551,68 +621,121 @@ const EventDetailModal = ({ event, onClose, initialSuggestOpen = false }: EventD
               <DialogHeader>
                 <DialogTitle>Suggest This Event</DialogTitle>
                 <DialogDescription>
-                  {suggestGroups.length > 0
-                    ? "Share with one or more of your saved groups."
-                    : "No groups yet. Suggest directly to friends, or create a group first."}
+                  Create a real hangout invite from this event. You can select groups and individual friends together.
                 </DialogDescription>
               </DialogHeader>
 
               <div className="space-y-3">
-                <div className="flex justify-end">
+                <div className="flex items-center justify-between rounded-lg border border-primary/25 bg-primary/10 px-3 py-2">
+                  <div>
+                    <p className="text-sm font-medium text-foreground">{selectedRecipientCount} invitee{selectedRecipientCount !== 1 ? "s" : ""} selected</p>
+                    <p className="text-xs text-muted-foreground">This will create a hangout event and send invites.</p>
+                  </div>
                   <button
                     type="button"
                     onClick={() => setShowCreateGroupModal(true)}
-                    className="text-xs text-primary hover:underline"
+                    className="text-xs px-2.5 py-1.5 rounded-full border border-border bg-background hover:bg-muted transition-colors"
                   >
                     Create group
                   </button>
                 </div>
 
-                <div className="rounded-lg border border-border divide-y divide-border/60 max-h-72 overflow-y-auto">
-                  {loadingSuggestTargets ? (
-                    <div className="p-3 text-sm text-muted-foreground">Loading suggestions...</div>
-                  ) : suggestGroups.length > 0 ? (
-                    suggestGroups.map((group) => {
-                      const selected = selectedGroupIds.includes(group.id);
-                      return (
-                        <button
-                          key={group.id}
-                          type="button"
-                          onClick={() => {
-                            setSelectedGroupIds((prev) =>
-                              prev.includes(group.id) ? prev.filter((id) => id !== group.id) : [...prev, group.id]
+                {loadingSuggestTargets ? (
+                  <div className="rounded-lg border border-border p-3 text-sm text-muted-foreground">Loading suggestions...</div>
+                ) : (
+                  <div className="space-y-3">
+                    <div className="space-y-2">
+                      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Groups</p>
+                      {suggestGroups.length > 0 ? (
+                        <div className="space-y-2 max-h-44 overflow-y-auto pr-1">
+                          {suggestGroups.map((group) => {
+                            const selected = selectedGroupIds.includes(group.id);
+                            return (
+                              <button
+                                key={group.id}
+                                type="button"
+                                onClick={() => {
+                                  setSelectedGroupIds((prev) =>
+                                    prev.includes(group.id) ? prev.filter((id) => id !== group.id) : [...prev, group.id]
+                                  );
+                                }}
+                                className={`w-full px-3 py-2.5 rounded-lg text-left border transition-all ${
+                                  selected
+                                    ? "border-primary bg-primary/15 shadow-sm"
+                                    : "border-border hover:border-primary/35 hover:bg-muted/40"
+                                }`}
+                              >
+                                <div className="flex items-center justify-between gap-2">
+                                  <div>
+                                    <p className="text-sm font-medium text-foreground">{group.name}</p>
+                                    <p className="text-xs text-muted-foreground">{group.members.length} members</p>
+                                  </div>
+                                  <span className={`inline-flex items-center justify-center w-5 h-5 rounded-full border ${selected ? "bg-primary border-primary text-primary-foreground" : "border-muted-foreground/40 text-transparent"}`}>
+                                    <Check className="w-3 h-3" />
+                                  </span>
+                                </div>
+                              </button>
                             );
-                          }}
-                          className={`w-full px-3 py-2 text-left hover:bg-muted/40 transition-colors ${selected ? "bg-primary/5" : ""}`}
-                        >
-                          <p className="text-sm text-foreground">{group.name}</p>
-                          <p className="text-xs text-muted-foreground">{group.members.length} members</p>
-                        </button>
-                      );
-                    })
-                  ) : suggestFriends.length > 0 ? (
-                    suggestFriends.map((friend) => {
-                      const selected = selectedFriendIds.includes(friend.id);
-                      return (
-                        <button
-                          key={friend.id}
-                          type="button"
-                          onClick={() => {
-                            setSelectedFriendIds((prev) =>
-                              prev.includes(friend.id) ? prev.filter((id) => id !== friend.id) : [...prev, friend.id]
+                          })}
+                        </div>
+                      ) : (
+                        <div className="rounded-lg border border-dashed border-border p-3 text-xs text-muted-foreground">
+                          No groups yet. You can still invite individual friends below.
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="space-y-2">
+                      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Individual Friends</p>
+                      {suggestFriends.length > 0 ? (
+                        <div className="space-y-2 max-h-52 overflow-y-auto pr-1">
+                          {suggestFriends.map((friend) => {
+                            const selected = selectedFriendIds.includes(friend.id);
+                            return (
+                              <button
+                                key={friend.id}
+                                type="button"
+                                onClick={() => {
+                                  setSelectedFriendIds((prev) =>
+                                    prev.includes(friend.id) ? prev.filter((id) => id !== friend.id) : [...prev, friend.id]
+                                  );
+                                }}
+                                className={`w-full px-3 py-2.5 rounded-lg text-left border transition-all ${
+                                  selected
+                                    ? "border-primary bg-primary/15 shadow-sm"
+                                    : "border-border hover:border-primary/35 hover:bg-muted/40"
+                                }`}
+                              >
+                                <div className="flex items-center justify-between gap-2">
+                                  <div className="flex items-center gap-3 min-w-0">
+                                    <div className="w-8 h-8 rounded-full bg-muted overflow-hidden flex items-center justify-center text-xs font-medium text-foreground">
+                                      {friend.avatar_url ? (
+                                        <img src={friend.avatar_url} alt={friend.name} className="w-full h-full object-cover" />
+                                      ) : (
+                                        friend.name.charAt(0)
+                                      )}
+                                    </div>
+                                    <div className="min-w-0">
+                                      <p className="text-sm font-medium text-foreground truncate">{friend.name}</p>
+                                      <p className="text-xs text-muted-foreground truncate">{friend.email || "Friend"}</p>
+                                    </div>
+                                  </div>
+                                  <span className={`inline-flex items-center justify-center w-5 h-5 rounded-full border ${selected ? "bg-primary border-primary text-primary-foreground" : "border-muted-foreground/40 text-transparent"}`}>
+                                    <Check className="w-3 h-3" />
+                                  </span>
+                                </div>
+                              </button>
                             );
-                          }}
-                          className={`w-full px-3 py-2 text-left hover:bg-muted/40 transition-colors ${selected ? "bg-primary/5" : ""}`}
-                        >
-                          <p className="text-sm text-foreground">{friend.name}</p>
-                          <p className="text-xs text-muted-foreground">{friend.email || "Friend"}</p>
-                        </button>
-                      );
-                    })
-                  ) : (
-                    <div className="p-3 text-sm text-muted-foreground">No friends available to suggest to yet.</div>
-                  )}
-                </div>
+                          })}
+                        </div>
+                      ) : (
+                        <div className="rounded-lg border border-dashed border-border p-3 text-xs text-muted-foreground">
+                          No friends available to invite yet.
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
 
               <DialogFooter>
@@ -620,7 +743,7 @@ const EventDetailModal = ({ event, onClose, initialSuggestOpen = false }: EventD
                   Cancel
                 </Button>
                 <Button onClick={handleSendSuggestion} disabled={sendingSuggestion || loadingSuggestTargets}>
-                  {sendingSuggestion ? "Sending..." : "Send Suggestion"}
+                  {sendingSuggestion ? "Creating..." : "Create Hangout Invite"}
                 </Button>
               </DialogFooter>
             </DialogContent>
