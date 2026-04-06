@@ -15,19 +15,31 @@ import {
 import { useToast } from "../../hooks/use-toast";
 import { createMemoryWithPhotos, memoryUploadConfig } from "../../lib/memories";
 
+export interface CreateMemoryInitialValues {
+  title?: string;
+  description?: string;
+  location?: string;
+  memoryDate?: string;
+  eventId?: string;
+  hangoutId?: string;
+}
+
 interface CreateMemoryModalProps {
   isOpen: boolean;
   onClose: () => void;
   onCreated?: () => void;
+  initialValues?: CreateMemoryInitialValues | null;
 }
 
-const CreateMemoryModal = ({ isOpen, onClose, onCreated }: CreateMemoryModalProps) => {
+const getTodayIsoDate = () => new Date().toISOString().slice(0, 10);
+
+const CreateMemoryModal = ({ isOpen, onClose, onCreated, initialValues }: CreateMemoryModalProps) => {
   const { toast } = useToast();
 
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [location, setLocation] = useState("");
-  const [memoryDate, setMemoryDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [memoryDate, setMemoryDate] = useState(() => getTodayIsoDate());
   const [files, setFiles] = useState<File[]>([]);
   const [submitting, setSubmitting] = useState(false);
 
@@ -47,11 +59,19 @@ const CreateMemoryModal = ({ isOpen, onClose, onCreated }: CreateMemoryModalProp
       setTitle("");
       setDescription("");
       setLocation("");
-      setMemoryDate(new Date().toISOString().slice(0, 10));
+      setMemoryDate(getTodayIsoDate());
       setFiles([]);
       setSubmitting(false);
+      return;
     }
-  }, [isOpen]);
+
+    setTitle(initialValues?.title || "");
+    setDescription(initialValues?.description || "");
+    setLocation(initialValues?.location || "");
+    setMemoryDate(initialValues?.memoryDate || getTodayIsoDate());
+    setFiles([]);
+    setSubmitting(false);
+  }, [isOpen, initialValues]);
 
   const addFiles = (incoming: FileList | null) => {
     if (!incoming || incoming.length === 0) return;
@@ -113,6 +133,8 @@ const CreateMemoryModal = ({ isOpen, onClose, onCreated }: CreateMemoryModalProp
           description,
           location,
           memoryDate,
+          eventId: initialValues?.eventId,
+          hangoutId: initialValues?.hangoutId,
         },
         files
       );
