@@ -26,6 +26,7 @@ import { getUserBadges } from "../lib/badges";
 import { fetchMemoriesForCurrentUser, type Memory } from "../lib/memories";
 
 type TabType = "overview" | "badges" | "memories";
+type MemoryViewMode = "timeline" | "gallery";
 
 const Profile = () => {
   const [activeTab, setActiveTab] = useState<TabType>("overview");
@@ -39,6 +40,7 @@ const Profile = () => {
   const [loadingBadges, setLoadingBadges] = useState(false);
   const [loadingMemories, setLoadingMemories] = useState(false);
   const [creatingMemory, setCreatingMemory] = useState(false);
+  const [memoryViewMode, setMemoryViewMode] = useState<MemoryViewMode>("timeline");
   const [bio, setBio] = useState<string>("");
   
   const { user, loading, signOut } = useAuth();
@@ -191,13 +193,17 @@ const Profile = () => {
     refreshMemories();
   };
 
-  const memoryTimelineGroups = useMemo(() => {
-    if (memoriesState.length === 0) return [] as Array<{ label: string; memories: Memory[] }>;
+  const sortedMemories = useMemo(
+    () => [...memoriesState].sort((a, b) => b.sortTimestamp - a.sortTimestamp),
+    [memoriesState]
+  );
 
-    const sorted = [...memoriesState].sort((a, b) => b.sortTimestamp - a.sortTimestamp);
+  const memoryTimelineGroups = useMemo(() => {
+    if (sortedMemories.length === 0) return [] as Array<{ label: string; memories: Memory[] }>;
+
     const groups = new Map<string, Memory[]>();
 
-    sorted.forEach((memory) => {
+    sortedMemories.forEach((memory) => {
       const parsedDate = new Date(memory.sortTimestamp);
       const label = Number.isNaN(parsedDate.getTime())
         ? "Unknown"
@@ -215,7 +221,7 @@ const Profile = () => {
       label,
       memories,
     }));
-  }, [memoriesState]);
+  }, [sortedMemories]);
 
   return (
     <div className="min-h-screen bg-background">
@@ -441,37 +447,76 @@ const Profile = () => {
                     <Camera className="w-5 h-5 text-primary" />
                     Memories Timeline
                   </h2>
-                  <button
-                    onClick={() => setCreatingMemory(true)}
-                    className="btn-primary px-4 py-2 text-sm"
-                  >
-                    Add Memory
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <div className="rounded-lg border border-border p-1 flex items-center">
+                      <button
+                        onClick={() => setMemoryViewMode("timeline")}
+                        className={`px-3 py-1.5 text-xs rounded-md transition-colors ${
+                          memoryViewMode === "timeline"
+                            ? "bg-primary text-primary-foreground"
+                            : "text-muted-foreground hover:text-foreground"
+                        }`}
+                      >
+                        Timeline
+                      </button>
+                      <button
+                        onClick={() => setMemoryViewMode("gallery")}
+                        className={`px-3 py-1.5 text-xs rounded-md transition-colors ${
+                          memoryViewMode === "gallery"
+                            ? "bg-primary text-primary-foreground"
+                            : "text-muted-foreground hover:text-foreground"
+                        }`}
+                      >
+                        Gallery
+                      </button>
+                    </div>
+                    <button
+                      onClick={() => setCreatingMemory(true)}
+                      className="btn-primary px-4 py-2 text-sm"
+                    >
+                      Add Memory
+                    </button>
+                  </div>
                 </div>
                 {loadingMemories ? (
                   <div className="py-6 text-center text-sm text-muted-foreground">Loading memories…</div>
                 ) : memoriesState.length > 0 ? (
-                  <div className="space-y-8">
-                    {memoryTimelineGroups.map((group, groupIndex) => (
-                      <section key={group.label} className="space-y-3">
-                        <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-                          {group.label}
-                        </h3>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          {group.memories.map((memory, index) => (
-                            <motion.div
-                              key={memory.id}
-                              initial={{ opacity: 0, y: 20 }}
-                              animate={{ opacity: 1, y: 0 }}
-                              transition={{ delay: (groupIndex * 0.04) + (index * 0.04) }}
-                            >
-                              <MemoryCard memory={memory} onMemoryUpdated={refreshMemories} />
-                            </motion.div>
-                          ))}
-                        </div>
-                      </section>
-                    ))}
-                  </div>
+                  memoryViewMode === "timeline" ? (
+                    <div className="space-y-8">
+                      {memoryTimelineGroups.map((group, groupIndex) => (
+                        <section key={group.label} className="space-y-3">
+                          <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+                            {group.label}
+                          </h3>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            {group.memories.map((memory, index) => (
+                              <motion.div
+                                key={memory.id}
+                                initial={{ opacity: 0, y: 20 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                transition={{ delay: (groupIndex * 0.04) + (index * 0.04) }}
+                              >
+                                <MemoryCard memory={memory} onMemoryUpdated={refreshMemories} />
+                              </motion.div>
+                            ))}
+                          </div>
+                        </section>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {sortedMemories.map((memory, index) => (
+                        <motion.div
+                          key={memory.id}
+                          initial={{ opacity: 0, y: 20 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ delay: index * 0.03 }}
+                        >
+                          <MemoryCard memory={memory} onMemoryUpdated={refreshMemories} />
+                        </motion.div>
+                      ))}
+                    </div>
+                  )
                 ) : (
                   <div className="py-8 text-center text-sm text-muted-foreground">
                     You have no memories yet. Add one to start your timeline.
