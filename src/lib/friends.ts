@@ -1,4 +1,5 @@
 import { supabase } from "./supabase";
+import { createNotification } from "./notifications";
 
 export interface FriendBadgeSummary {
   id: string;
@@ -14,7 +15,7 @@ export interface Friend {
   name: string;
   email: string;
   avatar_url?: string;
-  status: 'online' | 'offline' | 'busy';
+  status: 'online' | 'offline' | 'busy' | 'pending' | 'accepted' | 'blocked';
   badges?: string[];
   badgeSummaries?: FriendBadgeSummary[];
   mutualFriends?: number;
@@ -233,6 +234,27 @@ export async function sendFriendRequest(friendEmail: string): Promise<boolean> {
     return false;
   }
 
+  try {
+    const senderName =
+      (user as { user_metadata?: { full_name?: string } }).user_metadata?.full_name
+      || user.email
+      || "A friend";
+
+    await createNotification({
+      recipientUserId: friendProfile.id,
+      type: "friend_request",
+      title: "New friend request",
+      message: `${senderName} sent you a friend request.`,
+      entityType: "friendship",
+      entityId: user.id,
+      metadata: {
+        senderId: user.id,
+      },
+    });
+  } catch (notificationError) {
+    console.warn("Friend request notification skipped", notificationError);
+  }
+
   return true;
 }
 
@@ -265,6 +287,27 @@ export async function acceptFriendRequest(friendId: string): Promise<boolean> {
   if (insertError) {
     console.error("Error creating reciprocal friendship:", insertError);
     return false;
+  }
+
+  try {
+    const acceptorName =
+      (user as { user_metadata?: { full_name?: string } }).user_metadata?.full_name
+      || user.email
+      || "Your friend";
+
+    await createNotification({
+      recipientUserId: friendId,
+      type: "friend_request_accepted",
+      title: "Friend request accepted",
+      message: `${acceptorName} accepted your friend request.`,
+      entityType: "friendship",
+      entityId: user.id,
+      metadata: {
+        accepterId: user.id,
+      },
+    });
+  } catch (notificationError) {
+    console.warn("Friend acceptance notification skipped", notificationError);
   }
 
   return true;
