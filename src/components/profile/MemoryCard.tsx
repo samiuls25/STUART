@@ -1,11 +1,29 @@
 import React from "react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { MapPin, Clock, Users, Camera, X, ChevronLeft, ChevronRight, Plus, Trash2 } from "lucide-react";
 import type { Friend } from "../../lib/friends";
 import { getFriends } from "../../lib/friends";
-import { addMemoryAttendee, deleteMemory, deleteMemoryPhoto, removeMemoryAttendee, reorderMemoryPhotos, type Memory } from "../../lib/memories";
+import {
+  addMemoryAttendee,
+  deleteMemory,
+  deleteMemoryPhoto,
+  memoryUploadConfig,
+  removeMemoryAttendee,
+  reorderMemoryPhotos,
+  uploadPhotosToMemory,
+  type Memory,
+} from "../../lib/memories";
 import { useToast } from "../../hooks/use-toast";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogTitle,
+} from "../ui/alert-dialog";
 
 interface MemoryCardProps {
   memory: Memory;
@@ -28,6 +46,12 @@ const MemoryCard = ({ memory, compact = false, displayMode = "default", allowDel
   const [isDeletingMemory, setIsDeletingMemory] = useState(false);
   const [isReorderingPhotos, setIsReorderingPhotos] = useState(false);
   const [deletingPhotoId, setDeletingPhotoId] = useState<string | null>(null);
+  const [showDeleteMemoryConfirm, setShowDeleteMemoryConfirm] = useState(false);
+  const [showDeletePhotoConfirm, setShowDeletePhotoConfirm] = useState(false);
+  const [pendingDeletePhotoId, setPendingDeletePhotoId] = useState<string | null>(null);
+  const [isUploadingPhotos, setIsUploadingPhotos] = useState(false);
+  const galleryUploadInputRef = useRef<HTMLInputElement | null>(null);
+  const defaultUploadInputRef = useRef<HTMLInputElement | null>(null);
 
   const galleryPhotos = useMemo(
     () =>
@@ -59,6 +83,10 @@ const MemoryCard = ({ memory, compact = false, displayMode = "default", allowDel
   const currentSelectedPhoto = galleryPhotos[currentPhotoIndex] || null;
   const galleryContainsSynthetic = galleryPhotos.some((photo) => isSyntheticPhoto(photo.id));
   const canReorderPhotos = galleryPhotos.length > 1 && !galleryContainsSynthetic;
+  const remainingPhotoSlots = Math.max(0, memoryUploadConfig.maxPhotosPerMemory - galleryPhotos.length);
+  const pendingDeletePhoto = pendingDeletePhotoId
+    ? galleryPhotos.find((photo) => photo.id === pendingDeletePhotoId) || null
+    : null;
 
   const getReorderedIdsAndTargetIndex = (direction: "left" | "right") => {
     if (!canReorderPhotos) return null;
@@ -158,11 +186,14 @@ const MemoryCard = ({ memory, compact = false, displayMode = "default", allowDel
     }
   };
 
-  const handleDeleteMemory = async () => {
+  const handleDeleteMemory = () => {
     if (!editable || !allowDelete) return;
 
-    const confirmed = window.confirm("Delete this memory and all of its uploaded photos? This cannot be undone.");
-    if (!confirmed) return;
+    setShowDeleteMemoryConfirm(true);
+  };
+
+  const confirmDeleteMemory = async () => {
+    setShowDeleteMemoryConfirm(false);
 
     setIsDeletingMemory(true);
     try {
@@ -185,16 +216,24 @@ const MemoryCard = ({ memory, compact = false, displayMode = "default", allowDel
     }
   };
 
-  const handleDeleteSelectedPhoto = async () => {
+  const handleDeleteSelectedPhoto = () => {
     if (!editable) return;
     if (!currentSelectedPhoto) return;
 
-    const confirmed = window.confirm("Delete this photo from the memory?");
-    if (!confirmed) return;
+    setPendingDeletePhotoId(currentSelectedPhoto.id);
+    setShowDeletePhotoConfirm(true);
+  };
 
-    setDeletingPhotoId(currentSelectedPhoto.id);
+  const confirmDeleteSelectedPhoto = async () => {
+    if (!pendingDeletePhotoId) return;
+    setShowDeletePhotoConfirm(false);
+
+    const selectedId = pendingDeletePhotoId;
+    setPendingDeletePhotoId(null);
+
+    setDeletingPhotoId(selectedId);
     try {
-      await deleteMemoryPhoto(memory.id, currentSelectedPhoto.id);
+      await deleteMemoryPhoto(memory.id, selectedId);
       toast({
         title: "Photo deleted",
         description: "The photo was removed from this memory.",
@@ -210,6 +249,67 @@ const MemoryCard = ({ memory, compact = false, displayMode = "default", allowDel
       });
     } finally {
       setDeletingPhotoId(null);
+    }
+  };
+
+  const handleAddPhotos = async (incoming: FileList | null) => {
+    if (!editable || !incoming || incoming.length === 0) return;
+
+    const imageFiles = Array.from(incoming).filter((file) => file.type.startsWith("image/"));
+    if (imageFiles.length === 0) {
+      toast({
+        title: "No valid photos selected",
+        description: "Please choose image files only.",
+      });
+      return;
+    }
+
+    const oversized = imageFiles.find(
+      (file) => file.size > memoryUploadConfig.maxRawFileSizeMb * 1024 * 1024
+    );
+
+    if (oversized) {
+      toast({
+        title: "Photo too large",
+        description: `Each photo must be under ${memoryUploadConfig.maxRawFileSizeMb} MB.`,
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (remainingPhotoSlots <= 0) {
+      toast({
+        title: "Photo limit reached",
+        description: `You can upload up to ${memoryUploadConfig.maxPhotosPerMemory} photos per memory.`,
+      });
+      return;
+    }
+
+    const filesToUpload = imageFiles.slice(0, remainingPhotoSlots);
+    if (filesToUpload.length < imageFiles.length) {
+      toast({
+        title: "Photo limit reached",
+        description: `Only ${filesToUpload.length} more photo${filesToUpload.length === 1 ? "" : "s"} can be added to this memory.`,
+      });
+    }
+
+    setIsUploadingPhotos(true);
+    try {
+      const uploaded = await uploadPhotosToMemory(memory.id, filesToUpload);
+      toast({
+        title: "Photos added",
+        description: `${uploaded.length} photo${uploaded.length === 1 ? "" : "s"} uploaded successfully.`,
+      });
+      await onMemoryUpdated?.();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to upload photos.";
+      toast({
+        title: "Could not upload photos",
+        description: message,
+        variant: "destructive",
+      });
+    } finally {
+      setIsUploadingPhotos(false);
     }
   };
 
@@ -402,31 +502,62 @@ const MemoryCard = ({ memory, compact = false, displayMode = "default", allowDel
                     </div>
 
                     {editable && (
-                      <div className="mt-3 flex flex-wrap gap-2">
-                        <button
-                          type="button"
-                          onClick={() => handleReorderSelectedPhoto("left")}
-                          disabled={!canReorderPhotos || isReorderingPhotos || currentPhotoIndex === 0}
-                          className="px-3 py-1.5 rounded-md border border-border text-sm text-foreground disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                          Move Left
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleReorderSelectedPhoto("right")}
-                          disabled={!canReorderPhotos || isReorderingPhotos || currentPhotoIndex >= galleryPhotos.length - 1}
-                          className="px-3 py-1.5 rounded-md border border-border text-sm text-foreground disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                          Move Right
-                        </button>
-                        <button
-                          type="button"
-                          onClick={handleDeleteSelectedPhoto}
-                          disabled={!currentSelectedPhoto || deletingPhotoId === currentSelectedPhoto?.id}
-                          className="px-3 py-1.5 rounded-md border border-destructive/30 text-sm text-destructive disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                          {deletingPhotoId === currentSelectedPhoto?.id ? "Deleting Photo..." : "Delete Selected Photo"}
-                        </button>
+                      <div className="mt-3 space-y-2">
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            onClick={() => galleryUploadInputRef.current?.click()}
+                            disabled={isUploadingPhotos || remainingPhotoSlots <= 0}
+                            className="inline-flex items-center gap-1.5 rounded-md bg-primary/10 px-3 py-1.5 text-sm font-medium text-primary hover:bg-primary/20 disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            <Plus className="w-4 h-4" />
+                            {isUploadingPhotos ? "Uploading..." : "Add Photos"}
+                          </button>
+                          <input
+                            ref={galleryUploadInputRef}
+                            type="file"
+                            accept="image/*"
+                            multiple
+                            className="hidden"
+                            onChange={(event) => {
+                              void handleAddPhotos(event.target.files);
+                              event.currentTarget.value = "";
+                            }}
+                          />
+                          <span className="text-xs text-muted-foreground self-center">
+                            {Math.max(remainingPhotoSlots, 0)} slot{remainingPhotoSlots === 1 ? "" : "s"} left
+                          </span>
+                        </div>
+
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            onClick={() => handleReorderSelectedPhoto("left")}
+                            disabled={!canReorderPhotos || isReorderingPhotos || currentPhotoIndex === 0}
+                            className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-3 py-1.5 text-sm font-medium text-foreground hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            <ChevronLeft className="w-4 h-4" />
+                            Move Left
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleReorderSelectedPhoto("right")}
+                            disabled={!canReorderPhotos || isReorderingPhotos || currentPhotoIndex >= galleryPhotos.length - 1}
+                            className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-3 py-1.5 text-sm font-medium text-foreground hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            Move Right
+                            <ChevronRight className="w-4 h-4" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={handleDeleteSelectedPhoto}
+                            disabled={!currentSelectedPhoto || deletingPhotoId === currentSelectedPhoto?.id}
+                            className="inline-flex items-center gap-1.5 rounded-md border border-destructive/40 bg-destructive/5 px-3 py-1.5 text-sm font-medium text-destructive hover:bg-destructive/10 disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                            {deletingPhotoId === currentSelectedPhoto?.id ? "Deleting..." : "Delete Selected"}
+                          </button>
+                        </div>
                       </div>
                     )}
 
@@ -441,6 +572,64 @@ const MemoryCard = ({ memory, compact = false, displayMode = "default", allowDel
             </motion.div>
           )}
         </AnimatePresence>
+
+        <AlertDialog open={showDeleteMemoryConfirm} onOpenChange={setShowDeleteMemoryConfirm}>
+          <AlertDialogContent className="max-w-md rounded-2xl">
+            <AlertDialogTitle className="text-destructive">Delete Memory?</AlertDialogTitle>
+            <AlertDialogDescription className="space-y-3">
+              <p>This memory and all uploaded photos will be permanently removed.</p>
+              <div className="rounded-xl border border-destructive/30 bg-destructive/10 p-3">
+                <p className="text-sm text-foreground">
+                  <strong>{memory.eventName}</strong>
+                </p>
+              </div>
+            </AlertDialogDescription>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Keep Memory</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={() => {
+                  void confirmDeleteMemory();
+                }}
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              >
+                Delete Memory
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
+        <AlertDialog
+          open={showDeletePhotoConfirm}
+          onOpenChange={(open) => {
+            setShowDeletePhotoConfirm(open);
+            if (!open) {
+              setPendingDeletePhotoId(null);
+            }
+          }}
+        >
+          <AlertDialogContent className="max-w-md rounded-2xl">
+            <AlertDialogTitle className="text-destructive">Delete Selected Photo?</AlertDialogTitle>
+            <AlertDialogDescription className="space-y-3">
+              <p>This photo will be removed from the memory.</p>
+              <div className="rounded-xl border border-destructive/30 bg-destructive/10 p-3">
+                <p className="text-sm text-foreground">
+                  {pendingDeletePhoto ? `Photo by ${pendingDeletePhoto.uploadedBy}` : "Selected photo"}
+                </p>
+              </div>
+            </AlertDialogDescription>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Keep Photo</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={() => {
+                  void confirmDeleteSelectedPhoto();
+                }}
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              >
+                Delete Photo
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </>
     );
   }
@@ -699,31 +888,62 @@ const MemoryCard = ({ memory, compact = false, displayMode = "default", allowDel
                   </div>
 
                   {editable && (
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        onClick={() => handleReorderSelectedPhoto("left")}
-                        disabled={!canReorderPhotos || isReorderingPhotos || currentPhotoIndex === 0}
-                        className="px-3 py-1.5 rounded-md border border-border text-sm text-foreground disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        Move Left
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleReorderSelectedPhoto("right")}
-                        disabled={!canReorderPhotos || isReorderingPhotos || currentPhotoIndex >= galleryPhotos.length - 1}
-                        className="px-3 py-1.5 rounded-md border border-border text-sm text-foreground disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        Move Right
-                      </button>
-                      <button
-                        type="button"
-                        onClick={handleDeleteSelectedPhoto}
-                        disabled={!currentSelectedPhoto || deletingPhotoId === currentSelectedPhoto?.id}
-                        className="px-3 py-1.5 rounded-md border border-destructive/30 text-sm text-destructive disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        {deletingPhotoId === currentSelectedPhoto?.id ? "Deleting Photo..." : "Delete Selected Photo"}
-                      </button>
+                    <div className="mt-3 space-y-2">
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() => defaultUploadInputRef.current?.click()}
+                          disabled={isUploadingPhotos || remainingPhotoSlots <= 0}
+                          className="inline-flex items-center gap-1.5 rounded-md bg-primary/10 px-3 py-1.5 text-sm font-medium text-primary hover:bg-primary/20 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          <Plus className="w-4 h-4" />
+                          {isUploadingPhotos ? "Uploading..." : "Add Photos"}
+                        </button>
+                        <input
+                          ref={defaultUploadInputRef}
+                          type="file"
+                          accept="image/*"
+                          multiple
+                          className="hidden"
+                          onChange={(event) => {
+                            void handleAddPhotos(event.target.files);
+                            event.currentTarget.value = "";
+                          }}
+                        />
+                        <span className="text-xs text-muted-foreground self-center">
+                          {Math.max(remainingPhotoSlots, 0)} slot{remainingPhotoSlots === 1 ? "" : "s"} left
+                        </span>
+                      </div>
+
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() => handleReorderSelectedPhoto("left")}
+                          disabled={!canReorderPhotos || isReorderingPhotos || currentPhotoIndex === 0}
+                          className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-3 py-1.5 text-sm font-medium text-foreground hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          <ChevronLeft className="w-4 h-4" />
+                          Move Left
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleReorderSelectedPhoto("right")}
+                          disabled={!canReorderPhotos || isReorderingPhotos || currentPhotoIndex >= galleryPhotos.length - 1}
+                          className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-3 py-1.5 text-sm font-medium text-foreground hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          Move Right
+                          <ChevronRight className="w-4 h-4" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleDeleteSelectedPhoto}
+                          disabled={!currentSelectedPhoto || deletingPhotoId === currentSelectedPhoto?.id}
+                          className="inline-flex items-center gap-1.5 rounded-md border border-destructive/40 bg-destructive/5 px-3 py-1.5 text-sm font-medium text-destructive hover:bg-destructive/10 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                          {deletingPhotoId === currentSelectedPhoto?.id ? "Deleting..." : "Delete Selected"}
+                        </button>
+                      </div>
                     </div>
                   )}
 
@@ -738,6 +958,64 @@ const MemoryCard = ({ memory, compact = false, displayMode = "default", allowDel
           </motion.div>
         )}
       </AnimatePresence>
+
+      <AlertDialog open={showDeleteMemoryConfirm} onOpenChange={setShowDeleteMemoryConfirm}>
+        <AlertDialogContent className="max-w-md rounded-2xl">
+          <AlertDialogTitle className="text-destructive">Delete Memory?</AlertDialogTitle>
+          <AlertDialogDescription className="space-y-3">
+            <p>This memory and all uploaded photos will be permanently removed.</p>
+            <div className="rounded-xl border border-destructive/30 bg-destructive/10 p-3">
+              <p className="text-sm text-foreground">
+                <strong>{memory.eventName}</strong>
+              </p>
+            </div>
+          </AlertDialogDescription>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep Memory</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                void confirmDeleteMemory();
+              }}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Delete Memory
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={showDeletePhotoConfirm}
+        onOpenChange={(open) => {
+          setShowDeletePhotoConfirm(open);
+          if (!open) {
+            setPendingDeletePhotoId(null);
+          }
+        }}
+      >
+        <AlertDialogContent className="max-w-md rounded-2xl">
+          <AlertDialogTitle className="text-destructive">Delete Selected Photo?</AlertDialogTitle>
+          <AlertDialogDescription className="space-y-3">
+            <p>This photo will be removed from the memory.</p>
+            <div className="rounded-xl border border-destructive/30 bg-destructive/10 p-3">
+              <p className="text-sm text-foreground">
+                {pendingDeletePhoto ? `Photo by ${pendingDeletePhoto.uploadedBy}` : "Selected photo"}
+              </p>
+            </div>
+          </AlertDialogDescription>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep Photo</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                void confirmDeleteSelectedPhoto();
+              }}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Delete Photo
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 };
