@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import React from "react";
 import { motion } from "framer-motion";
 import { Link } from "react-router-dom";
@@ -16,13 +16,14 @@ import Navbar from "../components/layout/Navbar";
 import AuthModal from "../components/auth/AuthModal";
 import BadgeCard from "../components/profile/BadgeCard";
 import MemoryCard from "../components/profile/MemoryCard";
+import CreateMemoryModal from "../components/profile/CreateMemoryModal";
 import EditProfileModal from "../components/profile/EditProfileModal";
-import { memories as localMemories } from "../data/badges";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/AuthContext";
 import { getFriends } from "../lib/friends";
 import { getSavedEventIds } from "../lib/SavedEvents";
 import { getUserBadges } from "../lib/badges";
+import { fetchMemoriesForCurrentUser, type Memory } from "../lib/memories";
 
 type TabType = "overview" | "badges" | "memories";
 
@@ -34,12 +35,31 @@ const Profile = () => {
   const [groupsCount, setGroupsCount] = useState(0);
   const [friendsCount, setFriendsCount] = useState<number>(0);
   const [badges, setBadges] = useState([]);
-  const [memoriesState, setMemoriesState] = useState(localMemories);
+  const [memoriesState, setMemoriesState] = useState<Memory[]>([]);
   const [loadingBadges, setLoadingBadges] = useState(false);
   const [loadingMemories, setLoadingMemories] = useState(false);
+  const [creatingMemory, setCreatingMemory] = useState(false);
   const [bio, setBio] = useState<string>("");
   
   const { user, loading, signOut } = useAuth();
+
+  const refreshMemories = useCallback(async () => {
+    if (!user) {
+      setMemoriesState([]);
+      return;
+    }
+
+    setLoadingMemories(true);
+    try {
+      const nextMemories = await fetchMemoriesForCurrentUser();
+      setMemoriesState(nextMemories);
+    } catch (err) {
+      setMemoriesState([]);
+      console.warn("Failed to fetch memories, using empty data", err);
+    } finally {
+      setLoadingMemories(false);
+    }
+  }, [user]);
 
   // Fetch bio from user metadata or profiles table
   useEffect(() => {
@@ -78,19 +98,6 @@ const Profile = () => {
       }
     };
 
-    const fetchMemories = async () => {
-      setLoadingMemories(true);
-      try {
-        const { data, error } = await supabase.from("memories").select("*");
-        if (!error && data && mounted) setMemoriesState(data as any);
-      } catch (err) {
-        setMemoriesState([]);
-        console.warn("Failed to fetch memories, using empty data", err);
-      } finally {
-        if (mounted) setLoadingMemories(false);
-      }
-    };
-
     const fetchCounts = async () => {
       try {
         const friends = await getFriends();
@@ -113,13 +120,13 @@ const Profile = () => {
     };
 
     fetchBadges();
-    fetchMemories();
+    refreshMemories();
     fetchCounts();
 
     return () => {
       mounted = false;
     };
-  }, [user]);
+  }, [user, refreshMemories]);
 
   // Now handle early returns AFTER all hooks
   if (loading) {
@@ -178,6 +185,10 @@ const Profile = () => {
     } catch (err) {
       console.error("Sign out failed", err);
     }
+  };
+
+  const handleMemoryCreated = () => {
+    refreshMemories();
   };
 
   return (
@@ -308,17 +319,29 @@ const Profile = () => {
                       <Camera className="w-5 h-5 text-primary" />
                       Recent Memories
                     </h2>
-                    <button onClick={() => setActiveTab("memories")} className="text-sm text-primary hover:underline">
-                      View all →
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => setCreatingMemory(true)}
+                        className="btn-secondary px-3 py-1.5 text-sm"
+                      >
+                        Add memory
+                      </button>
+                      <button onClick={() => setActiveTab("memories")} className="text-sm text-primary hover:underline">
+                        View all →
+                      </button>
+                    </div>
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     {loadingMemories ? (
                       <div className="col-span-1 md:col-span-2 py-6 text-center text-sm text-muted-foreground">Loading memories…</div>
-                    ) : (
+                    ) : memoriesState.length > 0 ? (
                       memoriesState.slice(0, 2).map((memory) => (
                         <MemoryCard key={memory.id} memory={memory} />
                       ))
+                    ) : (
+                      <div className="col-span-1 md:col-span-2 py-6 text-center text-sm text-muted-foreground">
+                        No memories yet. Capture your first moment.
+                      </div>
                     )}
                   </div>
                 </div>
@@ -387,19 +410,31 @@ const Profile = () => {
 
             {activeTab === "memories" && (
               <div>
-                <h2 className="font-heading text-lg font-semibold text-foreground mb-4 flex items-center gap-2">
-                  <Camera className="w-5 h-5 text-primary" />
-                  Past Hangouts
-                </h2>
+                <div className="flex items-center justify-between mb-4">
+                  <h2 className="font-heading text-lg font-semibold text-foreground flex items-center gap-2">
+                    <Camera className="w-5 h-5 text-primary" />
+                    Past Hangouts
+                  </h2>
+                  <button
+                    onClick={() => setCreatingMemory(true)}
+                    className="btn-primary px-4 py-2 text-sm"
+                  >
+                    Add Memory
+                  </button>
+                </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {loadingMemories ? (
                     <div className="col-span-1 md:col-span-2 py-6 text-center text-sm text-muted-foreground">Loading memories…</div>
-                  ) : (
+                  ) : memoriesState.length > 0 ? (
                     memoriesState.map((memory, index) => (
                       <motion.div key={memory.id} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.1 }}>
                         <MemoryCard memory={memory} />
                       </motion.div>
                     ))
+                  ) : (
+                    <div className="col-span-1 md:col-span-2 py-8 text-center text-sm text-muted-foreground">
+                      You have no memories yet. Add one to start your timeline.
+                    </div>
                   )}
                 </div>
               </div>
@@ -408,6 +443,11 @@ const Profile = () => {
         </div>
       </main>
       <EditProfileModal isOpen={editing} onClose={() => setEditing(false)} />
+      <CreateMemoryModal
+        isOpen={creatingMemory}
+        onClose={() => setCreatingMemory(false)}
+        onCreated={handleMemoryCreated}
+      />
     </div>
   );
 };

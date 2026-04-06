@@ -334,6 +334,78 @@
   },
   {
     "schemaname": "public",
+    "tablename": "memory_attendees",
+    "policyname": "Memory owners can delete attendees",
+    "cmd": "DELETE",
+    "roles": "{public}",
+    "qual": "can_edit_memory(memory_id)",
+    "with_check": null
+  },
+  {
+    "schemaname": "public",
+    "tablename": "memory_attendees",
+    "policyname": "Memory owners can insert attendees",
+    "cmd": "INSERT",
+    "roles": "{public}",
+    "qual": null,
+    "with_check": "can_edit_memory(memory_id)"
+  },
+  {
+    "schemaname": "public",
+    "tablename": "memory_attendees",
+    "policyname": "Memory owners can update attendees",
+    "cmd": "UPDATE",
+    "roles": "{public}",
+    "qual": "can_edit_memory(memory_id)",
+    "with_check": "can_edit_memory(memory_id)"
+  },
+  {
+    "schemaname": "public",
+    "tablename": "memory_attendees",
+    "policyname": "Users can view memory attendees they can access",
+    "cmd": "SELECT",
+    "roles": "{public}",
+    "qual": "can_view_memory(memory_id)",
+    "with_check": null
+  },
+  {
+    "schemaname": "public",
+    "tablename": "memory_photos",
+    "policyname": "Memory owners can delete photos",
+    "cmd": "DELETE",
+    "roles": "{public}",
+    "qual": "can_edit_memory(memory_id)",
+    "with_check": null
+  },
+  {
+    "schemaname": "public",
+    "tablename": "memory_photos",
+    "policyname": "Memory owners can insert photos",
+    "cmd": "INSERT",
+    "roles": "{public}",
+    "qual": null,
+    "with_check": "(can_edit_memory(memory_id) AND ((uploaded_by IS NULL) OR (uploaded_by = auth.uid())))"
+  },
+  {
+    "schemaname": "public",
+    "tablename": "memory_photos",
+    "policyname": "Memory owners can update photos",
+    "cmd": "UPDATE",
+    "roles": "{public}",
+    "qual": "can_edit_memory(memory_id)",
+    "with_check": "(can_edit_memory(memory_id) AND ((uploaded_by IS NULL) OR (uploaded_by = auth.uid())))"
+  },
+  {
+    "schemaname": "public",
+    "tablename": "memory_photos",
+    "policyname": "Users can view memory photos they can access",
+    "cmd": "SELECT",
+    "roles": "{public}",
+    "qual": "can_view_memory(memory_id)",
+    "with_check": null
+  },
+  {
+    "schemaname": "public",
     "tablename": "profiles",
     "policyname": "Authenticated users can view all profiles",
     "cmd": "SELECT",

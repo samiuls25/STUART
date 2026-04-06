@@ -1,0 +1,498 @@
+import { supabase } from "./supabase";
+
+export interface MemoryPhoto {
+  id: string;
+  url: string;
+  uploadedBy: string;
+  uploadedAt: string;
+}
+
+export interface MemoryAttendee {
+  id: string;
+  name: string;
+  avatar?: string;
+}
+
+export interface Memory {
+  id: string;
+  eventName: string;
+  location: string;
+  date: string;
+  time: string;
+  attendees: MemoryAttendee[];
+  photos: MemoryPhoto[];
+  heroImage: string;
+}
+
+interface MemoryRow {
+  id: string;
+  user_id: string;
+  title: string;
+  description: string | null;
+  image_url: string | null;
+  event_id: string | null;
+  hangout_id: string | null;
+  location: string | null;
+  memory_date: string | null;
+  created_at: string;
+}
+
+interface ProfileRow {
+  id: string;
+  name: string | null;
+  avatar_url: string | null;
+}
+
+interface MemoryPhotoRow {
+  id: string;
+  memory_id: string;
+  photo_url?: string | null;
+  url?: string | null;
+  uploaded_by?: string | null;
+  created_at?: string | null;
+  display_order?: number | null;
+}
+
+interface MemoryAttendeeRow {
+  memory_id: string;
+  user_id: string;
+  is_owner?: boolean | null;
+  created_at?: string | null;
+}
+
+interface CreateMemoryInput {
+  title: string;
+  description?: string;
+  location?: string;
+  memoryDate?: string;
+  eventId?: string;
+  hangoutId?: string;
+}
+
+const MEMORY_PHOTOS_BUCKET = (import.meta.env.VITE_MEMORY_PHOTOS_BUCKET as string | undefined) || "memory-photos";
+const MAX_MEMORY_PHOTOS_PER_MEMORY = 8;
+const MAX_UPLOAD_FILE_SIZE_BYTES = 12 * 1024 * 1024;
+const MAX_IMAGE_DIMENSION = 1920;
+const IMAGE_QUALITY = 0.82;
+const FALLBACK_HERO_IMAGE = "https://images.unsplash.com/photo-1511632765486-a01980e01a18?w=1200&q=80";
+
+const missingTableCodes = new Set(["42P01", "PGRST205"]);
+
+const isMissingTableError = (error: unknown) => {
+  if (!error || typeof error !== "object") return false;
+  const candidate = error as { code?: string; message?: string };
+  if (candidate.code && missingTableCodes.has(candidate.code)) return true;
+  return (candidate.message || "").toLowerCase().includes("does not exist");
+};
+
+const formatDateLabel = (value: string | null | undefined) => {
+  if (!value) return "Unknown date";
+  const parsed = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return parsed.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+};
+
+const formatTimeLabel = (value: string | null | undefined) => {
+  if (!value) return "Shared memory";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "Shared memory";
+  return parsed.toLocaleTimeString(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+};
+
+const normalizePhotoRowUrl = (row: MemoryPhotoRow) => row.photo_url || row.url || "";
+
+const compressImageFile = async (file: File): Promise<Blob> => {
+  if (!file.type.startsWith("image/")) {
+    throw new Error("Only image uploads are supported.");
+  }
+
+  if (file.size > MAX_UPLOAD_FILE_SIZE_BYTES) {
+    throw new Error(`Files larger than ${Math.round(MAX_UPLOAD_FILE_SIZE_BYTES / (1024 * 1024))} MB are not supported.`);
+  }
+
+  const bitmap = await createImageBitmap(file);
+  const scale = Math.min(1, MAX_IMAGE_DIMENSION / Math.max(bitmap.width, bitmap.height));
+  const width = Math.max(1, Math.round(bitmap.width * scale));
+  const height = Math.max(1, Math.round(bitmap.height * scale));
+
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+
+  const ctx = canvas.getContext("2d");
+  if (!ctx) {
+    throw new Error("Could not process image for upload.");
+  }
+
+  ctx.drawImage(bitmap, 0, 0, width, height);
+
+  const blob = await new Promise<Blob | null>((resolve) => {
+    canvas.toBlob((nextBlob) => resolve(nextBlob), "image/jpeg", IMAGE_QUALITY);
+  });
+
+  if (!blob) {
+    throw new Error("Failed to compress image for upload.");
+  }
+
+  return blob;
+};
+
+const mapMemoryRowsToUi = (
+  rows: MemoryRow[],
+  profileMap: Map<string, ProfileRow>,
+  photoRowsByMemory: Map<string, MemoryPhoto[]>,
+  attendeeRowsByMemory: Map<string, MemoryAttendee[]>
+): Memory[] => {
+  return rows.map((row) => {
+    const ownerProfile = profileMap.get(row.user_id);
+    const photos = photoRowsByMemory.get(row.id) || [];
+    const attendees = attendeeRowsByMemory.get(row.id) || [];
+
+    const fallbackPhoto = row.image_url
+      ? [
+          {
+            id: `${row.id}-hero`,
+            url: row.image_url,
+            uploadedBy: ownerProfile?.name || "You",
+            uploadedAt: row.created_at,
+          },
+        ]
+      : [];
+
+    const resolvedPhotos = photos.length > 0 ? photos : fallbackPhoto;
+    const heroImage = resolvedPhotos[0]?.url || FALLBACK_HERO_IMAGE;
+    const resolvedAttendees =
+      attendees.length > 0
+        ? attendees
+        : [
+            {
+              id: row.user_id,
+              name: ownerProfile?.name || "You",
+              avatar: ownerProfile?.avatar_url || undefined,
+            },
+          ];
+
+    return {
+      id: row.id,
+      eventName: row.title || "Memory",
+      location: row.location || "New York",
+      date: formatDateLabel(row.memory_date || undefined),
+      time: formatTimeLabel(row.created_at),
+      attendees: resolvedAttendees,
+      photos: resolvedPhotos,
+      heroImage,
+    };
+  });
+};
+
+async function fetchMemoryPhotos(memoryIds: string[]): Promise<Map<string, MemoryPhoto[]>> {
+  const map = new Map<string, MemoryPhoto[]>();
+  if (memoryIds.length === 0) return map;
+
+  const { data, error } = await supabase
+    .from("memory_photos")
+    .select("id,memory_id,photo_url,uploaded_by,created_at,display_order")
+    .in("memory_id", memoryIds)
+    .order("display_order", { ascending: true });
+
+  if (error) {
+    if (!isMissingTableError(error)) {
+      console.warn("Unable to fetch memory photos", error);
+    }
+    return map;
+  }
+
+  ((data as MemoryPhotoRow[] | null) || []).forEach((row) => {
+    const url = normalizePhotoRowUrl(row);
+    if (!url) return;
+
+    const list = map.get(row.memory_id) || [];
+    list.push({
+      id: row.id,
+      url,
+      uploadedBy: row.uploaded_by || "You",
+      uploadedAt: row.created_at || new Date().toISOString(),
+    });
+    map.set(row.memory_id, list);
+  });
+
+  return map;
+}
+
+async function fetchMemoryAttendees(memoryIds: string[]): Promise<Map<string, MemoryAttendee[]>> {
+  const map = new Map<string, MemoryAttendee[]>();
+  if (memoryIds.length === 0) return map;
+
+  const { data, error } = await supabase
+    .from("memory_attendees")
+    .select("memory_id,user_id,is_owner,created_at")
+    .in("memory_id", memoryIds)
+    .order("is_owner", { ascending: false })
+    .order("created_at", { ascending: true });
+
+  if (error) {
+    if (!isMissingTableError(error)) {
+      console.warn("Unable to fetch memory attendees", error);
+    }
+    return map;
+  }
+
+  const attendeeRows = (data as MemoryAttendeeRow[] | null) || [];
+  if (attendeeRows.length === 0) {
+    return map;
+  }
+
+  const profileIds = [...new Set(attendeeRows.map((row) => row.user_id))];
+  const { data: profileRows, error: profileError } = await supabase
+    .from("profiles")
+    .select("id,name,avatar_url")
+    .in("id", profileIds);
+
+  const attendeeProfileMap = new Map<string, ProfileRow>();
+  if (!profileError) {
+    ((profileRows as ProfileRow[] | null) || []).forEach((row) => {
+      attendeeProfileMap.set(row.id, row);
+    });
+  }
+
+  attendeeRows.forEach((row) => {
+    const profile = attendeeProfileMap.get(row.user_id);
+    const list = map.get(row.memory_id) || [];
+    list.push({
+      id: row.user_id,
+      name: profile?.name || "Friend",
+      avatar: profile?.avatar_url || undefined,
+    });
+    map.set(row.memory_id, list);
+  });
+
+  return map;
+}
+
+export async function fetchMemoriesForCurrentUser(): Promise<Memory[]> {
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return [];
+  }
+
+  const { data: memoryRows, error: memoryError } = await supabase
+    .from("memories")
+    .select("id,user_id,title,description,image_url,event_id,hangout_id,location,memory_date,created_at")
+    .eq("user_id", user.id)
+    .order("memory_date", { ascending: false })
+    .order("created_at", { ascending: false });
+
+  if (memoryError) {
+    throw memoryError;
+  }
+
+  const memories = (memoryRows as MemoryRow[] | null) || [];
+  if (memories.length === 0) {
+    return [];
+  }
+
+  const memoryIds = memories.map((row) => row.id);
+  const profileIds = [...new Set(memories.map((row) => row.user_id))];
+
+  const [photoMap, attendeeMap, profileRowsResult] = await Promise.all([
+    fetchMemoryPhotos(memoryIds),
+    fetchMemoryAttendees(memoryIds),
+    supabase.from("profiles").select("id,name,avatar_url").in("id", profileIds),
+  ]);
+
+  const profileMap = new Map<string, ProfileRow>();
+  if (!profileRowsResult.error) {
+    ((profileRowsResult.data as ProfileRow[] | null) || []).forEach((row) => {
+      profileMap.set(row.id, row);
+    });
+  }
+
+  return mapMemoryRowsToUi(memories, profileMap, photoMap, attendeeMap);
+}
+
+export async function createMemory(input: CreateMemoryInput): Promise<{ id: string }> {
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    throw new Error("You must be signed in to create memories.");
+  }
+
+  const payload = {
+    user_id: user.id,
+    title: input.title.trim(),
+    description: input.description?.trim() || null,
+    location: input.location?.trim() || null,
+    memory_date: input.memoryDate || new Date().toISOString().slice(0, 10),
+    event_id: input.eventId || null,
+    hangout_id: input.hangoutId || null,
+  };
+
+  const { data, error } = await supabase
+    .from("memories")
+    .insert(payload)
+    .select("id")
+    .single();
+
+  if (error || !data) {
+    throw error || new Error("Failed to create memory.");
+  }
+
+  const { error: attendeeInsertError } = await supabase.from("memory_attendees").insert({
+    memory_id: data.id,
+    user_id: user.id,
+    added_by: user.id,
+    is_owner: true,
+  });
+
+  if (attendeeInsertError && !isMissingTableError(attendeeInsertError)) {
+    console.warn("Failed to add owner attendee row for memory", attendeeInsertError);
+  }
+
+  return { id: data.id };
+}
+
+export async function uploadPhotosToMemory(memoryId: string, files: File[]): Promise<MemoryPhoto[]> {
+  if (!memoryId) {
+    throw new Error("Memory id is required.");
+  }
+
+  if (!files || files.length === 0) {
+    return [];
+  }
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    throw new Error("You must be signed in to upload photos.");
+  }
+
+  const limitedFiles = files.slice(0, MAX_MEMORY_PHOTOS_PER_MEMORY);
+
+  let existingPhotoCount = 0;
+  let supportsPhotoTable = true;
+  const { data: existingRows, error: existingError } = await supabase
+    .from("memory_photos")
+    .select("id", { count: "exact", head: false })
+    .eq("memory_id", memoryId);
+
+  if (existingError) {
+    supportsPhotoTable = !isMissingTableError(existingError);
+    if (!isMissingTableError(existingError)) {
+      console.warn("Unable to count existing memory photos", existingError);
+    }
+
+    // Fallback to the legacy single-image field if the table doesn't exist yet.
+    const { data: legacyRow } = await supabase
+      .from("memories")
+      .select("image_url")
+      .eq("id", memoryId)
+      .maybeSingle();
+
+    existingPhotoCount = legacyRow?.image_url ? 1 : 0;
+  } else {
+    existingPhotoCount = existingRows?.length || 0;
+  }
+
+  if (existingPhotoCount + limitedFiles.length > MAX_MEMORY_PHOTOS_PER_MEMORY) {
+    throw new Error(`You can upload up to ${MAX_MEMORY_PHOTOS_PER_MEMORY} photos per memory.`);
+  }
+
+  if (!supportsPhotoTable && existingPhotoCount + limitedFiles.length > 1) {
+    throw new Error("This memory schema currently supports one photo per memory. Please run the memory_photos migration to enable multi-photo uploads.");
+  }
+
+  const filesToUpload = supportsPhotoTable ? limitedFiles : limitedFiles.slice(0, 1);
+
+  const uploaded: MemoryPhoto[] = [];
+
+  for (let index = 0; index < filesToUpload.length; index += 1) {
+    const file = filesToUpload[index];
+    const blob = await compressImageFile(file);
+    const path = `${user.id}/${memoryId}/${Date.now()}-${index}.jpg`;
+
+    const { error: uploadError } = await supabase.storage
+      .from(MEMORY_PHOTOS_BUCKET)
+      .upload(path, blob, {
+        upsert: false,
+        contentType: "image/jpeg",
+        cacheControl: "3600",
+      });
+
+    if (uploadError) {
+      throw uploadError;
+    }
+
+    const { data: publicData } = supabase.storage
+      .from(MEMORY_PHOTOS_BUCKET)
+      .getPublicUrl(path);
+
+    const photoUrl = publicData.publicUrl;
+
+    uploaded.push({
+      id: path,
+      url: photoUrl,
+      uploadedBy: user.id,
+      uploadedAt: new Date().toISOString(),
+    });
+
+    if (supportsPhotoTable) {
+      const { error: photoInsertError } = await supabase.from("memory_photos").insert({
+        memory_id: memoryId,
+        photo_url: photoUrl,
+        uploaded_by: user.id,
+        display_order: existingPhotoCount + index,
+      });
+
+      if (photoInsertError && !isMissingTableError(photoInsertError)) {
+        throw photoInsertError;
+      }
+    }
+  }
+
+  if (uploaded.length > 0) {
+    const { error: memoryUpdateError } = await supabase
+      .from("memories")
+      .update({ image_url: uploaded[0].url })
+      .eq("id", memoryId)
+      .is("image_url", null);
+
+    if (memoryUpdateError) {
+      console.warn("Failed to set memory hero image", memoryUpdateError);
+    }
+  }
+
+  return uploaded;
+}
+
+export async function createMemoryWithPhotos(
+  input: CreateMemoryInput,
+  files: File[]
+): Promise<{ id: string; uploadedPhotos: number }> {
+  const created = await createMemory(input);
+  const uploaded = await uploadPhotosToMemory(created.id, files);
+
+  return {
+    id: created.id,
+    uploadedPhotos: uploaded.length,
+  };
+}
+
+export const memoryUploadConfig = {
+  maxPhotosPerMemory: MAX_MEMORY_PHOTOS_PER_MEMORY,
+  maxRawFileSizeMb: Math.round(MAX_UPLOAD_FILE_SIZE_BYTES / (1024 * 1024)),
+  bucket: MEMORY_PHOTOS_BUCKET,
+};

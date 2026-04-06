@@ -1,8 +1,8 @@
 import React from "react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { MapPin, Clock, Users, Camera, Plus, X, ChevronLeft, ChevronRight } from "lucide-react";
-import type { Memory } from "../../data/badges";
+import { MapPin, Clock, Users, Camera, X, ChevronLeft, ChevronRight } from "lucide-react";
+import type { Memory } from "../../lib/memories";
 
 interface MemoryCardProps {
   memory: Memory;
@@ -13,14 +13,34 @@ const MemoryCard = ({ memory, compact = false }: MemoryCardProps) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
 
+  const galleryPhotos = useMemo(
+    () =>
+      memory.photos.length > 0
+        ? memory.photos
+        : [
+            {
+              id: `${memory.id}-hero`,
+              url: memory.heroImage,
+              uploadedBy: "You",
+              uploadedAt: new Date().toISOString(),
+            },
+          ],
+    [memory.heroImage, memory.id, memory.photos]
+  );
+
+  const attendeeSummary =
+    memory.attendees.length > 0
+      ? memory.attendees.map((attendee) => attendee.name.split(" ")[0]).join(", ")
+      : "you";
+
   const nextPhoto = (e: React.MouseEvent) => {
     e.stopPropagation();
-    setCurrentPhotoIndex((prev) => (prev + 1) % memory.photos.length);
+    setCurrentPhotoIndex((prev) => (prev + 1) % galleryPhotos.length);
   };
 
   const prevPhoto = (e: React.MouseEvent) => {
     e.stopPropagation();
-    setCurrentPhotoIndex((prev) => (prev - 1 + memory.photos.length) % memory.photos.length);
+    setCurrentPhotoIndex((prev) => (prev - 1 + galleryPhotos.length) % galleryPhotos.length);
   };
 
   if (compact) {
@@ -41,7 +61,7 @@ const MemoryCard = ({ memory, compact = false }: MemoryCardProps) => {
         </div>
         <div className="flex items-center gap-1 text-xs text-muted-foreground">
           <Camera className="w-3 h-3" />
-          {memory.photos.length}
+          {galleryPhotos.length}
         </div>
       </motion.div>
     );
@@ -66,7 +86,7 @@ const MemoryCard = ({ memory, compact = false }: MemoryCardProps) => {
           {/* Photo Count Badge */}
           <div className="absolute bottom-3 right-3 flex items-center gap-1.5 px-2 py-1 rounded-full bg-black/50 backdrop-blur-sm text-white text-xs">
             <Camera className="w-3 h-3" />
-            {memory.photos.length}
+            {galleryPhotos.length}
           </div>
 
           {/* Date Badge */}
@@ -115,7 +135,7 @@ const MemoryCard = ({ memory, compact = false }: MemoryCardProps) => {
               )}
             </div>
             <span className="text-xs text-muted-foreground">
-              with {memory.attendees.map(a => a.name.split(' ')[0]).join(', ')}
+              with {attendeeSummary}
             </span>
           </div>
         </div>
@@ -149,12 +169,12 @@ const MemoryCard = ({ memory, compact = false }: MemoryCardProps) => {
               {/* Photo Gallery */}
               <div className="relative h-72 bg-black">
                 <img
-                  src={memory.photos[currentPhotoIndex]?.url || memory.heroImage}
+                  src={galleryPhotos[currentPhotoIndex]?.url || memory.heroImage}
                   alt={`Photo ${currentPhotoIndex + 1}`}
                   className="w-full h-full object-contain"
                 />
 
-                {memory.photos.length > 1 && (
+                {galleryPhotos.length > 1 && (
                   <>
                     <button
                       onClick={prevPhoto}
@@ -173,7 +193,7 @@ const MemoryCard = ({ memory, compact = false }: MemoryCardProps) => {
 
                 {/* Photo Counter */}
                 <div className="absolute bottom-4 left-1/2 -translate-x-1/2 px-3 py-1 rounded-full bg-black/50 text-white text-sm">
-                  {currentPhotoIndex + 1} / {memory.photos.length}
+                  {currentPhotoIndex + 1} / {galleryPhotos.length}
                 </div>
               </div>
 
@@ -201,23 +221,25 @@ const MemoryCard = ({ memory, compact = false }: MemoryCardProps) => {
                     Who was there ({memory.attendees.length})
                   </h3>
                   <div className="flex flex-wrap gap-2">
-                    {memory.attendees.map((attendee) => (
-                      <div
-                        key={attendee.id}
-                        className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-muted"
-                      >
-                        <div className="w-6 h-6 rounded-full bg-primary/20 flex items-center justify-center">
-                          <span className="text-xs font-medium text-primary">
-                            {attendee.name.charAt(0)}
-                          </span>
+                    {memory.attendees.length > 0 ? (
+                      memory.attendees.map((attendee) => (
+                        <div
+                          key={attendee.id}
+                          className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-muted"
+                        >
+                          <div className="w-6 h-6 rounded-full bg-primary/20 flex items-center justify-center">
+                            <span className="text-xs font-medium text-primary">
+                              {attendee.name.charAt(0)}
+                            </span>
+                          </div>
+                          <span className="text-sm text-foreground">{attendee.name}</span>
                         </div>
-                        <span className="text-sm text-foreground">{attendee.name}</span>
+                      ))
+                    ) : (
+                      <div className="px-3 py-1.5 rounded-full bg-muted text-sm text-muted-foreground">
+                        Just you
                       </div>
-                    ))}
-                    <button className="flex items-center gap-1 px-3 py-1.5 rounded-full border border-dashed border-border text-muted-foreground hover:border-primary hover:text-primary transition-colors">
-                      <Plus className="w-4 h-4" />
-                      <span className="text-sm">Add friend</span>
-                    </button>
+                    )}
                   </div>
                 </div>
 
@@ -225,10 +247,10 @@ const MemoryCard = ({ memory, compact = false }: MemoryCardProps) => {
                 <div>
                   <h3 className="text-sm font-medium text-foreground mb-3 flex items-center gap-2">
                     <Camera className="w-4 h-4" />
-                    Shared Photos ({memory.photos.length})
+                    Shared Photos ({galleryPhotos.length})
                   </h3>
                   <div className="grid grid-cols-4 gap-2">
-                    {memory.photos.map((photo, index) => (
+                    {galleryPhotos.map((photo, index) => (
                       <button
                         key={photo.id}
                         onClick={() => setCurrentPhotoIndex(index)}
@@ -241,10 +263,6 @@ const MemoryCard = ({ memory, compact = false }: MemoryCardProps) => {
                         />
                       </button>
                     ))}
-                    <button className="aspect-square rounded-lg border-2 border-dashed border-border flex flex-col items-center justify-center text-muted-foreground hover:border-primary hover:text-primary transition-colors">
-                      <Plus className="w-6 h-6" />
-                      <span className="text-xs mt-1">Add</span>
-                    </button>
                   </div>
                 </div>
               </div>
