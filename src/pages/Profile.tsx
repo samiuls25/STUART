@@ -445,7 +445,7 @@ const Profile = () => {
                 <div className="flex items-center justify-between mb-4">
                   <h2 className="font-heading text-lg font-semibold text-foreground flex items-center gap-2">
                     <Camera className="w-5 h-5 text-primary" />
-                    Memories Timeline
+                    {memoryViewMode === "timeline" ? "Memories Timeline" : "Memories Gallery"}
                   </h2>
                   <div className="flex items-center gap-2">
                     <div className="rounded-lg border border-border p-1 flex items-center">
@@ -504,15 +504,20 @@ const Profile = () => {
                       ))}
                     </div>
                   ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="columns-1 md:columns-2 gap-4 [column-fill:_balance]">
                       {sortedMemories.map((memory, index) => (
                         <motion.div
                           key={memory.id}
+                          className="mb-4 break-inside-avoid"
                           initial={{ opacity: 0, y: 20 }}
                           animate={{ opacity: 1, y: 0 }}
                           transition={{ delay: index * 0.03 }}
                         >
-                          <MemoryCard memory={memory} onMemoryUpdated={refreshMemories} />
+                          <MemoryCard
+                            memory={memory}
+                            displayMode="gallery"
+                            onMemoryUpdated={refreshMemories}
+                          />
                         </motion.div>
                       ))}
                     </div>

@@ -126,6 +126,30 @@ const toSortTimestamp = (memoryDate: string | null, createdAt: string) => {
   return 0;
 };
 
+const extractStoragePathFromPublicUrl = (url: string): string | null => {
+  if (!url) return null;
+
+  const publicPrefix = `/storage/v1/object/public/${MEMORY_PHOTOS_BUCKET}/`;
+  const signedPrefix = `/storage/v1/object/sign/${MEMORY_PHOTOS_BUCKET}/`;
+
+  let startIndex = url.indexOf(publicPrefix);
+  let prefixLength = publicPrefix.length;
+
+  if (startIndex < 0) {
+    startIndex = url.indexOf(signedPrefix);
+    prefixLength = signedPrefix.length;
+  }
+
+  if (startIndex < 0) {
+    return null;
+  }
+
+  const rawPath = url.slice(startIndex + prefixLength).split("?")[0];
+  if (!rawPath) return null;
+
+  return decodeURIComponent(rawPath);
+};
+
 const normalizePhotoRowUrl = (row: MemoryPhotoRow) => row.photo_url || row.url || "";
 
 const compressImageFile = async (file: File): Promise<Blob> => {
@@ -583,6 +607,78 @@ export async function removeMemoryAttendee(memoryId: string, userId: string): Pr
     .delete()
     .eq("memory_id", memoryId)
     .eq("user_id", userId);
+
+  if (deleteError) {
+    throw deleteError;
+  }
+}
+
+export async function deleteMemory(memoryId: string): Promise<void> {
+  if (!memoryId) {
+    throw new Error("Memory id is required.");
+  }
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    throw new Error("You must be signed in to delete memories.");
+  }
+
+  const { data: memoryRow, error: memoryReadError } = await supabase
+    .from("memories")
+    .select("id,image_url")
+    .eq("id", memoryId)
+    .maybeSingle();
+
+  if (memoryReadError) {
+    throw memoryReadError;
+  }
+
+  if (!memoryRow) {
+    return;
+  }
+
+  const storagePaths = new Set<string>();
+
+  const legacyPath = extractStoragePathFromPublicUrl(memoryRow.image_url || "");
+  if (legacyPath) {
+    storagePaths.add(legacyPath);
+  }
+
+  const { data: photoRows, error: photoRowsError } = await supabase
+    .from("memory_photos")
+    .select("photo_url")
+    .eq("memory_id", memoryId);
+
+  if (photoRowsError && !isMissingTableError(photoRowsError)) {
+    throw photoRowsError;
+  }
+
+  if (!photoRowsError) {
+    ((photoRows as Array<{ photo_url: string | null }> | null) || []).forEach((row) => {
+      const photoPath = extractStoragePathFromPublicUrl(row.photo_url || "");
+      if (photoPath) {
+        storagePaths.add(photoPath);
+      }
+    });
+  }
+
+  if (storagePaths.size > 0) {
+    const { error: storageDeleteError } = await supabase.storage
+      .from(MEMORY_PHOTOS_BUCKET)
+      .remove([...storagePaths]);
+
+    if (storageDeleteError) {
+      throw storageDeleteError;
+    }
+  }
+
+  const { error: deleteError } = await supabase
+    .from("memories")
+    .delete()
+    .eq("id", memoryId);
 
   if (deleteError) {
     throw deleteError;

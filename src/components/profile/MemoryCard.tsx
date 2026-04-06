@@ -1,19 +1,21 @@
 import React from "react";
 import { useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { MapPin, Clock, Users, Camera, X, ChevronLeft, ChevronRight, Plus } from "lucide-react";
+import { MapPin, Clock, Users, Camera, X, ChevronLeft, ChevronRight, Plus, Trash2 } from "lucide-react";
 import type { Friend } from "../../lib/friends";
 import { getFriends } from "../../lib/friends";
-import { addMemoryAttendee, removeMemoryAttendee, type Memory } from "../../lib/memories";
+import { addMemoryAttendee, deleteMemory, removeMemoryAttendee, type Memory } from "../../lib/memories";
 import { useToast } from "../../hooks/use-toast";
 
 interface MemoryCardProps {
   memory: Memory;
   compact?: boolean;
+  displayMode?: "default" | "gallery";
+  allowDelete?: boolean;
   onMemoryUpdated?: () => void | Promise<void>;
 }
 
-const MemoryCard = ({ memory, compact = false, onMemoryUpdated }: MemoryCardProps) => {
+const MemoryCard = ({ memory, compact = false, displayMode = "default", allowDelete = true, onMemoryUpdated }: MemoryCardProps) => {
   const { toast } = useToast();
   const [isExpanded, setIsExpanded] = useState(false);
   const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
@@ -22,6 +24,7 @@ const MemoryCard = ({ memory, compact = false, onMemoryUpdated }: MemoryCardProp
   const [loadingFriends, setLoadingFriends] = useState(false);
   const [isAddingAttendee, setIsAddingAttendee] = useState(false);
   const [attendeeActionId, setAttendeeActionId] = useState<string | null>(null);
+  const [isDeletingMemory, setIsDeletingMemory] = useState(false);
 
   const galleryPhotos = useMemo(
     () =>
@@ -131,6 +134,31 @@ const MemoryCard = ({ memory, compact = false, onMemoryUpdated }: MemoryCardProp
     }
   };
 
+  const handleDeleteMemory = async () => {
+    const confirmed = window.confirm("Delete this memory and all of its uploaded photos? This cannot be undone.");
+    if (!confirmed) return;
+
+    setIsDeletingMemory(true);
+    try {
+      await deleteMemory(memory.id);
+      toast({
+        title: "Memory deleted",
+        description: "The memory and its photos were removed.",
+      });
+      setIsExpanded(false);
+      await onMemoryUpdated?.();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to delete memory.";
+      toast({
+        title: "Could not delete memory",
+        description: message,
+        variant: "destructive",
+      });
+    } finally {
+      setIsDeletingMemory(false);
+    }
+  };
+
   const nextPhoto = (e: React.MouseEvent) => {
     e.stopPropagation();
     setCurrentPhotoIndex((prev) => (prev + 1) % galleryPhotos.length);
@@ -162,6 +190,146 @@ const MemoryCard = ({ memory, compact = false, onMemoryUpdated }: MemoryCardProp
           {galleryPhotos.length}
         </div>
       </motion.div>
+    );
+  }
+
+  if (displayMode === "gallery") {
+    const isTall = memory.photos.length > 2;
+    return (
+      <>
+        <motion.button
+          type="button"
+          whileHover={{ scale: 1.01 }}
+          onClick={() => setIsExpanded(true)}
+          className={`group relative w-full overflow-hidden rounded-2xl border border-border shadow-sm hover:shadow-lg transition-shadow text-left ${isTall ? "h-80" : "h-60"}`}
+        >
+          <img
+            src={memory.heroImage}
+            alt={memory.eventName}
+            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+          />
+          <div className="absolute inset-0 bg-gradient-to-t from-black/65 via-black/20 to-transparent" />
+
+          <div className="absolute top-3 right-3 px-2 py-1 rounded-full bg-black/55 text-white text-xs flex items-center gap-1">
+            <Camera className="w-3 h-3" />
+            {galleryPhotos.length}
+          </div>
+
+          <div className="absolute bottom-0 inset-x-0 p-3">
+            <p className="text-white font-semibold text-sm truncate">{memory.eventName}</p>
+            <p className="text-white/80 text-xs truncate">{memory.date}</p>
+          </div>
+        </motion.button>
+
+        <AnimatePresence>
+          {isExpanded && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm"
+              onClick={() => setIsExpanded(false)}
+            >
+              <motion.div
+                initial={{ scale: 0.9, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.9, opacity: 0 }}
+                className="relative bg-card rounded-2xl max-w-2xl w-full max-h-[85vh] overflow-hidden"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <button
+                  onClick={() => setIsExpanded(false)}
+                  className="absolute top-4 right-4 z-10 p-2 rounded-full bg-black/50 text-white hover:bg-black/70 transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+
+                <div className="relative h-72 bg-black">
+                  <img
+                    src={galleryPhotos[currentPhotoIndex]?.url || memory.heroImage}
+                    alt={`Photo ${currentPhotoIndex + 1}`}
+                    className="w-full h-full object-contain"
+                  />
+
+                  {galleryPhotos.length > 1 && (
+                    <>
+                      <button
+                        onClick={prevPhoto}
+                        className="absolute left-4 top-1/2 -translate-y-1/2 p-2 rounded-full bg-black/50 text-white hover:bg-black/70 transition-colors"
+                      >
+                        <ChevronLeft className="w-5 h-5" />
+                      </button>
+                      <button
+                        onClick={nextPhoto}
+                        className="absolute right-4 top-1/2 -translate-y-1/2 p-2 rounded-full bg-black/50 text-white hover:bg-black/70 transition-colors"
+                      >
+                        <ChevronRight className="w-5 h-5" />
+                      </button>
+                    </>
+                  )}
+
+                  <div className="absolute bottom-4 left-1/2 -translate-x-1/2 px-3 py-1 rounded-full bg-black/50 text-white text-sm">
+                    {currentPhotoIndex + 1} / {galleryPhotos.length}
+                  </div>
+                </div>
+
+                <div className="p-6 overflow-y-auto max-h-[calc(85vh-18rem)]">
+                  <h2 className="font-heading text-2xl font-bold text-foreground mb-2">
+                    {memory.eventName}
+                  </h2>
+
+                  <div className="flex items-center gap-4 text-sm text-muted-foreground mb-6">
+                    <span className="flex items-center gap-1">
+                      <MapPin className="w-4 h-4" />
+                      {memory.location}
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <Clock className="w-4 h-4" />
+                      {memory.date} at {memory.time}
+                    </span>
+                  </div>
+
+                  {allowDelete && (
+                    <div className="mb-6 rounded-xl border border-destructive/20 bg-destructive/5 p-3">
+                      <button
+                        type="button"
+                        onClick={handleDeleteMemory}
+                        disabled={isDeletingMemory}
+                        className="inline-flex items-center gap-2 text-sm text-destructive hover:opacity-90 disabled:opacity-60"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                        {isDeletingMemory ? "Deleting memory..." : "Delete memory"}
+                      </button>
+                    </div>
+                  )}
+
+                  <div>
+                    <h3 className="text-sm font-medium text-foreground mb-3 flex items-center gap-2">
+                      <Camera className="w-4 h-4" />
+                      Shared Photos ({galleryPhotos.length})
+                    </h3>
+                    <div className="grid grid-cols-4 gap-2">
+                      {galleryPhotos.map((photo, index) => (
+                        <button
+                          key={photo.id}
+                          onClick={() => setCurrentPhotoIndex(index)}
+                          className={`relative aspect-square rounded-lg overflow-hidden ${index === currentPhotoIndex ? "ring-2 ring-primary" : ""}`}
+                        >
+                          <img
+                            src={photo.url}
+                            alt={`Photo by ${photo.uploadedBy}`}
+                            className="w-full h-full object-cover"
+                          />
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </>
     );
   }
 
@@ -311,6 +479,20 @@ const MemoryCard = ({ memory, compact = false, onMemoryUpdated }: MemoryCardProp
                     {memory.date} at {memory.time}
                   </span>
                 </div>
+
+                {allowDelete && (
+                  <div className="mb-6 rounded-xl border border-destructive/20 bg-destructive/5 p-3">
+                    <button
+                      type="button"
+                      onClick={handleDeleteMemory}
+                      disabled={isDeletingMemory}
+                      className="inline-flex items-center gap-2 text-sm text-destructive hover:opacity-90 disabled:opacity-60"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                      {isDeletingMemory ? "Deleting memory..." : "Delete memory"}
+                    </button>
+                  </div>
+                )}
 
                 {/* Attendees Section */}
                 <div className="mb-6">
