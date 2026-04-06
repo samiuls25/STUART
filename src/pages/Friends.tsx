@@ -333,16 +333,12 @@ const Friends = () => {
       >
         <AlertDialogContent className="max-w-md rounded-2xl">
           <AlertDialogTitle className="text-destructive">Remove Friend?</AlertDialogTitle>
-          <AlertDialogDescription className="space-y-3">
-            <p>
-              Are you sure you want to remove this friend?
-            </p>
-            <div className="rounded-xl border border-destructive/30 bg-destructive/10 p-3">
-              <p className="text-sm text-foreground">
-                <strong>{friendToRemove?.name || "This friend"}</strong> will be removed from your friends list.
-              </p>
-            </div>
+          <AlertDialogDescription>
+            Are you sure you want to remove this friend?
           </AlertDialogDescription>
+          <div className="rounded-xl border border-destructive/30 bg-destructive/10 p-3 text-sm text-foreground">
+            <strong>{friendToRemove?.name || "This friend"}</strong> will be removed from your friends list.
+          </div>
           <AlertDialogFooter className="mt-2">
             <AlertDialogCancel disabled={removingFriend}>Keep Friend</AlertDialogCancel>
             <AlertDialogAction
