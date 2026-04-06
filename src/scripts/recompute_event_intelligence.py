@@ -54,6 +54,15 @@ def parse_timestamp(value: str | None):
         return None
 
 
+def parse_event_date(value: str | None):
+    if not value:
+        return None
+    try:
+        return datetime.strptime(value, "%Y-%m-%d").date()
+    except ValueError:
+        return None
+
+
 def parse_event_time(value: str | None):
     if not value or value == "TBA":
         return None
@@ -116,6 +125,7 @@ def compute_trending(events, saved_events, event_views):
     now_utc = datetime.utcnow()
     week_ago = now_utc - timedelta(days=7)
     day_ago = now_utc - timedelta(days=1)
+    today_local = datetime.now(ZoneInfo(DEFAULT_EVENT_TIMEZONE)).date()
 
     unique_savers = defaultdict(set)
     recent_saves = defaultdict(int)
@@ -150,6 +160,10 @@ def compute_trending(events, saved_events, event_views):
     scored = []
     for event in events:
         event_id = event["id"]
+        event_date = parse_event_date(event.get("date"))
+        if event_date and event_date < today_local and not event.get("happening_now"):
+            continue
+
         save_score = len(unique_savers[event_id]) * 8 + recent_saves[event_id] * 5
         view_score = len(unique_viewers[event_id]) * 2 + recent_views[event_id] * 3
         urgency_bonus = 10 if event.get("happening_now") else (4 if event.get("is_tonight") else 0)

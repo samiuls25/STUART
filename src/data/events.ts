@@ -614,17 +614,37 @@ const fetchPublicHangoutEvents = async (userId?: string): Promise<Event[]> => {
 
 const PLACEHOLDER_IMAGE_MIN_ROWS = 60;
 const PLACEHOLDER_IMAGE_MIN_UNIQUE_NAMES = 25;
+const EXPLICIT_PLACEHOLDER_IMAGE_URLS = new Set([
+  "https://s1.ticketm.net/dam/c/8cf/a6653880-7899-4f67-8067-1f95f4d158cf_124761_TABLET_LANDSCAPE_16_9.jpg",
+]);
+
+const normalizeImageUrl = (value?: string | null) => {
+  if (!value) return "";
+  return value.trim().split("?")[0];
+};
+
+const isExplicitPlaceholderImage = (value?: string | null) => {
+  const normalized = normalizeImageUrl(value);
+  return normalized.length > 0 && EXPLICIT_PLACEHOLDER_IMAGE_URLS.has(normalized);
+};
 
 const filterLikelyPlaceholderImageEvents = (events: Event[]) => {
+  const explicitPlaceholderFiltered = events.filter(
+    (event) => !isExplicitPlaceholderImage(event.heroImage)
+  );
+
   const imageStats = new Map<string, { count: number; names: Set<string> }>();
 
-  for (const event of events) {
+  for (const event of explicitPlaceholderFiltered) {
     if (!event.heroImage) continue;
 
-    const existing = imageStats.get(event.heroImage) ?? { count: 0, names: new Set<string>() };
+    const normalizedUrl = normalizeImageUrl(event.heroImage);
+    if (!normalizedUrl) continue;
+
+    const existing = imageStats.get(normalizedUrl) ?? { count: 0, names: new Set<string>() };
     existing.count += 1;
     existing.names.add(normalizeEventKeyPart(event.name));
-    imageStats.set(event.heroImage, existing);
+    imageStats.set(normalizedUrl, existing);
   }
 
   const placeholderImages = new Set<string>();
@@ -638,10 +658,12 @@ const filterLikelyPlaceholderImageEvents = (events: Event[]) => {
   }
 
   if (placeholderImages.size === 0) {
-    return events;
+    return explicitPlaceholderFiltered;
   }
 
-  return events.filter((event) => !placeholderImages.has(event.heroImage));
+  return explicitPlaceholderFiltered.filter(
+    (event) => !placeholderImages.has(normalizeImageUrl(event.heroImage))
+  );
 };
 
 const consolidateEvents = (events: Event[]) => {
