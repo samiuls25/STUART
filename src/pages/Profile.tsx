@@ -135,6 +135,55 @@ const Profile = () => {
     };
   }, [user, refreshMemories]);
 
+  const sortedMemories = useMemo(
+    () => [...memoriesState].sort((a, b) => b.sortTimestamp - a.sortTimestamp),
+    [memoriesState]
+  );
+
+  const memoryTimelineGroups = useMemo(() => {
+    if (sortedMemories.length === 0) return [] as Array<{ label: string; memories: Memory[] }>;
+
+    const groups = new Map<string, Memory[]>();
+
+    sortedMemories.forEach((memory) => {
+      const parsedDate = new Date(memory.sortTimestamp);
+      const label = Number.isNaN(parsedDate.getTime())
+        ? "Unknown"
+        : parsedDate.toLocaleDateString(undefined, {
+            month: "long",
+            year: "numeric",
+          });
+
+      const current = groups.get(label) || [];
+      current.push(memory);
+      groups.set(label, current);
+    });
+
+    return Array.from(groups.entries()).map(([label, memories]) => ({
+      label,
+      memories,
+    }));
+  }, [sortedMemories]);
+
+  const memoryUsage = useMemo(() => summarizeMemoryUsage(memoriesState), [memoriesState]);
+
+  const memoryWarningThreshold = Math.ceil(
+    memoryMonitoringConfig.memorySoftCap * memoryMonitoringConfig.warningRatio
+  );
+  const photoWarningThreshold = Math.ceil(
+    memoryMonitoringConfig.photoSoftCap * memoryMonitoringConfig.warningRatio
+  );
+
+  const memoryAtOrOverSoftCap = memoryUsage.memoryCount >= memoryMonitoringConfig.memorySoftCap;
+  const photoAtOrOverSoftCap = memoryUsage.photoCount >= memoryMonitoringConfig.photoSoftCap;
+
+  const memoryNearSoftCap =
+    !memoryAtOrOverSoftCap && memoryUsage.memoryCount >= memoryWarningThreshold;
+  const photoNearSoftCap = !photoAtOrOverSoftCap && memoryUsage.photoCount >= photoWarningThreshold;
+
+  const showUsageWarning =
+    memoryAtOrOverSoftCap || photoAtOrOverSoftCap || memoryNearSoftCap || photoNearSoftCap;
+
   // Now handle early returns AFTER all hooks
   if (loading) {
     return (
@@ -197,55 +246,6 @@ const Profile = () => {
   const handleMemoryCreated = () => {
     refreshMemories();
   };
-
-  const sortedMemories = useMemo(
-    () => [...memoriesState].sort((a, b) => b.sortTimestamp - a.sortTimestamp),
-    [memoriesState]
-  );
-
-  const memoryTimelineGroups = useMemo(() => {
-    if (sortedMemories.length === 0) return [] as Array<{ label: string; memories: Memory[] }>;
-
-    const groups = new Map<string, Memory[]>();
-
-    sortedMemories.forEach((memory) => {
-      const parsedDate = new Date(memory.sortTimestamp);
-      const label = Number.isNaN(parsedDate.getTime())
-        ? "Unknown"
-        : parsedDate.toLocaleDateString(undefined, {
-            month: "long",
-            year: "numeric",
-          });
-
-      const current = groups.get(label) || [];
-      current.push(memory);
-      groups.set(label, current);
-    });
-
-    return Array.from(groups.entries()).map(([label, memories]) => ({
-      label,
-      memories,
-    }));
-  }, [sortedMemories]);
-
-  const memoryUsage = useMemo(() => summarizeMemoryUsage(memoriesState), [memoriesState]);
-
-  const memoryWarningThreshold = Math.ceil(
-    memoryMonitoringConfig.memorySoftCap * memoryMonitoringConfig.warningRatio
-  );
-  const photoWarningThreshold = Math.ceil(
-    memoryMonitoringConfig.photoSoftCap * memoryMonitoringConfig.warningRatio
-  );
-
-  const memoryAtOrOverSoftCap = memoryUsage.memoryCount >= memoryMonitoringConfig.memorySoftCap;
-  const photoAtOrOverSoftCap = memoryUsage.photoCount >= memoryMonitoringConfig.photoSoftCap;
-
-  const memoryNearSoftCap =
-    !memoryAtOrOverSoftCap && memoryUsage.memoryCount >= memoryWarningThreshold;
-  const photoNearSoftCap = !photoAtOrOverSoftCap && memoryUsage.photoCount >= photoWarningThreshold;
-
-  const showUsageWarning =
-    memoryAtOrOverSoftCap || photoAtOrOverSoftCap || memoryNearSoftCap || photoNearSoftCap;
 
   return (
     <div className="min-h-screen bg-background">
