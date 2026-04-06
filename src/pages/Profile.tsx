@@ -23,7 +23,12 @@ import { useAuth } from "../lib/AuthContext";
 import { getFriends } from "../lib/friends";
 import { getSavedEventIds } from "../lib/SavedEvents";
 import { getUserBadges } from "../lib/badges";
-import { fetchMemoriesForCurrentUser, type Memory } from "../lib/memories";
+import {
+  fetchMemoriesForCurrentUser,
+  memoryMonitoringConfig,
+  summarizeMemoryUsage,
+  type Memory,
+} from "../lib/memories";
 
 type TabType = "overview" | "badges" | "memories";
 type MemoryViewMode = "timeline" | "gallery";
@@ -222,6 +227,25 @@ const Profile = () => {
       memories,
     }));
   }, [sortedMemories]);
+
+  const memoryUsage = useMemo(() => summarizeMemoryUsage(memoriesState), [memoriesState]);
+
+  const memoryWarningThreshold = Math.ceil(
+    memoryMonitoringConfig.memorySoftCap * memoryMonitoringConfig.warningRatio
+  );
+  const photoWarningThreshold = Math.ceil(
+    memoryMonitoringConfig.photoSoftCap * memoryMonitoringConfig.warningRatio
+  );
+
+  const memoryAtOrOverSoftCap = memoryUsage.memoryCount >= memoryMonitoringConfig.memorySoftCap;
+  const photoAtOrOverSoftCap = memoryUsage.photoCount >= memoryMonitoringConfig.photoSoftCap;
+
+  const memoryNearSoftCap =
+    !memoryAtOrOverSoftCap && memoryUsage.memoryCount >= memoryWarningThreshold;
+  const photoNearSoftCap = !photoAtOrOverSoftCap && memoryUsage.photoCount >= photoWarningThreshold;
+
+  const showUsageWarning =
+    memoryAtOrOverSoftCap || photoAtOrOverSoftCap || memoryNearSoftCap || photoNearSoftCap;
 
   return (
     <div className="min-h-screen bg-background">
@@ -478,6 +502,24 @@ const Profile = () => {
                     </button>
                   </div>
                 </div>
+
+                <div className="mb-4 rounded-xl border border-border bg-card p-3">
+                  <p className="text-sm text-foreground">
+                    Usage: <span className="font-medium">{memoryUsage.memoryCount}</span> memories, <span className="font-medium">{memoryUsage.photoCount}</span> photos
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Soft caps: {memoryMonitoringConfig.memorySoftCap} memories and {memoryMonitoringConfig.photoSoftCap} photos per user.
+                  </p>
+                </div>
+
+                {showUsageWarning && (
+                  <div className={`mb-4 rounded-xl border p-3 text-sm ${memoryAtOrOverSoftCap || photoAtOrOverSoftCap ? "border-destructive/30 bg-destructive/5 text-destructive" : "border-amber-400/30 bg-amber-50 text-amber-700"}`}>
+                    {memoryAtOrOverSoftCap || photoAtOrOverSoftCap
+                      ? "You are over the recommended memory/photo soft cap. Consider cleaning older media if uploads start failing."
+                      : "You are approaching the recommended memory/photo soft cap. Consider pruning older uploads soon."}
+                  </div>
+                )}
+
                 {loadingMemories ? (
                   <div className="py-6 text-center text-sm text-muted-foreground">Loading memories…</div>
                 ) : memoriesState.length > 0 ? (

@@ -25,6 +25,12 @@ export interface Memory {
   heroImage: string;
 }
 
+export interface MemoryUsageSummary {
+  memoryCount: number;
+  photoCount: number;
+  legacyHeroPhotoCount: number;
+}
+
 interface MemoryRow {
   id: string;
   user_id: string;
@@ -76,6 +82,9 @@ const MAX_UPLOAD_FILE_SIZE_BYTES = 12 * 1024 * 1024;
 const MAX_IMAGE_DIMENSION = 1920;
 const IMAGE_QUALITY = 0.82;
 const FALLBACK_HERO_IMAGE = "https://images.unsplash.com/photo-1511632765486-a01980e01a18?w=1200&q=80";
+const DEFAULT_MEMORY_SOFT_CAP = 120;
+const DEFAULT_PHOTO_SOFT_CAP = 600;
+const DEFAULT_WARNING_RATIO = 0.8;
 
 const missingTableCodes = new Set(["42P01", "PGRST205"]);
 const duplicateValueCodes = new Set(["23505"]);
@@ -153,6 +162,20 @@ const extractStoragePathFromPublicUrl = (url: string): string | null => {
 };
 
 const normalizePhotoRowUrl = (row: MemoryPhotoRow) => row.photo_url || row.url || "";
+
+const parsePositiveIntEnv = (value: string | undefined, fallback: number): number => {
+  if (!value) return fallback;
+  const parsed = Number.parseInt(value, 10);
+  if (Number.isNaN(parsed) || parsed <= 0) return fallback;
+  return parsed;
+};
+
+const parseRatioEnv = (value: string | undefined, fallback: number): number => {
+  if (!value) return fallback;
+  const parsed = Number.parseFloat(value);
+  if (Number.isNaN(parsed) || parsed <= 0 || parsed > 1) return fallback;
+  return parsed;
+};
 
 async function setMemoryHeroImage(memoryId: string, url: string | null): Promise<void> {
   const { error } = await supabase
@@ -887,3 +910,38 @@ export const memoryUploadConfig = {
   maxRawFileSizeMb: Math.round(MAX_UPLOAD_FILE_SIZE_BYTES / (1024 * 1024)),
   bucket: MEMORY_PHOTOS_BUCKET,
 };
+
+export const memoryMonitoringConfig = {
+  memorySoftCap: parsePositiveIntEnv(
+    import.meta.env.VITE_MEMORY_USER_SOFT_CAP as string | undefined,
+    DEFAULT_MEMORY_SOFT_CAP
+  ),
+  photoSoftCap: parsePositiveIntEnv(
+    import.meta.env.VITE_MEMORY_PHOTO_SOFT_CAP as string | undefined,
+    DEFAULT_PHOTO_SOFT_CAP
+  ),
+  warningRatio: parseRatioEnv(
+    import.meta.env.VITE_MEMORY_SOFT_CAP_WARNING_RATIO as string | undefined,
+    DEFAULT_WARNING_RATIO
+  ),
+};
+
+export function summarizeMemoryUsage(memories: Memory[]): MemoryUsageSummary {
+  let photoCount = 0;
+  let legacyHeroPhotoCount = 0;
+
+  memories.forEach((memory) => {
+    memory.photos.forEach((photo) => {
+      if (isSyntheticHeroPhotoId(memory.id, photo.id)) {
+        legacyHeroPhotoCount += 1;
+      }
+      photoCount += 1;
+    });
+  });
+
+  return {
+    memoryCount: memories.length,
+    photoCount,
+    legacyHeroPhotoCount,
+  };
+}
