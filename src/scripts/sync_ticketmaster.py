@@ -24,6 +24,8 @@ DEFAULT_EVENT_TIMEZONE = "America/New_York"
 DEFAULT_EVENT_DURATION_HOURS = 3
 EVENT_DELETE_CHUNK_SIZE = 200
 PAST_EVENT_RETENTION_DAYS = int(os.getenv("EVENT_PAST_RETENTION_DAYS", "2"))
+TICKETMASTER_DEFAULT_WINDOW_DAYS = int(os.getenv("TICKETMASTER_WINDOW_DAYS", "45"))
+TICKETMASTER_DEFAULT_MAX_PAGES = int(os.getenv("TICKETMASTER_MAX_PAGES", "6"))
 
 
 def normalize_label(value: str | None):
@@ -95,19 +97,41 @@ def get_price(event):
     else:
         return f"${min_price:.0f}+", "$$$"
 
-def fetch_ticketmaster_events(city="New York", size=20, page=0):
+def _to_tm_iso(dt: datetime):
+    return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def fetch_ticketmaster_events(city="New York", size=50, max_pages=TICKETMASTER_DEFAULT_MAX_PAGES, window_days=TICKETMASTER_DEFAULT_WINDOW_DAYS):
+    now_utc = datetime.utcnow()
+    end_utc = now_utc + timedelta(days=window_days)
+
     url = "https://app.ticketmaster.com/discovery/v2/events.json"
-    params = {
-        "apikey": TM_API_KEY,
-        "city": city,
-        "size": size,
-        "page": page,
-        "sort": "date,asc",
-    }
-    response = requests.get(url, params=params)
-    response.raise_for_status()
-    data = response.json()
-    return data.get("_embedded", {}).get("events", [])
+    collected = []
+
+    for page in range(max_pages):
+        params = {
+            "apikey": TM_API_KEY,
+            "city": city,
+            "size": size,
+            "page": page,
+            "sort": "date,asc",
+            "startDateTime": _to_tm_iso(now_utc),
+            "endDateTime": _to_tm_iso(end_utc),
+        }
+
+        response = requests.get(url, params=params)
+        response.raise_for_status()
+        data = response.json()
+
+        page_events = data.get("_embedded", {}).get("events", [])
+        collected.extend(page_events)
+
+        page_info = data.get("page", {})
+        total_pages = int(page_info.get("totalPages", 0) or 0)
+        if page + 1 >= total_pages:
+            break
+
+    return collected
 
 
 def parse_local_time(local_time: str | None):
@@ -298,6 +322,8 @@ def prune_events_catalog(dry_run: bool = False):
 def parse_args():
     parser = argparse.ArgumentParser(description="Sync and prune Ticketmaster events")
     parser.add_argument("--size", type=int, default=50, help="Ticketmaster page size for sync")
+    parser.add_argument("--max-pages", type=int, default=TICKETMASTER_DEFAULT_MAX_PAGES, help="Maximum Ticketmaster pages to fetch per run")
+    parser.add_argument("--window-days", type=int, default=TICKETMASTER_DEFAULT_WINDOW_DAYS, help="Future date window (in days) to include from Ticketmaster")
     parser.add_argument("--prune-only", action="store_true", help="Skip fetch/sync and only run prune")
     parser.add_argument("--skip-prune", action="store_true", help="Skip prune step after sync")
     parser.add_argument("--dry-run-prune", action="store_true", help="Run prune in dry-run mode")
@@ -365,7 +391,7 @@ if __name__ == "__main__":
         raise SystemExit(0)
 
     print("Fetching events from Ticketmaster...")
-    events = fetch_ticketmaster_events(size=args.size)
+    events = fetch_ticketmaster_events(size=args.size, max_pages=args.max_pages, window_days=args.window_days)
     print(f"Found {len(events)} events")
     sync_to_supabase(events)
 
