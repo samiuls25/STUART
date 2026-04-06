@@ -688,9 +688,17 @@ const MemoryCard = ({ memory, compact = false, displayMode = "default", allowDel
                   className="w-7 h-7 rounded-full bg-primary/20 border-2 border-card flex items-center justify-center"
                   style={{ zIndex: memory.attendees.length - index }}
                 >
-                  <span className="text-[10px] font-medium text-primary">
-                    {attendee.name.charAt(0)}
-                  </span>
+                  {attendee.avatar ? (
+                    <img
+                      src={attendee.avatar}
+                      alt={attendee.name}
+                      className="w-full h-full rounded-full object-cover"
+                    />
+                  ) : (
+                    <span className="text-[10px] font-medium text-primary">
+                      {attendee.name.charAt(0)}
+                    </span>
+                  )}
                 </div>
               ))}
               {memory.attendees.length > 4 && (
@@ -809,9 +817,17 @@ const MemoryCard = ({ memory, compact = false, displayMode = "default", allowDel
                           className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-muted"
                         >
                           <div className="w-6 h-6 rounded-full bg-primary/20 flex items-center justify-center">
-                            <span className="text-xs font-medium text-primary">
-                              {attendee.name.charAt(0)}
-                            </span>
+                            {attendee.avatar ? (
+                              <img
+                                src={attendee.avatar}
+                                alt={attendee.name}
+                                className="w-full h-full rounded-full object-cover"
+                              />
+                            ) : (
+                              <span className="text-xs font-medium text-primary">
+                                {attendee.name.charAt(0)}
+                              </span>
+                            )}
                           </div>
                           <span className="text-sm text-foreground">{attendee.name}</span>
                           {editable && index > 0 && (

@@ -388,9 +388,17 @@ const HangoutDetailModal = ({
                       <div key={response.friendId} className="flex items-center justify-between p-3 rounded-xl bg-muted/30">
                         <div className="flex items-center gap-3">
                           <div className="w-9 h-9 rounded-full bg-gradient-to-br from-primary/20 to-accent/20 flex items-center justify-center">
-                            <span className="font-heading text-sm font-bold text-primary">
-                              {friend?.name.charAt(0) || "?"}
-                            </span>
+                            {friend?.avatar_url ? (
+                              <img
+                                src={friend.avatar_url}
+                                alt={friend.name}
+                                className="w-full h-full rounded-full object-cover"
+                              />
+                            ) : (
+                              <span className="font-heading text-sm font-bold text-primary">
+                                {friend?.name.charAt(0) || "?"}
+                              </span>
+                            )}
                           </div>
                           <span className="text-sm font-medium text-foreground">{friend?.name || "Unknown"}</span>
                         </div>

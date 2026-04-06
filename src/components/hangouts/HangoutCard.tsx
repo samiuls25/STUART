@@ -189,7 +189,15 @@ const HangoutCard = ({
                 style={{ zIndex: 5 - idx }}
                 title={`${friend?.name || "Unknown"} - ${response.status}`}
               >
-                {friend?.name.charAt(0) || "?"}
+                {friend?.avatar_url ? (
+                  <img
+                    src={friend.avatar_url}
+                    alt={friend.name}
+                    className="w-full h-full rounded-full object-cover"
+                  />
+                ) : (
+                  friend?.name.charAt(0) || "?"
+                )}
               </div>
             );
           })}
