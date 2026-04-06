@@ -14,8 +14,6 @@ import {
   Car,
   Tag,
   Star,
-  ThumbsUp,
-  ThumbsDown,
   DollarSign,
   Info,
 } from "lucide-react";
@@ -341,13 +339,6 @@ const EventDetailModal = ({ event, onClose, initialSuggestOpen = false }: EventD
     }
   };
 
-  const handleFeedback = (type: string) => {
-    toast({
-      title: "Thanks for your feedback!",
-      description: "This helps us improve your recommendations",
-    });
-  };
-
   const handleOpenHangouts = () => {
     window.location.href = "/hangouts";
   };
@@ -549,16 +540,6 @@ const EventDetailModal = ({ event, onClose, initialSuggestOpen = false }: EventD
                     </div>
                   </div>
 
-                  {/* Feedback */}
-                  <div className="flex items-center justify-center gap-2 pt-2">
-                    <span className="text-xs text-muted-foreground">Help improve recommendations:</span>
-                    <button onClick={() => handleFeedback('more')} className="flex items-center gap-1 px-2 py-1 rounded-full text-xs hover:bg-green-500/10 hover:text-green-500 transition-colors">
-                      <ThumbsUp className="w-3 h-3" /> More
-                    </button>
-                    <button onClick={() => handleFeedback('less')} className="flex items-center gap-1 px-2 py-1 rounded-full text-xs hover:bg-red-500/10 hover:text-red-500 transition-colors">
-                      <ThumbsDown className="w-3 h-3" /> Less
-                    </button>
-                  </div>
                 </div>
 
                 {/* CTA Footer */}
