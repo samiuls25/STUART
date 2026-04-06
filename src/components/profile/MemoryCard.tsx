@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { MapPin, Clock, Users, Camera, X, ChevronLeft, ChevronRight, Plus, Trash2 } from "lucide-react";
 import type { Friend } from "../../lib/friends";
 import { getFriends } from "../../lib/friends";
-import { addMemoryAttendee, deleteMemory, removeMemoryAttendee, type Memory } from "../../lib/memories";
+import { addMemoryAttendee, deleteMemory, deleteMemoryPhoto, removeMemoryAttendee, reorderMemoryPhotos, type Memory } from "../../lib/memories";
 import { useToast } from "../../hooks/use-toast";
 
 interface MemoryCardProps {
@@ -12,10 +12,11 @@ interface MemoryCardProps {
   compact?: boolean;
   displayMode?: "default" | "gallery";
   allowDelete?: boolean;
+  editable?: boolean;
   onMemoryUpdated?: () => void | Promise<void>;
 }
 
-const MemoryCard = ({ memory, compact = false, displayMode = "default", allowDelete = true, onMemoryUpdated }: MemoryCardProps) => {
+const MemoryCard = ({ memory, compact = false, displayMode = "default", allowDelete = true, editable = true, onMemoryUpdated }: MemoryCardProps) => {
   const { toast } = useToast();
   const [isExpanded, setIsExpanded] = useState(false);
   const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
@@ -25,6 +26,8 @@ const MemoryCard = ({ memory, compact = false, displayMode = "default", allowDel
   const [isAddingAttendee, setIsAddingAttendee] = useState(false);
   const [attendeeActionId, setAttendeeActionId] = useState<string | null>(null);
   const [isDeletingMemory, setIsDeletingMemory] = useState(false);
+  const [isReorderingPhotos, setIsReorderingPhotos] = useState(false);
+  const [deletingPhotoId, setDeletingPhotoId] = useState<string | null>(null);
 
   const galleryPhotos = useMemo(
     () =>
@@ -51,8 +54,27 @@ const MemoryCard = ({ memory, compact = false, displayMode = "default", allowDel
     [friends, memory.attendees]
   );
 
+  const isSyntheticPhoto = (photoId: string) => photoId === `${memory.id}-hero`;
+
+  const currentSelectedPhoto = galleryPhotos[currentPhotoIndex] || null;
+  const galleryContainsSynthetic = galleryPhotos.some((photo) => isSyntheticPhoto(photo.id));
+  const canReorderPhotos = galleryPhotos.length > 1 && !galleryContainsSynthetic;
+
+  const getReorderedIdsAndTargetIndex = (direction: "left" | "right") => {
+    if (!canReorderPhotos) return null;
+
+    const sourceIndex = currentPhotoIndex;
+    const targetIndex = direction === "left" ? sourceIndex - 1 : sourceIndex + 1;
+    if (targetIndex < 0 || targetIndex >= galleryPhotos.length) return null;
+
+    const ids = galleryPhotos.map((photo) => photo.id);
+    [ids[sourceIndex], ids[targetIndex]] = [ids[targetIndex], ids[sourceIndex]];
+
+    return { ids, targetIndex };
+  };
+
   useEffect(() => {
-    if (!isExpanded) return;
+    if (!isExpanded || !editable) return;
 
     let mounted = true;
 
@@ -77,7 +99,7 @@ const MemoryCard = ({ memory, compact = false, displayMode = "default", allowDel
     return () => {
       mounted = false;
     };
-  }, [isExpanded]);
+  }, [editable, isExpanded]);
 
   useEffect(() => {
     if (addableFriends.length === 0) {
@@ -91,6 +113,7 @@ const MemoryCard = ({ memory, compact = false, displayMode = "default", allowDel
   }, [addableFriends, selectedFriendId]);
 
   const handleAddAttendee = async () => {
+    if (!editable) return;
     if (!selectedFriendId) return;
 
     setIsAddingAttendee(true);
@@ -114,6 +137,7 @@ const MemoryCard = ({ memory, compact = false, displayMode = "default", allowDel
   };
 
   const handleRemoveAttendee = async (attendeeId: string) => {
+    if (!editable) return;
     setAttendeeActionId(attendeeId);
     try {
       await removeMemoryAttendee(memory.id, attendeeId);
@@ -135,6 +159,8 @@ const MemoryCard = ({ memory, compact = false, displayMode = "default", allowDel
   };
 
   const handleDeleteMemory = async () => {
+    if (!editable || !allowDelete) return;
+
     const confirmed = window.confirm("Delete this memory and all of its uploaded photos? This cannot be undone.");
     if (!confirmed) return;
 
@@ -156,6 +182,57 @@ const MemoryCard = ({ memory, compact = false, displayMode = "default", allowDel
       });
     } finally {
       setIsDeletingMemory(false);
+    }
+  };
+
+  const handleDeleteSelectedPhoto = async () => {
+    if (!editable) return;
+    if (!currentSelectedPhoto) return;
+
+    const confirmed = window.confirm("Delete this photo from the memory?");
+    if (!confirmed) return;
+
+    setDeletingPhotoId(currentSelectedPhoto.id);
+    try {
+      await deleteMemoryPhoto(memory.id, currentSelectedPhoto.id);
+      toast({
+        title: "Photo deleted",
+        description: "The photo was removed from this memory.",
+      });
+      setCurrentPhotoIndex((prev) => Math.max(prev - 1, 0));
+      await onMemoryUpdated?.();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to delete photo.";
+      toast({
+        title: "Could not delete photo",
+        description: message,
+        variant: "destructive",
+      });
+    } finally {
+      setDeletingPhotoId(null);
+    }
+  };
+
+  const handleReorderSelectedPhoto = async (direction: "left" | "right") => {
+    if (!editable) return;
+
+    const reordered = getReorderedIdsAndTargetIndex(direction);
+    if (!reordered) return;
+
+    setIsReorderingPhotos(true);
+    try {
+      await reorderMemoryPhotos(memory.id, reordered.ids);
+      setCurrentPhotoIndex(reordered.targetIndex);
+      await onMemoryUpdated?.();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to reorder photos.";
+      toast({
+        title: "Could not reorder photos",
+        description: message,
+        variant: "destructive",
+      });
+    } finally {
+      setIsReorderingPhotos(false);
     }
   };
 
@@ -289,7 +366,7 @@ const MemoryCard = ({ memory, compact = false, displayMode = "default", allowDel
                     </span>
                   </div>
 
-                  {allowDelete && (
+                  {allowDelete && editable && (
                     <div className="mb-6 rounded-xl border border-destructive/20 bg-destructive/5 p-3">
                       <button
                         type="button"
@@ -323,6 +400,41 @@ const MemoryCard = ({ memory, compact = false, displayMode = "default", allowDel
                         </button>
                       ))}
                     </div>
+
+                    {editable && (
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() => handleReorderSelectedPhoto("left")}
+                          disabled={!canReorderPhotos || isReorderingPhotos || currentPhotoIndex === 0}
+                          className="px-3 py-1.5 rounded-md border border-border text-sm text-foreground disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          Move Left
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleReorderSelectedPhoto("right")}
+                          disabled={!canReorderPhotos || isReorderingPhotos || currentPhotoIndex >= galleryPhotos.length - 1}
+                          className="px-3 py-1.5 rounded-md border border-border text-sm text-foreground disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          Move Right
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleDeleteSelectedPhoto}
+                          disabled={!currentSelectedPhoto || deletingPhotoId === currentSelectedPhoto?.id}
+                          className="px-3 py-1.5 rounded-md border border-destructive/30 text-sm text-destructive disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          {deletingPhotoId === currentSelectedPhoto?.id ? "Deleting Photo..." : "Delete Selected Photo"}
+                        </button>
+                      </div>
+                    )}
+
+                    {editable && !canReorderPhotos && galleryContainsSynthetic && (
+                      <p className="mt-2 text-xs text-muted-foreground">
+                        Reordering is available for multi-photo memories saved in memory_photos.
+                      </p>
+                    )}
                   </div>
                 </div>
               </motion.div>
@@ -480,7 +592,7 @@ const MemoryCard = ({ memory, compact = false, displayMode = "default", allowDel
                   </span>
                 </div>
 
-                {allowDelete && (
+                {allowDelete && editable && (
                   <div className="mb-6 rounded-xl border border-destructive/20 bg-destructive/5 p-3">
                     <button
                       type="button"
@@ -513,7 +625,7 @@ const MemoryCard = ({ memory, compact = false, displayMode = "default", allowDel
                             </span>
                           </div>
                           <span className="text-sm text-foreground">{attendee.name}</span>
-                          {index > 0 && (
+                          {editable && index > 0 && (
                             <button
                               type="button"
                               onClick={() => handleRemoveAttendee(attendee.id)}
@@ -532,34 +644,36 @@ const MemoryCard = ({ memory, compact = false, displayMode = "default", allowDel
                     )}
                   </div>
 
-                  <div className="mt-3 flex flex-col sm:flex-row gap-2">
-                    <select
-                      value={selectedFriendId}
-                      onChange={(e) => setSelectedFriendId(e.target.value)}
-                      className="h-10 rounded-md border border-input bg-background px-3 text-sm text-foreground sm:flex-1"
-                      disabled={loadingFriends || addableFriends.length === 0}
-                    >
-                      {addableFriends.length === 0 ? (
-                        <option value="">No more friends to add</option>
-                      ) : (
-                        addableFriends.map((friend) => (
-                          <option key={friend.id} value={friend.id}>
-                            {friend.name}
-                          </option>
-                        ))
-                      )}
-                    </select>
+                  {editable && (
+                    <div className="mt-3 flex flex-col sm:flex-row gap-2">
+                      <select
+                        value={selectedFriendId}
+                        onChange={(e) => setSelectedFriendId(e.target.value)}
+                        className="h-10 rounded-md border border-input bg-background px-3 text-sm text-foreground sm:flex-1"
+                        disabled={loadingFriends || addableFriends.length === 0}
+                      >
+                        {addableFriends.length === 0 ? (
+                          <option value="">No more friends to add</option>
+                        ) : (
+                          addableFriends.map((friend) => (
+                            <option key={friend.id} value={friend.id}>
+                              {friend.name}
+                            </option>
+                          ))
+                        )}
+                      </select>
 
-                    <button
-                      type="button"
-                      onClick={handleAddAttendee}
-                      disabled={isAddingAttendee || !selectedFriendId || addableFriends.length === 0}
-                      className="h-10 px-3 rounded-md bg-primary text-primary-foreground text-sm font-medium disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-1.5"
-                    >
-                      <Plus className="w-4 h-4" />
-                      Add friend
-                    </button>
-                  </div>
+                      <button
+                        type="button"
+                        onClick={handleAddAttendee}
+                        disabled={isAddingAttendee || !selectedFriendId || addableFriends.length === 0}
+                        className="h-10 px-3 rounded-md bg-primary text-primary-foreground text-sm font-medium disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-1.5"
+                      >
+                        <Plus className="w-4 h-4" />
+                        Add friend
+                      </button>
+                    </div>
+                  )}
                 </div>
 
                 {/* Photo Thumbnails */}
@@ -583,6 +697,41 @@ const MemoryCard = ({ memory, compact = false, displayMode = "default", allowDel
                       </button>
                     ))}
                   </div>
+
+                  {editable && (
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => handleReorderSelectedPhoto("left")}
+                        disabled={!canReorderPhotos || isReorderingPhotos || currentPhotoIndex === 0}
+                        className="px-3 py-1.5 rounded-md border border-border text-sm text-foreground disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        Move Left
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleReorderSelectedPhoto("right")}
+                        disabled={!canReorderPhotos || isReorderingPhotos || currentPhotoIndex >= galleryPhotos.length - 1}
+                        className="px-3 py-1.5 rounded-md border border-border text-sm text-foreground disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        Move Right
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleDeleteSelectedPhoto}
+                        disabled={!currentSelectedPhoto || deletingPhotoId === currentSelectedPhoto?.id}
+                        className="px-3 py-1.5 rounded-md border border-destructive/30 text-sm text-destructive disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {deletingPhotoId === currentSelectedPhoto?.id ? "Deleting Photo..." : "Delete Selected Photo"}
+                      </button>
+                    </div>
+                  )}
+
+                  {editable && !canReorderPhotos && galleryContainsSynthetic && (
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      Reordering is available for multi-photo memories saved in memory_photos.
+                    </p>
+                  )}
                 </div>
               </div>
             </motion.div>

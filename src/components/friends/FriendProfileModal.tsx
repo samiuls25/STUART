@@ -1,9 +1,9 @@
-import React from "react";
+import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, Trophy, Camera, Calendar, UserMinus, VolumeX, Volume2 } from "lucide-react";
 import { Friend } from "../../lib/friends";
-import { memories } from "../../data/badges";
 import MemoryCard from "../profile/MemoryCard";
+import { fetchMemoriesForUser, type Memory } from "../../lib/memories";
 
 interface FriendProfileModalProps {
   friend: Friend | null;
@@ -14,12 +14,51 @@ interface FriendProfileModalProps {
 }
 
 const FriendProfileModal = ({ friend, isOpen, onClose, onMute, onBlock }: FriendProfileModalProps) => {
+  const [visibleMemories, setVisibleMemories] = useState<Memory[]>([]);
+  const [loadingMemories, setLoadingMemories] = useState(false);
+  const friendId = friend?.id;
+
+  useEffect(() => {
+    if (!isOpen || !friendId) return;
+
+    let mounted = true;
+
+    const loadVisibleMemories = async () => {
+      setLoadingMemories(true);
+      try {
+        const rows = await fetchMemoriesForUser(friendId);
+        if (mounted) {
+          setVisibleMemories(rows);
+        }
+      } catch (error) {
+        console.warn("Unable to load visible friend memories", error);
+        if (mounted) {
+          setVisibleMemories([]);
+        }
+      } finally {
+        if (mounted) {
+          setLoadingMemories(false);
+        }
+      }
+    };
+
+    void loadVisibleMemories();
+
+    return () => {
+      mounted = false;
+    };
+  }, [friendId, isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) {
+      setVisibleMemories([]);
+      setLoadingMemories(false);
+    }
+  }, [isOpen]);
+
   if (!friend) return null;
 
   const friendBadges = friend.badgeSummaries ?? [];
-
-  // Mock shared memories (in real app, filter by attendees)
-  const sharedMemories = memories.slice(0, 2);
 
   const statusColors = {
     online: "bg-green-500",
@@ -118,20 +157,29 @@ const FriendProfileModal = ({ friend, isOpen, onClose, onMute, onBlock }: Friend
                 </div>
               )}
 
-              {/* Shared Memories */}
-              {sharedMemories.length > 0 && (
-                <div>
-                  <h4 className="font-heading font-semibold text-foreground flex items-center gap-2 mb-3">
-                    <Camera className="w-4 h-4 text-primary" />
-                    Shared Memories
-                  </h4>
+              {/* Memories */}
+              <div>
+                <h4 className="font-heading font-semibold text-foreground flex items-center gap-2 mb-3">
+                  <Camera className="w-4 h-4 text-primary" />
+                  Memories
+                </h4>
+
+                {loadingMemories ? (
+                  <div className="rounded-xl border border-border bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
+                    Loading memories...
+                  </div>
+                ) : visibleMemories.length > 0 ? (
                   <div className="space-y-3">
-                    {sharedMemories.map((memory) => (
-                      <MemoryCard key={memory.id} memory={memory} compact />
+                    {visibleMemories.map((memory) => (
+                      <MemoryCard key={memory.id} memory={memory} compact allowDelete={false} editable={false} />
                     ))}
                   </div>
-                </div>
-              )}
+                ) : (
+                  <div className="rounded-xl border border-border bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
+                    No visible memories yet.
+                  </div>
+                )}
+              </div>
 
               {/* Upcoming Hangouts */}
               <div>

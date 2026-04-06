@@ -126,6 +126,8 @@ const toSortTimestamp = (memoryDate: string | null, createdAt: string) => {
   return 0;
 };
 
+const isSyntheticHeroPhotoId = (memoryId: string, photoId: string) => photoId === `${memoryId}-hero`;
+
 const extractStoragePathFromPublicUrl = (url: string): string | null => {
   if (!url) return null;
 
@@ -151,6 +153,61 @@ const extractStoragePathFromPublicUrl = (url: string): string | null => {
 };
 
 const normalizePhotoRowUrl = (row: MemoryPhotoRow) => row.photo_url || row.url || "";
+
+async function setMemoryHeroImage(memoryId: string, url: string | null): Promise<void> {
+  const { error } = await supabase
+    .from("memories")
+    .update({ image_url: url })
+    .eq("id", memoryId);
+
+  if (error) {
+    throw error;
+  }
+}
+
+async function fetchOrderedMemoryPhotoRows(memoryId: string): Promise<Array<{ id: string; photo_url: string | null }>> {
+  const { data, error } = await supabase
+    .from("memory_photos")
+    .select("id,photo_url,display_order")
+    .eq("memory_id", memoryId)
+    .order("display_order", { ascending: true });
+
+  if (error) {
+    if (isMissingTableError(error)) {
+      throw new Error("Memory photos are not enabled yet. Run docs/db/memories_phase1.sql first.");
+    }
+    throw error;
+  }
+
+  return ((data as Array<{ id: string; photo_url: string | null }> | null) || []);
+}
+
+async function persistMemoryPhotoOrder(memoryId: string, orderedPhotoIds: string[]): Promise<void> {
+  // Two-pass update avoids temporary unique (memory_id, display_order) collisions.
+  for (let idx = 0; idx < orderedPhotoIds.length; idx += 1) {
+    const { error } = await supabase
+      .from("memory_photos")
+      .update({ display_order: -(idx + 1) })
+      .eq("memory_id", memoryId)
+      .eq("id", orderedPhotoIds[idx]);
+
+    if (error) {
+      throw error;
+    }
+  }
+
+  for (let idx = 0; idx < orderedPhotoIds.length; idx += 1) {
+    const { error } = await supabase
+      .from("memory_photos")
+      .update({ display_order: idx })
+      .eq("memory_id", memoryId)
+      .eq("id", orderedPhotoIds[idx]);
+
+    if (error) {
+      throw error;
+    }
+  }
+}
 
 const compressImageFile = async (file: File): Promise<Blob> => {
   if (!file.type.startsWith("image/")) {
@@ -330,10 +387,26 @@ export async function fetchMemoriesForCurrentUser(): Promise<Memory[]> {
     return [];
   }
 
+  return fetchMemoriesForUser(user.id);
+}
+
+export async function fetchMemoriesForUser(userId: string): Promise<Memory[]> {
+  if (!userId) {
+    return [];
+  }
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return [];
+  }
+
   const { data: memoryRows, error: memoryError } = await supabase
     .from("memories")
     .select("id,user_id,title,description,image_url,event_id,hangout_id,location,memory_date,created_at")
-    .eq("user_id", user.id)
+    .eq("user_id", userId)
     .order("memory_date", { ascending: false })
     .order("created_at", { ascending: false });
 
@@ -683,6 +756,130 @@ export async function deleteMemory(memoryId: string): Promise<void> {
   if (deleteError) {
     throw deleteError;
   }
+}
+
+export async function deleteMemoryPhoto(memoryId: string, photoId: string): Promise<void> {
+  if (!memoryId || !photoId) {
+    throw new Error("Memory and photo ids are required.");
+  }
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    throw new Error("You must be signed in to delete photos.");
+  }
+
+  if (isSyntheticHeroPhotoId(memoryId, photoId)) {
+    const { data: memoryRow, error: memoryReadError } = await supabase
+      .from("memories")
+      .select("image_url")
+      .eq("id", memoryId)
+      .maybeSingle();
+
+    if (memoryReadError) {
+      throw memoryReadError;
+    }
+
+    const path = extractStoragePathFromPublicUrl(memoryRow?.image_url || "");
+    if (path) {
+      const { error: storageDeleteError } = await supabase.storage
+        .from(MEMORY_PHOTOS_BUCKET)
+        .remove([path]);
+
+      if (storageDeleteError) {
+        throw storageDeleteError;
+      }
+    }
+
+    await setMemoryHeroImage(memoryId, null);
+    return;
+  }
+
+  const { data: photoRow, error: photoReadError } = await supabase
+    .from("memory_photos")
+    .select("id,photo_url")
+    .eq("memory_id", memoryId)
+    .eq("id", photoId)
+    .maybeSingle();
+
+  if (photoReadError) {
+    if (isMissingTableError(photoReadError)) {
+      throw new Error("Memory photos are not enabled yet. Run docs/db/memories_phase1.sql first.");
+    }
+    throw photoReadError;
+  }
+
+  if (!photoRow) {
+    return;
+  }
+
+  const path = extractStoragePathFromPublicUrl(photoRow.photo_url || "");
+  if (path) {
+    const { error: storageDeleteError } = await supabase.storage
+      .from(MEMORY_PHOTOS_BUCKET)
+      .remove([path]);
+
+    if (storageDeleteError) {
+      throw storageDeleteError;
+    }
+  }
+
+  const { error: deleteRowError } = await supabase
+    .from("memory_photos")
+    .delete()
+    .eq("memory_id", memoryId)
+    .eq("id", photoId);
+
+  if (deleteRowError) {
+    throw deleteRowError;
+  }
+
+  const remainingRows = await fetchOrderedMemoryPhotoRows(memoryId);
+  if (remainingRows.length > 0) {
+    await persistMemoryPhotoOrder(memoryId, remainingRows.map((row) => row.id));
+    await setMemoryHeroImage(memoryId, remainingRows[0].photo_url || null);
+  } else {
+    await setMemoryHeroImage(memoryId, null);
+  }
+}
+
+export async function reorderMemoryPhotos(memoryId: string, orderedPhotoIds: string[]): Promise<void> {
+  if (!memoryId) {
+    throw new Error("Memory id is required.");
+  }
+
+  if (!orderedPhotoIds || orderedPhotoIds.length <= 1) {
+    return;
+  }
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    throw new Error("You must be signed in to reorder photos.");
+  }
+
+  const currentRows = await fetchOrderedMemoryPhotoRows(memoryId);
+  const currentIds = currentRows.map((row) => row.id);
+
+  if (currentIds.length !== orderedPhotoIds.length) {
+    throw new Error("Photo reorder request is out of date. Please refresh and try again.");
+  }
+
+  const currentSet = new Set(currentIds);
+  const orderedSet = new Set(orderedPhotoIds);
+  if (currentSet.size !== orderedSet.size || [...currentSet].some((id) => !orderedSet.has(id))) {
+    throw new Error("Photo reorder request is invalid for this memory.");
+  }
+
+  await persistMemoryPhotoOrder(memoryId, orderedPhotoIds);
+
+  const nextHeroId = orderedPhotoIds[0];
+  const nextHeroUrl = currentRows.find((row) => row.id === nextHeroId)?.photo_url || null;
+  await setMemoryHeroImage(memoryId, nextHeroUrl);
 }
 
 export const memoryUploadConfig = {
