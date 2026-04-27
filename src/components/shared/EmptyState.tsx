@@ -31,7 +31,7 @@ const EmptyState = ({ onSearchArea }: EmptyStateProps) => {
         className="btn-primary flex items-center gap-2"
       >
         <Search className="w-4 h-4" />
-        Search this area
+        Reset Filters
       </button>
     </motion.div>
   );
