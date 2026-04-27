@@ -1,5 +1,5 @@
 import React from "react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, Plus, UserPlus, Search, Check, Clock, MapPin, Calendar, Users, Sparkles, AlertCircle } from "lucide-react";
 import { friends, activityTypes, Friend, Hangout, TimeRange } from "../../data/friends";
@@ -7,14 +7,25 @@ import { Input } from ".././ui/input";
 import { Textarea } from ".././ui/textarea";
 import { Switch } from ".././ui/switch";
 import AvailabilityHeatmap from ".././availability/AvailabilityHeatmap.tsx";
+import type { UserGroup } from "../../lib/groups";
 
 interface CreateHangoutModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onCreate?: (hangout: Partial<Hangout>) => void;
+  onCreate?: (hangout: Partial<Hangout> & { creatorAvailability?: TimeRange[] }) => void;
+  inviteCandidates?: Friend[];
+  inviteGroups?: UserGroup[];
+  onCreateGroupRequest?: () => void;
 }
 
-const CreateHangoutModal = ({ isOpen, onClose, onCreate }: CreateHangoutModalProps) => {
+const CreateHangoutModal = ({
+  isOpen,
+  onClose,
+  onCreate,
+  inviteCandidates,
+  inviteGroups = [],
+  onCreateGroupRequest,
+}: CreateHangoutModalProps) => {
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -26,24 +37,60 @@ const CreateHangoutModal = ({ isOpen, onClose, onCreate }: CreateHangoutModalPro
   const [heatmapSlots, setHeatmapSlots] = useState<Record<string, number>>({});
   const [locationName, setLocationName] = useState("");
   const [isFlexibleLocation, setIsFlexibleLocation] = useState(true);
-  const [selectedFriends, setSelectedFriends] = useState<string[]>([]);
+  const [isPublicHangout, setIsPublicHangout] = useState(false);
+  const [manualSelectedFriends, setManualSelectedFriends] = useState<string[]>([]);
+  const [selectedGroups, setSelectedGroups] = useState<string[]>([]);
   const [highlightedFriends, setHighlightedFriends] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
 
-  const filteredFriends = friends.filter(
+  const groupDerivedFriends: Friend[] = inviteGroups.flatMap((group) =>
+    group.members.map((member) => ({
+      id: member.userId,
+      name: member.name,
+      avatar_url: member.avatarUrl,
+      status: "offline",
+      isBlocked: false,
+      hangoutsTogether: 0,
+    }))
+  );
+
+  const friendPool = [...(inviteCandidates ?? friends), ...groupDerivedFriends].filter(
+    (friend, index, all) => all.findIndex((candidate) => candidate.id === friend.id) === index
+  );
+
+  const selectedFriends = useMemo(
+    () =>
+      [...new Set([
+        ...manualSelectedFriends,
+        ...selectedGroups.flatMap((groupId) => {
+          const group = inviteGroups.find((candidate) => candidate.id === groupId);
+          return (group?.members || []).map((member) => member.userId);
+        }),
+      ])],
+    [inviteGroups, manualSelectedFriends, selectedGroups]
+  );
+
+  const selectedFriendSet = useMemo(() => new Set(selectedFriends), [selectedFriends]);
+
+  const filteredFriends = friendPool.filter(
     (f) =>
       !f.isBlocked &&
       f.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   const toggleFriend = (id: string) => {
-    setSelectedFriends((prev) =>
+    setManualSelectedFriends((prev) =>
       prev.includes(id) ? prev.filter((f) => f !== id) : [...prev, id]
     );
-    // Remove from highlighted if deselected
-    if (selectedFriends.includes(id)) {
+    if (manualSelectedFriends.includes(id)) {
       setHighlightedFriends((prev) => prev.filter((f) => f !== id));
     }
+  };
+
+  const toggleGroup = (groupId: string) => {
+    setSelectedGroups((prev) =>
+      prev.includes(groupId) ? prev.filter((id) => id !== groupId) : [...prev, groupId]
+    );
   };
 
   const toggleHighlight = (id: string) => {
@@ -54,14 +101,42 @@ const CreateHangoutModal = ({ isOpen, onClose, onCreate }: CreateHangoutModalPro
   };
 
   const handleCreate = () => {
-    const hangout: Partial<Hangout> = {
+    const sortedHeatmapKeys = Object.entries(heatmapSlots)
+      .filter(([, value]) => value > 0)
+      .map(([key]) => key)
+      .sort();
+
+    const creatorAvailability: TimeRange[] = sortedHeatmapKeys.map((slotKey) => {
+      const slotDate = slotKey.slice(0, 10);
+      const slotTime = slotKey.slice(11);
+      const [hoursRaw, minutesRaw] = slotTime.split(":");
+      const nextHour = String((Number(hoursRaw) + 1) % 24).padStart(2, "0");
+      const nextMinute = String(Number(minutesRaw)).padStart(2, "0");
+
+      return {
+        start: `${slotDate}T${slotTime}:00`,
+        end: `${slotDate}T${nextHour}:${nextMinute}:00`,
+        preference: "available",
+      };
+    });
+
+    const derivedStartTime =
+      schedulingMode === "heatmap"
+        ? (sortedHeatmapKeys[0]?.slice(11) || startTime)
+        : startTime;
+    const derivedEndTime =
+      schedulingMode === "heatmap"
+        ? (creatorAvailability[creatorAvailability.length - 1]?.end.slice(11, 16) || endTime)
+        : endTime;
+
+    const hangout: Partial<Hangout> & { creatorAvailability?: TimeRange[] } = {
       title,
       description,
       activityType: activityType as Hangout["activityType"],
       proposedTimeRange: {
         date,
-        startTime,
-        endTime,
+        startTime: derivedStartTime,
+        endTime: derivedEndTime,
       },
       location: locationName
         ? {
@@ -69,9 +144,11 @@ const CreateHangoutModal = ({ isOpen, onClose, onCreate }: CreateHangoutModalPro
             isFlexible: isFlexibleLocation,
           }
         : undefined,
+      isPublic: isPublicHangout,
       invitedFriends: selectedFriends,
       highlightedFriends,
       status: "pending",
+      creatorAvailability,
     };
     onCreate?.(hangout);
     onClose();
@@ -90,10 +167,16 @@ const CreateHangoutModal = ({ isOpen, onClose, onCreate }: CreateHangoutModalPro
     setHeatmapSlots({});
     setLocationName("");
     setIsFlexibleLocation(true);
-    setSelectedFriends([]);
+    setIsPublicHangout(false);
+    setManualSelectedFriends([]);
+    setSelectedGroups([]);
     setHighlightedFriends([]);
     setSearchQuery("");
   };
+
+  React.useEffect(() => {
+    setHighlightedFriends((prev) => prev.filter((friendId) => selectedFriendSet.has(friendId)));
+  }, [selectedFriendSet]);
 
   const toggleHeatmapSlot = (key: string) => {
     setHeatmapSlots((prev) => {
@@ -107,7 +190,7 @@ const CreateHangoutModal = ({ isOpen, onClose, onCreate }: CreateHangoutModalPro
   const canProceedStep2 = schedulingMode === "heatmap"
     ? (date && Object.values(heatmapSlots).some((v) => v > 0))
     : (date && startTime && endTime);
-  const canCreate = selectedFriends.length > 0;
+  const canCreate = isPublicHangout || selectedFriends.length > 0;
 
   return (
     <AnimatePresence>
@@ -335,6 +418,22 @@ const CreateHangoutModal = ({ isOpen, onClose, onCreate }: CreateHangoutModalPro
                         </div>
                       )}
                     </div>
+
+                    <div className="rounded-xl border border-border bg-muted/30 p-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-medium text-foreground">Make this hangout public</p>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            Public confirmed hangouts can appear in Explore and Map for everyone.
+                          </p>
+                        </div>
+                        <Switch
+                          checked={isPublicHangout}
+                          onCheckedChange={setIsPublicHangout}
+                          aria-label="Make hangout public"
+                        />
+                      </div>
+                    </div>
                   </motion.div>
                 )}
 
@@ -350,7 +449,7 @@ const CreateHangoutModal = ({ isOpen, onClose, onCreate }: CreateHangoutModalPro
                     <div className="relative">
                       <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                       <Input
-                        placeholder="Search friends..."
+                        placeholder="Search friends by name..."
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
                         className="pl-10"
@@ -370,6 +469,55 @@ const CreateHangoutModal = ({ isOpen, onClose, onCreate }: CreateHangoutModalPro
                       )}
                     </div>
 
+                    {inviteGroups.length > 0 ? (
+                      <div>
+                        <div className="flex items-center justify-between mb-2">
+                          <p className="text-sm font-medium text-foreground">Quick add from groups</p>
+                          <button
+                            onClick={onCreateGroupRequest}
+                            type="button"
+                            className="text-xs text-primary hover:underline"
+                          >
+                            Create group
+                          </button>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          {inviteGroups.map((group) => {
+                            const selected = selectedGroups.includes(group.id);
+                            return (
+                              <button
+                                key={group.id}
+                                type="button"
+                                onClick={() => toggleGroup(group.id)}
+                                className={`px-3 py-1.5 rounded-full text-xs border transition-colors ${
+                                  selected
+                                    ? "border-primary bg-primary/10 text-primary"
+                                    : "border-border text-muted-foreground hover:border-primary/30 hover:text-foreground"
+                                }`}
+                              >
+                                {group.name} ({group.members.length})
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="rounded-lg border border-border bg-muted/20 p-3 text-xs text-muted-foreground">
+                        No groups yet. Create one to invite everyone at once.
+                        {onCreateGroupRequest && (
+                          <button onClick={onCreateGroupRequest} type="button" className="ml-1 text-primary hover:underline">
+                            Create group
+                          </button>
+                        )}
+                      </div>
+                    )}
+
+                    {isPublicHangout && selectedFriends.length === 0 && (
+                      <div className="rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-xs text-primary">
+                        This public hangout can be created without inviting friends.
+                      </div>
+                    )}
+
                     {/* Highlight Info */}
                     <div className="flex items-start gap-2 p-3 rounded-lg bg-primary/5 text-sm">
                       <AlertCircle className="w-4 h-4 text-primary flex-shrink-0 mt-0.5" />
@@ -382,6 +530,13 @@ const CreateHangoutModal = ({ isOpen, onClose, onCreate }: CreateHangoutModalPro
                     <div className="space-y-2 max-h-[40vh] overflow-y-auto">
                       {filteredFriends.map((friend) => {
                         const isSelected = selectedFriends.includes(friend.id);
+                        const selectedViaGroup =
+                          isSelected
+                          && !manualSelectedFriends.includes(friend.id)
+                          && selectedGroups.some((groupId) => {
+                            const group = inviteGroups.find((candidate) => candidate.id === groupId);
+                            return (group?.members || []).some((member) => member.userId === friend.id);
+                          });
                         const isHighlighted = highlightedFriends.includes(friend.id);
 
                         return (
@@ -397,13 +552,18 @@ const CreateHangoutModal = ({ isOpen, onClose, onCreate }: CreateHangoutModalPro
                           >
                             <button
                               onClick={() => toggleFriend(friend.id)}
+                              disabled={selectedViaGroup}
                               className="flex items-center gap-3 flex-1"
                             >
                               <div className="relative">
                                 <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary/20 to-accent/20 flex items-center justify-center">
-                                  <span className="font-heading font-bold text-primary">
-                                    {friend.name.charAt(0)}
-                                  </span>
+                                  {friend.avatar_url ? (
+                                    <img src={friend.avatar_url} alt={friend.name} className="w-full h-full rounded-full object-cover" />
+                                  ) : (
+                                    <span className="font-heading font-bold text-primary">
+                                      {friend.name.charAt(0)}
+                                    </span>
+                                  )}
                                 </div>
                                 {isSelected && (
                                   <div className="absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full bg-primary flex items-center justify-center">
@@ -414,7 +574,9 @@ const CreateHangoutModal = ({ isOpen, onClose, onCreate }: CreateHangoutModalPro
                               <div className="text-left">
                                 <p className="font-medium text-foreground">{friend.name}</p>
                                 <p className="text-xs text-muted-foreground">
-                                  {friend.hangoutsTogether} hangouts together
+                                  {selectedViaGroup
+                                    ? "Included via selected group"
+                                    : `${friend.hangoutsTogether || 0} hangouts together`}
                                 </p>
                               </div>
                             </button>

@@ -8,7 +8,12 @@
         "build": "vite build",
         "build:dev": "vite build --mode development",
         "lint": "eslint .",
-        "preview": "vite preview"
+        "preview": "vite preview",
+        "events:sync": "python3 src/scripts/sync_ticketmaster.py && python3 src/scripts/recompute_event_intelligence.py",
+        "events:intelligence": "python3 src/scripts/recompute_event_intelligence.py",
+        "events:intelligence:incremental": "python3 src/scripts/recompute_event_intelligence.py --mode incremental --window-minutes 20",
+        "events:prune:dry-run": "python3 src/scripts/sync_ticketmaster.py --prune-only --dry-run-prune",
+        "events:prune": "python3 src/scripts/sync_ticketmaster.py --prune-only"
     },
     "dependencies": {
         "@fontsource/inter": "^5.2.8",
@@ -42,7 +47,7 @@
         "@radix-ui/react-toggle-group": "^1.1.10",
         "@radix-ui/react-tooltip": "^1.2.7",
         "@react-google-maps/api": "^2.20.8",
-        "@supabase/supabase-js": "^2.95.3",
+        "@supabase/supabase-js": "^2.97.0",
         "@tanstack/react-query": "^5.83.0",
         "class-variance-authority": "^0.7.1",
         "clsx": "^2.1.1",
@@ -50,6 +55,7 @@
         "date-fns": "^3.6.0",
         "embla-carousel-react": "^8.6.0",
         "framer-motion": "^12.23.26",
+        "fuse.js": "^7.1.0",
         "input-otp": "^1.4.2",
         "lucide-react": "^0.462.0",
         "next-themes": "^0.3.0",

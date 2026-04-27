@@ -1,23 +1,182 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import React from "react";
 import { motion } from "framer-motion";
-import { Plus, Calendar, Clock, Users, ChevronRight, Sparkles, Filter, X } from "lucide-react";
+import { Plus, Calendar, Clock, Users, ChevronRight, Sparkles, Filter, X, Camera, PencilLine, Trash2 } from "lucide-react";
 import Navbar from "../components/layout/Navbar.tsx";
 import HangoutCard from "../components/hangouts/HangoutCard";
 import CreateHangoutModal from "../components/hangouts/CreateHangoutModal";
 import HangoutDetailModal from "../components/hangouts/HangoutDetailModel.tsx";
-import { hangouts, Hangout } from "../data/friends.ts";
+import CreateMemoryModal, { CreateMemoryInitialValues } from "../components/profile/CreateMemoryModal";
+import CreateGroupModal from "../components/groups/CreateGroupModal";
+import AuthModal from "../components/auth/AuthModal";
+import { hangouts, Hangout, setFriendsDirectory, Friend, TimeRange } from "../data/friends.ts";
 import { format, isAfter, isBefore, parseISO, startOfDay, addWeeks } from "date-fns";
 import { Input } from "../components/ui/input.tsx";
+import { useAuth } from "../lib/AuthContext";
+import { useToast } from "../hooks/use-toast";
+import { getFriends } from "../lib/friends";
+import { deleteGroup, fetchGroupsForCurrentUser, type UserGroup } from "../lib/groups";
+import { supabase } from "../lib/supabase";
+import {
+  applySuggestedHangoutTime,
+  createHangout,
+  deleteHangout,
+  fetchHangoutsForCurrentUser,
+  isHangoutsSetupError,
+  respondToHangout,
+  submitHangoutAvailability,
+} from "../lib/hangouts";
 
 const Hangouts = () => {
+  const { user } = useAuth();
+  const { toast } = useToast();
+
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showAuthModal, setShowAuthModal] = useState(false);
   const [selectedHangout, setSelectedHangout] = useState<Hangout | null>(null);
+  const [openAvailabilityEditor, setOpenAvailabilityEditor] = useState(false);
   const [showDateFilter, setShowDateFilter] = useState(false);
   const [filterFrom, setFilterFrom] = useState("");
   const [filterTo, setFilterTo] = useState("");
+  const [hangoutsState, setHangoutsState] = useState<Hangout[]>(hangouts);
+  const [inviteCandidates, setInviteCandidates] = useState<Friend[]>([]);
+  const [groupsState, setGroupsState] = useState<UserGroup[]>([]);
+  const [showCreateGroupModal, setShowCreateGroupModal] = useState(false);
+  const [editingGroup, setEditingGroup] = useState<UserGroup | null>(null);
+  const [hiddenDeclinedHangoutIds, setHiddenDeclinedHangoutIds] = useState<string[]>([]);
+  const [showHiddenDeclinedSection, setShowHiddenDeclinedSection] = useState(false);
+  const [loadingHangouts, setLoadingHangouts] = useState(true);
+  const [schemaMissing, setSchemaMissing] = useState(false);
+  const [showMemoryModal, setShowMemoryModal] = useState(false);
+  const [memoryPrefill, setMemoryPrefill] = useState<CreateMemoryInitialValues | null>(null);
 
   const today = startOfDay(new Date());
+  const currentUserId = user?.id;
+  const hiddenDeclinedStorageKey = currentUserId
+    ? `stuart:hiddenDeclinedHangouts:${currentUserId}`
+    : null;
+
+  const loadHangouts = async () => {
+    setLoadingHangouts(true);
+
+    try {
+      const [friendsData, fetchedHangouts, fetchedGroups] = await Promise.all([
+        getFriends(),
+        fetchHangoutsForCurrentUser(),
+        fetchGroupsForCurrentUser(),
+      ]);
+
+      const nextDirectory: Friend[] = friendsData.map((friend) => ({
+        id: friend.id,
+        name: friend.name,
+        email: friend.email,
+        avatar_url: friend.avatar_url,
+        status: friend.status,
+        badges: friend.badges,
+        mutualFriends: friend.mutualFriends,
+        hangoutsTogether: friend.hangoutsTogether,
+        isMuted: friend.isMuted,
+        isBlocked: friend.isBlocked,
+      }));
+
+      setInviteCandidates(nextDirectory.map((friend) => ({ ...friend })));
+      setGroupsState(fetchedGroups);
+
+      const participantIds = new Set<string>();
+      fetchedHangouts.forEach((hangout) => {
+        participantIds.add(hangout.createdBy);
+        hangout.responses.forEach((response) => participantIds.add(response.friendId));
+      });
+
+      const missingProfileIds = [...participantIds].filter(
+        (id) => !!id && !nextDirectory.some((friend) => friend.id === id)
+      );
+
+      if (missingProfileIds.length > 0) {
+        const { data: profiles, error: profilesError } = await supabase
+          .from("profiles")
+          .select("id, name, email, avatar_url")
+          .in("id", missingProfileIds);
+
+        if (!profilesError && profiles) {
+          profiles.forEach((profile) => {
+            nextDirectory.push({
+              id: profile.id,
+              name: profile.name || profile.email || "Unknown",
+              email: profile.email,
+              avatar_url: profile.avatar_url,
+              status: "offline",
+              badges: [],
+              mutualFriends: 0,
+              hangoutsTogether: 0,
+              isMuted: false,
+              isBlocked: false,
+            });
+          });
+        }
+      }
+
+      setFriendsDirectory(nextDirectory);
+      setHangoutsState(fetchedHangouts);
+      setSelectedHangout((prev) => {
+        if (!prev) return prev;
+        return fetchedHangouts.find((hangout) => hangout.id === prev.id) || null;
+      });
+      setSchemaMissing(false);
+    } catch (error) {
+      if (isHangoutsSetupError(error)) {
+        setSchemaMissing(true);
+        setHangoutsState(hangouts);
+      } else {
+        console.error("Failed to load hangouts", error);
+        toast({
+          title: "Could not load hangouts",
+          description: "Please try again in a moment.",
+          variant: "destructive",
+        });
+      }
+    } finally {
+      setLoadingHangouts(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!user) {
+      setHangoutsState([]);
+      setInviteCandidates([]);
+      setGroupsState([]);
+      setLoadingHangouts(false);
+      setSchemaMissing(false);
+      setHiddenDeclinedHangoutIds([]);
+      return;
+    }
+
+    loadHangouts();
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (!hiddenDeclinedStorageKey) {
+      setHiddenDeclinedHangoutIds([]);
+      return;
+    }
+
+    try {
+      const raw = window.localStorage.getItem(hiddenDeclinedStorageKey);
+      if (!raw) {
+        setHiddenDeclinedHangoutIds([]);
+        return;
+      }
+
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        setHiddenDeclinedHangoutIds(parsed.filter((id): id is string => typeof id === "string"));
+      } else {
+        setHiddenDeclinedHangoutIds([]);
+      }
+    } catch {
+      setHiddenDeclinedHangoutIds([]);
+    }
+  }, [hiddenDeclinedStorageKey]);
 
   const isInDateRange = (h: Hangout) => {
     if (!filterFrom && !filterTo) return true;
@@ -27,47 +186,330 @@ const Hangouts = () => {
     return true;
   };
 
-  const suggestedHangouts = hangouts.filter(
+  const getCurrentUserResponseStatus = (hangout: Hangout) =>
+    currentUserId
+      ? hangout.responses.find((response) => response.friendId === currentUserId)?.status
+      : undefined;
+
+  const isDeclinedPublicHangout = (hangout: Hangout) =>
+    Boolean(hangout.isPublic) && getCurrentUserResponseStatus(hangout) === "no";
+
+  const isDeclinedPrivateInvite = (hangout: Hangout) =>
+    !!currentUserId
+    && !hangout.isPublic
+    && hangout.createdBy !== currentUserId
+    && getCurrentUserResponseStatus(hangout) === "no";
+
+  const isExcludedFromPrimarySections = (hangout: Hangout) =>
+    isDeclinedPublicHangout(hangout) || isDeclinedPrivateInvite(hangout);
+
+  const allDeclinedPrivateInviteHangouts = hangoutsState.filter(
+    (hangout) =>
+      isDeclinedPrivateInvite(hangout)
+      && isInDateRange(hangout)
+  );
+
+  const declinedPrivateInviteHangouts = allDeclinedPrivateInviteHangouts.filter(
+    (hangout) => !hiddenDeclinedHangoutIds.includes(hangout.id)
+  );
+
+  const hiddenDeclinedPrivateInviteHangouts = allDeclinedPrivateInviteHangouts.filter(
+    (hangout) => hiddenDeclinedHangoutIds.includes(hangout.id)
+  );
+
+  const hiddenDeclinedCount = hiddenDeclinedPrivateInviteHangouts.length;
+
+  useEffect(() => {
+    if (hiddenDeclinedPrivateInviteHangouts.length === 0) {
+      setShowHiddenDeclinedSection(false);
+    }
+  }, [hiddenDeclinedPrivateInviteHangouts.length]);
+
+  const suggestedHangouts = hangoutsState.filter(
     (h) =>
+      !isExcludedFromPrimarySections(h) &&
       h.status === "suggested" &&
-      h.createdBy !== "current-user" &&
-      h.responses.find((r) => r.friendId === "current-user")?.status === "invited" &&
+      !!currentUserId &&
+      h.createdBy !== currentUserId &&
+      h.responses.find((r) => r.friendId === currentUserId)?.status === "invited" &&
       isInDateRange(h)
   );
 
-  const pendingHangouts = hangouts.filter(
+  const pendingHangouts = hangoutsState.filter(
     (h) =>
+      !isExcludedFromPrimarySections(h) &&
       (h.status === "pending" || h.status === "suggested") &&
-      (h.createdBy === "current-user" ||
-        h.responses.find((r) => r.friendId === "current-user")?.status !== "invited") &&
+      (!!currentUserId &&
+        (h.createdBy === currentUserId ||
+          h.responses.find((r) => r.friendId === currentUserId)?.status !== "invited")) &&
       isInDateRange(h)
   );
 
-  const confirmedHangouts = hangouts.filter(
+  const confirmedHangouts = hangoutsState.filter(
     (h) =>
+      !isExcludedFromPrimarySections(h) &&
       h.status === "confirmed" &&
       isAfter(parseISO(h.confirmedTime?.date || h.proposedTimeRange.date), today) &&
       isInDateRange(h)
   );
 
-  const pastHangouts = hangouts.filter(
+  const pastHangouts = hangoutsState.filter(
     (h) =>
+      !isDeclinedPublicHangout(h) &&
       (h.status === "completed" ||
         (h.status === "confirmed" &&
           isBefore(parseISO(h.confirmedTime?.date || h.proposedTimeRange.date), today))) &&
       isInDateRange(h)
   );
 
-  const handleRespond = (hangout: Hangout, response: "yes" | "no" | "maybe") => {
-    console.log("Respond to hangout:", hangout.title, "with:", response);
+  const handleHideDeclinedHangout = (hangoutId: string) => {
+    if (!hiddenDeclinedStorageKey) return;
+
+    setHiddenDeclinedHangoutIds((prev) => {
+      if (prev.includes(hangoutId)) return prev;
+      const next = [...prev, hangoutId];
+      window.localStorage.setItem(hiddenDeclinedStorageKey, JSON.stringify(next));
+      return next;
+    });
+  };
+
+  const handleRestoreHiddenDeclined = () => {
+    if (!hiddenDeclinedStorageKey) return;
+    setHiddenDeclinedHangoutIds([]);
+    window.localStorage.removeItem(hiddenDeclinedStorageKey);
+  };
+
+  const handleRestoreDeclinedHangout = (hangoutId: string) => {
+    if (!hiddenDeclinedStorageKey) return;
+
+    setHiddenDeclinedHangoutIds((prev) => {
+      if (!prev.includes(hangoutId)) return prev;
+      const next = prev.filter((id) => id !== hangoutId);
+      if (next.length === 0) {
+        window.localStorage.removeItem(hiddenDeclinedStorageKey);
+      } else {
+        window.localStorage.setItem(hiddenDeclinedStorageKey, JSON.stringify(next));
+      }
+      return next;
+    });
+  };
+
+  const handleRespond = async (hangout: Hangout, response: "yes" | "no" | "maybe") => {
+    try {
+      await respondToHangout(hangout.id, response);
+      toast({
+        title: "Response saved",
+        description: `Your response to ${hangout.title} was updated.`,
+      });
+      await loadHangouts();
+      setSelectedHangout(null);
+    } catch (error) {
+      const message = `${(error as { message?: string })?.message || ""}`.toLowerCase();
+      const isPublicLeavePolicyBlock =
+        message.includes("row-level security") || message.includes("permission denied");
+
+      if (response === "no" && hangout.isPublic && isPublicLeavePolicyBlock) {
+        toast({
+          title: "Public leave policy needs update",
+          description: "Ask the host to run the latest hangouts SQL so public attendees can fully leave.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      if (isHangoutsSetupError(error)) {
+        setSchemaMissing(true);
+        toast({
+          title: "Hangouts schema is not set up",
+          description: "Run docs/db/hangouts_phase1.sql in Supabase first.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      console.error("Failed to respond to hangout", error);
+      toast({
+        title: "Could not update response",
+        description: "Please try again.",
+        variant: "destructive",
+      });
+    }
   };
 
   const handleViewDetails = (hangout: Hangout) => {
+    setOpenAvailabilityEditor(false);
     setSelectedHangout(hangout);
   };
 
-  const handleCreate = (hangout: Partial<Hangout>) => {
-    console.log("Create hangout:", hangout);
+  const handleOpenAvailabilityEditor = (hangout: Hangout) => {
+    setOpenAvailabilityEditor(true);
+    setSelectedHangout(hangout);
+  };
+
+  const handleSubmitAvailability = async (hangout: Hangout, availability: TimeRange[]) => {
+    try {
+      await submitHangoutAvailability(hangout.id, availability);
+      toast({
+        title: "Availability shared",
+        description: "Your preferred slots were submitted.",
+      });
+      await loadHangouts();
+    } catch (error) {
+      if (isHangoutsSetupError(error)) {
+        setSchemaMissing(true);
+        toast({
+          title: "Hangouts schema is not set up",
+          description: "Run docs/db/hangouts_phase1.sql in Supabase first.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      console.error("Failed to submit availability", error);
+      toast({
+        title: "Could not submit availability",
+        description: "Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleApplySuggestedTime = async (
+    hangout: Hangout,
+    suggestedTime: { date: string; startTime: string; endTime: string }
+  ) => {
+    try {
+      await applySuggestedHangoutTime(hangout.id, suggestedTime);
+      toast({
+        title: "Time confirmed",
+        description: "Suggested best time has been applied.",
+      });
+      await loadHangouts();
+    } catch (error) {
+      if (isHangoutsSetupError(error)) {
+        setSchemaMissing(true);
+        toast({
+          title: "Hangouts schema is not set up",
+          description: "Run docs/db/hangouts_phase1.sql in Supabase first.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      console.error("Failed to apply suggested time", error);
+      toast({
+        title: "Could not apply suggested time",
+        description: "Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleDeleteHangout = async (hangout: Hangout) => {
+    try {
+      await deleteHangout(hangout.id);
+      toast({
+        title: "Hangout deleted",
+        description: `${hangout.title} was removed.`,
+      });
+      await loadHangouts();
+      setSelectedHangout(null);
+      setOpenAvailabilityEditor(false);
+      setOpenAvailabilityEditor(false);
+    } catch (error) {
+      if (isHangoutsSetupError(error)) {
+        setSchemaMissing(true);
+        toast({
+          title: "Hangouts schema is not set up",
+          description: "Run docs/db/hangouts_phase1.sql in Supabase first.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      console.error("Failed to delete hangout", error);
+      toast({
+        title: "Could not delete hangout",
+        description: "Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleDeleteGroup = async (group: UserGroup) => {
+    try {
+      await deleteGroup(group.id);
+      setGroupsState((prev) => prev.filter((candidate) => candidate.id !== group.id));
+      setEditingGroup((prev) => (prev?.id === group.id ? null : prev));
+      toast({
+        title: "Group deleted",
+        description: `${group.name} was removed.`,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to delete group.";
+      toast({
+        title: "Could not delete group",
+        description: message,
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleCreate = async (hangout: Partial<Hangout> & { creatorAvailability?: TimeRange[] }) => {
+    if (!user) {
+      toast({
+        title: "Sign in required",
+        description: "Please sign in to create a hangout.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!hangout.title || !hangout.activityType || !hangout.proposedTimeRange) {
+      toast({
+        title: "Missing hangout details",
+        description: "Please complete title, activity type, and time before creating.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      await createHangout({
+        title: hangout.title,
+        description: hangout.description,
+        activityType: hangout.activityType,
+        isPublic: hangout.isPublic,
+        proposedTimeRange: hangout.proposedTimeRange,
+        location: hangout.location,
+        invitedFriends: hangout.invitedFriends || [],
+        highlightedFriends: hangout.highlightedFriends || [],
+        creatorAvailability: hangout.creatorAvailability,
+      });
+
+      toast({
+        title: "Hangout created",
+        description: "Your invites were sent.",
+      });
+      await loadHangouts();
+    } catch (error) {
+      if (isHangoutsSetupError(error)) {
+        setSchemaMissing(true);
+        toast({
+          title: "Hangouts schema is not set up",
+          description: "Run docs/db/hangouts_phase1.sql in Supabase first.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      console.error("Failed to create hangout", error);
+      toast({
+        title: "Could not create hangout",
+        description: "Please try again.",
+        variant: "destructive",
+      });
+    }
   };
 
   const clearFilters = () => {
@@ -81,6 +523,52 @@ const Hangouts = () => {
   };
 
   const hasActiveFilter = filterFrom || filterTo;
+
+  const buildMemoryPrefill = (hangout: Hangout): CreateMemoryInitialValues => {
+    const timeRange = hangout.confirmedTime || hangout.proposedTimeRange;
+    return {
+      title: `${hangout.title}`,
+      description: hangout.description || "",
+      location: hangout.location?.name || "",
+      memoryDate: timeRange.date,
+      hangoutId: hangout.id,
+    };
+  };
+
+  const handleCreateMemoryFromHangout = (hangout: Hangout) => {
+    setMemoryPrefill(buildMemoryPrefill(hangout));
+    setShowMemoryModal(true);
+    setSelectedHangout(null);
+    setOpenAvailabilityEditor(false);
+  };
+
+  const closeMemoryModal = () => {
+    setShowMemoryModal(false);
+    setMemoryPrefill(null);
+  };
+
+  if (!user) {
+    return (
+      <div className="min-h-screen bg-background">
+        <Navbar />
+        <main className="pt-[72px]">
+          <div className="max-w-4xl mx-auto px-6 py-16 text-center">
+            <div className="w-20 h-20 rounded-2xl bg-primary/10 flex items-center justify-center mx-auto mb-6">
+              <Users className="w-10 h-10 text-primary" />
+            </div>
+            <h1 className="font-heading text-3xl font-bold text-foreground mb-3">Hangouts</h1>
+            <p className="text-muted-foreground mb-8 max-w-xl mx-auto">
+              Sign in to plan hangouts, invite friends, and track responses.
+            </p>
+            <button onClick={() => setShowAuthModal(true)} className="btn-primary px-6 py-3">
+              Sign In To Continue
+            </button>
+          </div>
+        </main>
+        <AuthModal isOpen={showAuthModal} onClose={() => setShowAuthModal(false)} />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background">
@@ -114,6 +602,15 @@ const Hangouts = () => {
               >
                 <Filter className="w-5 h-5" />
               </button>
+              <motion.button
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                onClick={() => setShowCreateGroupModal(true)}
+                className="btn-secondary px-5 py-3 flex items-center gap-2"
+              >
+                <Users className="w-5 h-5" />
+                <span>New Group</span>
+              </motion.button>
               <motion.button
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
@@ -170,6 +667,116 @@ const Hangouts = () => {
             </motion.div>
           )}
 
+          {schemaMissing && (
+            <div className="mb-6 rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-700">
+              Hangouts backend is not initialized yet. Run docs/db/hangouts_phase1.sql in Supabase, then refresh this page.
+            </div>
+          )}
+
+          <section className="mb-8 rounded-xl border border-border bg-card p-4">
+            <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
+              <div>
+                <h2 className="font-heading text-base font-semibold text-foreground">Invite Groups</h2>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Save your go-to crews once, then reuse them in suggestions and hangouts.
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="px-2.5 py-1 rounded-full bg-primary/10 text-primary text-xs font-medium">
+                  {groupsState.length} group{groupsState.length !== 1 ? "s" : ""}
+                </span>
+                <button
+                  onClick={() => setShowCreateGroupModal(true)}
+                  className="text-xs px-3 py-1.5 rounded-full border border-border text-muted-foreground hover:text-foreground hover:border-primary/30 transition-colors"
+                >
+                  + Create group
+                </button>
+              </div>
+            </div>
+
+            {groupsState.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-border p-4 text-sm text-muted-foreground">
+                No groups yet. Create one to invite a full crew in one click.
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {groupsState.map((group) => {
+                  const nonAdminMembers = group.members.filter((member) => member.role !== "admin");
+                  const previewMembers = nonAdminMembers.slice(0, 4);
+
+                  return (
+                    <div
+                      key={group.id}
+                      className="rounded-xl border border-border bg-card/60 p-3 hover:border-primary/30 hover:bg-muted/20 transition-colors"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="text-sm font-semibold text-foreground truncate">{group.name}</p>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            {group.description || "No description"}
+                          </p>
+                        </div>
+                        <span className="text-[10px] px-2 py-1 rounded-full bg-muted text-muted-foreground whitespace-nowrap">
+                          {nonAdminMembers.length} member{nonAdminMembers.length !== 1 ? "s" : ""}
+                        </span>
+                      </div>
+
+                      <div className="mt-3 flex items-center justify-between gap-2">
+                        <div className="flex items-center -space-x-2">
+                          {previewMembers.map((member) => (
+                            <div
+                              key={member.userId}
+                              className="w-7 h-7 rounded-full border-2 border-background bg-muted text-[10px] font-semibold text-foreground overflow-hidden flex items-center justify-center"
+                              title={member.name}
+                            >
+                              {member.avatarUrl ? (
+                                <img src={member.avatarUrl} alt={member.name} className="w-full h-full object-cover" />
+                              ) : (
+                                member.name.charAt(0)
+                              )}
+                            </div>
+                          ))}
+                          {nonAdminMembers.length > previewMembers.length ? (
+                            <span className="ml-2 text-[10px] text-muted-foreground">
+                              +{nonAdminMembers.length - previewMembers.length} more
+                            </span>
+                          ) : null}
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => setEditingGroup(group)}
+                            className="text-xs px-2.5 py-1.5 rounded-full border border-border hover:border-primary/30 text-muted-foreground hover:text-foreground transition-colors inline-flex items-center gap-1"
+                          >
+                            <PencilLine className="w-3 h-3" />
+                            Edit
+                          </button>
+                          <button
+                            onClick={async () => {
+                              const shouldDelete = window.confirm(`Delete \"${group.name}\"? This cannot be undone.`);
+                              if (!shouldDelete) return;
+                              await handleDeleteGroup(group);
+                            }}
+                            className="text-xs px-2.5 py-1.5 rounded-full border border-destructive/30 text-destructive hover:bg-destructive/10 transition-colors inline-flex items-center gap-1"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                            Delete
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </section>
+
+          {loadingHangouts && (
+            <div className="mb-6 rounded-xl border border-border bg-card p-4 text-sm text-muted-foreground">
+              Loading hangouts...
+            </div>
+          )}
+
           {/* Suggested Hangouts */}
           {suggestedHangouts.length > 0 && (
             <motion.section
@@ -190,7 +797,15 @@ const Hangouts = () => {
               <div className="space-y-4">
                 {suggestedHangouts.map((hangout, index) => (
                   <motion.div key={hangout.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.05 }}>
-                    <HangoutCard hangout={hangout} variant="suggested" onRespond={handleRespond} onViewDetails={handleViewDetails} />
+                    <HangoutCard
+                      hangout={hangout}
+                      variant="suggested"
+                      onRespond={handleRespond}
+                      onViewDetails={handleViewDetails}
+                      onOpenAvailability={handleOpenAvailabilityEditor}
+                      onDeleteHangout={handleDeleteHangout}
+                      currentUserId={currentUserId}
+                    />
                   </motion.div>
                 ))}
               </div>
@@ -207,7 +822,15 @@ const Hangouts = () => {
               <div className="space-y-4">
                 {pendingHangouts.map((hangout, index) => (
                   <motion.div key={hangout.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.05 }}>
-                    <HangoutCard hangout={hangout} variant="pending" onViewDetails={handleViewDetails} />
+                    <HangoutCard
+                      hangout={hangout}
+                      variant="pending"
+                      onRespond={handleRespond}
+                      onViewDetails={handleViewDetails}
+                      onOpenAvailability={handleOpenAvailabilityEditor}
+                      onDeleteHangout={handleDeleteHangout}
+                      currentUserId={currentUserId}
+                    />
                   </motion.div>
                 ))}
               </div>
@@ -224,29 +847,126 @@ const Hangouts = () => {
               <div className="space-y-4">
                 {confirmedHangouts.map((hangout, index) => (
                   <motion.div key={hangout.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.05 }}>
-                    <HangoutCard hangout={hangout} variant="confirmed" onViewDetails={handleViewDetails} />
+                    <HangoutCard
+                      hangout={hangout}
+                      variant="confirmed"
+                      onRespond={handleRespond}
+                      onViewDetails={handleViewDetails}
+                      onOpenAvailability={handleOpenAvailabilityEditor}
+                      onDeleteHangout={handleDeleteHangout}
+                      currentUserId={currentUserId}
+                    />
                   </motion.div>
                 ))}
               </div>
             </motion.section>
           )}
 
+          {/* Declined Private Invites */}
+          {declinedPrivateInviteHangouts.length > 0 && (
+            <motion.section initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.35 }} className="mb-10">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <X className="w-5 h-5 text-destructive" />
+                  <h2 className="font-heading text-lg font-semibold text-foreground">Declined Invites</h2>
+                </div>
+                {hiddenDeclinedCount > 0 && (
+                  <button
+                    onClick={handleRestoreHiddenDeclined}
+                    className="text-xs px-3 py-1.5 rounded-full border border-border hover:border-primary/30 text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    Restore {hiddenDeclinedCount} hidden
+                  </button>
+                )}
+              </div>
+              <div className="space-y-4">
+                {declinedPrivateInviteHangouts.map((hangout, index) => (
+                  <motion.div key={hangout.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.05 }}>
+                    <HangoutCard
+                      hangout={hangout}
+                      variant="declined"
+                      onRespond={handleRespond}
+                      onViewDetails={handleViewDetails}
+                      onOpenAvailability={handleOpenAvailabilityEditor}
+                      onDeleteHangout={handleDeleteHangout}
+                      onHideDeclined={(target) => handleHideDeclinedHangout(target.id)}
+                      currentUserId={currentUserId}
+                    />
+                  </motion.div>
+                ))}
+              </div>
+            </motion.section>
+          )}
+
+          {hiddenDeclinedPrivateInviteHangouts.length > 0 && (
+            <motion.section initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.38 }} className="mb-10">
+              <div className="rounded-xl border border-border bg-card">
+                <button
+                  onClick={() => setShowHiddenDeclinedSection((prev) => !prev)}
+                  className="w-full p-4 flex items-center justify-between gap-3 text-left"
+                >
+                  <div className="flex items-center gap-2">
+                    <X className="w-5 h-5 text-muted-foreground" />
+                    <h2 className="font-heading text-lg font-semibold text-foreground">Hidden Declined Invites</h2>
+                    <span className="px-2 py-0.5 rounded-full bg-muted text-muted-foreground text-sm font-medium">
+                      {hiddenDeclinedPrivateInviteHangouts.length}
+                    </span>
+                  </div>
+                  <ChevronRight className={`w-4 h-4 text-muted-foreground transition-transform ${showHiddenDeclinedSection ? "rotate-90" : ""}`} />
+                </button>
+
+                {showHiddenDeclinedSection && (
+                  <div className="px-4 pb-4 border-t border-border">
+                    <div className="flex justify-end py-3">
+                      <button
+                        onClick={handleRestoreHiddenDeclined}
+                        className="text-xs px-3 py-1.5 rounded-full border border-border hover:border-primary/30 text-muted-foreground hover:text-foreground transition-colors"
+                      >
+                        Restore all
+                      </button>
+                    </div>
+                    <div className="space-y-4">
+                      {hiddenDeclinedPrivateInviteHangouts.map((hangout, index) => (
+                        <motion.div key={hangout.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.05 }}>
+                          <HangoutCard
+                            hangout={hangout}
+                            variant="declined"
+                            onRespond={handleRespond}
+                            onViewDetails={handleViewDetails}
+                            onOpenAvailability={handleOpenAvailabilityEditor}
+                            onDeleteHangout={handleDeleteHangout}
+                            onRestoreDeclined={(target) => handleRestoreDeclinedHangout(target.id)}
+                            currentUserId={currentUserId}
+                          />
+                        </motion.div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </motion.section>
+          )}
+
           {/* Empty State */}
-          {suggestedHangouts.length === 0 && pendingHangouts.length === 0 && confirmedHangouts.length === 0 && (
+          {suggestedHangouts.length === 0 && pendingHangouts.length === 0 && confirmedHangouts.length === 0 && declinedPrivateInviteHangouts.length === 0 && hiddenDeclinedPrivateInviteHangouts.length === 0 && (
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-center py-16">
               <div className="w-20 h-20 rounded-2xl bg-primary/10 flex items-center justify-center mx-auto mb-6">
                 <Users className="w-10 h-10 text-primary" />
               </div>
               <h3 className="font-heading text-xl font-semibold text-foreground mb-2">
-                {hasActiveFilter ? "No hangouts in this timeframe" : "No hangouts yet"}
+                {hasActiveFilter ? "No hangouts in this timeframe" : hiddenDeclinedCount > 0 ? "Only hidden declined invites remain" : "No hangouts yet"}
               </h3>
               <p className="text-muted-foreground mb-6 max-w-md mx-auto">
                 {hasActiveFilter
                   ? "Try adjusting your date filter or create a new hangout."
-                  : "Start planning casual meetups with your friends. Create a hangout and invite people you'd like to spend time with."}
+                  : hiddenDeclinedCount > 0
+                    ? "You can restore your hidden declined invites or create a new hangout."
+                    : "Start planning casual meetups with your friends. Create a hangout and invite people you'd like to spend time with."}
               </p>
               {hasActiveFilter ? (
                 <button onClick={clearFilters} className="btn-primary px-6 py-3">Clear Filters</button>
+              ) : hiddenDeclinedCount > 0 ? (
+                <button onClick={handleRestoreHiddenDeclined} className="btn-primary px-6 py-3">Restore Hidden Invites</button>
               ) : (
                 <button onClick={() => setShowCreateModal(true)} className="btn-primary px-6 py-3">Create Your First Hangout</button>
               )}
@@ -255,21 +975,109 @@ const Hangouts = () => {
 
           {/* Past Hangouts */}
           {pastHangouts.length > 0 && (
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="mt-8 pt-8 border-t border-border">
-              <button
-                onClick={() => {}}
-                className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors"
-              >
-                <span>View {pastHangouts.length} past hangout{pastHangouts.length !== 1 ? "s" : ""}</span>
-                <ChevronRight className="w-4 h-4" />
-              </button>
-            </motion.div>
+            <motion.section initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="mt-8 pt-8 border-t border-border">
+              <div className="flex items-center gap-2 mb-4">
+                <Camera className="w-5 h-5 text-primary" />
+                <h2 className="font-heading text-lg font-semibold text-foreground">Past Hangouts</h2>
+                <span className="px-2 py-0.5 rounded-full bg-muted text-muted-foreground text-sm font-medium">
+                  {pastHangouts.length}
+                </span>
+              </div>
+
+              <div className="space-y-3">
+                {pastHangouts.slice(0, 6).map((hangout) => {
+                  const timeRange = hangout.confirmedTime || hangout.proposedTimeRange;
+                  return (
+                    <div
+                      key={hangout.id}
+                      className="rounded-xl border border-border bg-card px-4 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3"
+                    >
+                      <div>
+                        <p className="font-medium text-foreground">{hangout.title}</p>
+                        <p className="text-sm text-muted-foreground">
+                          {format(parseISO(`${timeRange.date}T${timeRange.startTime}:00`), "EEE, MMM d")}
+                          {" • "}
+                          {timeRange.startTime} - {timeRange.endTime}
+                          {hangout.location?.name ? ` • ${hangout.location.name}` : ""}
+                        </p>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => handleViewDetails(hangout)}
+                          className="btn-secondary px-3 py-2 text-sm"
+                        >
+                          Details
+                        </button>
+                        <button
+                          onClick={() => handleCreateMemoryFromHangout(hangout)}
+                          className="btn-primary px-3 py-2 text-sm"
+                        >
+                          Add Memory
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {pastHangouts.length > 6 && (
+                <p className="mt-3 text-xs text-muted-foreground">
+                  Showing the most recent 6 past hangouts.
+                </p>
+              )}
+            </motion.section>
           )}
         </div>
       </main>
 
-      <CreateHangoutModal isOpen={showCreateModal} onClose={() => setShowCreateModal(false)} onCreate={handleCreate} />
-      <HangoutDetailModal hangout={selectedHangout} isOpen={!!selectedHangout} onClose={() => setSelectedHangout(null)} onRespond={handleRespond} />
+      <CreateHangoutModal
+        isOpen={showCreateModal}
+        onClose={() => setShowCreateModal(false)}
+        onCreate={handleCreate}
+        inviteCandidates={inviteCandidates}
+        inviteGroups={groupsState}
+        onCreateGroupRequest={() => setShowCreateGroupModal(true)}
+      />
+      <CreateGroupModal
+        isOpen={showCreateGroupModal || Boolean(editingGroup)}
+        onClose={() => {
+          setShowCreateGroupModal(false);
+          setEditingGroup(null);
+        }}
+        onDelete={async (group) => {
+          await handleDeleteGroup(group);
+          setShowCreateGroupModal(false);
+          setEditingGroup(null);
+        }}
+        initialGroup={editingGroup}
+        onSaved={() => {
+          void loadHangouts();
+          setEditingGroup(null);
+          setShowCreateGroupModal(false);
+        }}
+      />
+      <HangoutDetailModal
+        hangout={selectedHangout}
+        isOpen={!!selectedHangout}
+        onClose={() => {
+          setSelectedHangout(null);
+          setOpenAvailabilityEditor(false);
+        }}
+        onRespond={handleRespond}
+        onSubmitAvailability={handleSubmitAvailability}
+        onApplySuggestedTime={handleApplySuggestedTime}
+        onDeleteHangout={handleDeleteHangout}
+        onCreateMemory={handleCreateMemoryFromHangout}
+        initialShowAvailability={openAvailabilityEditor}
+        currentUserId={currentUserId}
+      />
+      <CreateMemoryModal
+        isOpen={showMemoryModal}
+        onClose={closeMemoryModal}
+        onCreated={closeMemoryModal}
+        initialValues={memoryPrefill}
+      />
     </div>
   );
 };

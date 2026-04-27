@@ -1,10 +1,11 @@
 import React from "react"
 import { useState } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { User, Heart, Search, Users, Compass, Map, Calendar, Settings } from "lucide-react";
+import { User, Heart, Users, Compass, Map, Calendar, Settings, Bell } from "lucide-react";
 import { motion } from "framer-motion";
 import AuthModal from "../auth/AuthModal.tsx";
 import { useAuth } from "../../lib/AuthContext";
+import { useNotificationCount } from "../../hooks/use-notifications";
 
 const navItems = [
   { path: "/", label: "Explore", icon: Compass },
@@ -18,6 +19,7 @@ const navItems = [
 const Navbar = () => {
   const [showAuth, setShowAuth] = useState(false);
   const { user, signOut } = useAuth();
+  const { unreadCount } = useNotificationCount();
   const location = useLocation();
 
   return (
@@ -59,28 +61,32 @@ const Navbar = () => {
 
             {/* Right Actions */}
             <div className="flex items-center gap-3">
-              {/* Search */}
-              <div className="hidden lg:flex items-center">
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                  <input
-                    type="text"
-                    placeholder="Search events..."
-                    className="input-field w-56 pl-10 pr-4 py-2 text-sm"
-                  />
-                </div>
-              </div>
+              {user && (
+                <Link
+                  to="/notifications"
+                  className="relative p-2 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  <Bell className="w-5 h-5" />
+                  {unreadCount > 0 && (
+                    <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-primary text-primary-foreground text-[10px] leading-[18px] text-center font-semibold">
+                      {unreadCount > 99 ? "99+" : unreadCount}
+                    </span>
+                  )}
+                </Link>
+              )}
 
-              <Link
-                to="/settings"
-                className="p-2 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
-              >
-                <Settings className="w-5 h-5" />
-              </Link>
+              {user && (
+                <Link
+                  to="/settings"
+                  className="p-2 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  <Settings className="w-5 h-5" />
+                </Link>
+              )}
 
               {user ? (
                 <div className="flex items-center gap-3">
-                  <span className="text-sm text-muted-foreground">
+                  <span className="text-sm text-muted-foreground max-w-[140px] truncate block" title={user.email}>
                     {user.email}
                   </span>
                   <button

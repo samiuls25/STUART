@@ -16,6 +16,7 @@ import MapView from "../components/map/MapView";
 import EventDetailModal from "../components/events/EventDetailModel";
 import EmptyState from "../components/shared/EmptyState";
 import { fetchEvents, type Event } from "../data/events";
+import { useAuth } from "../lib/AuthContext";
 
 const EVENTS_PER_PAGE = 10;
 const EARTH_RADIUS_MILES = 3958.8;
@@ -61,34 +62,77 @@ const getDistanceInMiles = (
 };
 
 const MapPage = () => {
+  const { user, loading: authLoading } = useAuth();
   const [selectedSegment, setSelectedSegment] = useState("All");
   const [selectedGenre, setSelectedGenre] = useState("All");
   const [selectedPrice, setSelectedPrice] = useState("All");
   const [selectedTime, setSelectedTime] = useState("All");
-  const [selectedDistance, setSelectedDistance] = useState(5);
+  const [selectedDistance, setSelectedDistance] = useState(25);
   const [userLocation, setUserLocation] = useState<Coordinates | null>(null);
+  const [hasManualLocationFocus, setHasManualLocationFocus] = useState(false);
+  const [hasAdjustedDistance, setHasAdjustedDistance] = useState(false);
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
   const [hoveredEventId, setHoveredEventId] = useState<string | null>(null);
   const [detailEvent, setDetailEvent] = useState<Event | null>(null);
   const [events, setEvents] = useState<Event[]>([]);
   const [page, setPage] = useState(0);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const loadEvents = async () => {
-      try {
-        const data = await fetchEvents();
-        setEvents(
-          data.filter(
-            (event) => event.latitude != null && event.longitude != null
-          )
-        );
-      } catch (error) {
-        console.error("Supabase events fetch error:", error);
-      }
-    };
+    if (authLoading) return;
 
-    loadEvents();
-  }, []);
+    let isMounted = true;
+    setLoading(true);
+
+    fetchEvents(user?.id)
+      .then((rows) => {
+        if (!isMounted) return;
+
+        const mappableRows = rows.filter(
+          (event) =>
+            typeof event.latitude === "number" &&
+            Number.isFinite(event.latitude) &&
+            typeof event.longitude === "number" &&
+            Number.isFinite(event.longitude)
+        );
+
+        setEvents(mappableRows);
+      })
+      .catch((error) => {
+        console.error("Supabase events fetch error:", error);
+      })
+      .finally(() => {
+        if (!isMounted) return;
+        setLoading(false);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [authLoading, user?.id]);
+
+  useEffect(() => {
+    if (userLocation || !navigator.geolocation) {
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setUserLocation({
+          lat: position.coords.latitude,
+          lng: position.coords.longitude,
+        });
+      },
+      (error) => {
+        console.error("Location error:", error);
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 10000,
+        maximumAge: 300000,
+      }
+    );
+  }, [userLocation]);
 
   const today = startOfDay(new Date());
   const startOfThisWeek = startOfWeek(today, { weekStartsOn: 1 });
@@ -96,7 +140,7 @@ const MapPage = () => {
   const startOfThisWeekend = addDays(startOfThisWeek, 5);
   const endOfThisWeekend = addDays(startOfThisWeek, 6);
 
-  const filteredEvents = useMemo(() => {
+  const baseFilteredEvents = useMemo(() => {
     return events.filter((event) => {
       const matchesSegment =
         selectedSegment === "All" || event.segment === selectedSegment;
@@ -108,13 +152,6 @@ const MapPage = () => {
         selectedPrice === "All" ||
         (selectedPrice === "Free" && event.priceLevel === "free") ||
         event.priceLevel === selectedPrice;
-
-      const matchesDistance =
-        !userLocation ||
-        getDistanceInMiles(userLocation, {
-          lat: event.latitude,
-          lng: event.longitude,
-        }) <= selectedDistance;
 
       const eventDate = parseEventDate(event.date);
 
@@ -133,7 +170,6 @@ const MapPage = () => {
         matchesSegment &&
         matchesGenre &&
         matchesPrice &&
-        matchesDistance &&
         matchesTime
       );
     });
@@ -143,12 +179,45 @@ const MapPage = () => {
     selectedGenre,
     selectedPrice,
     selectedTime,
-    selectedDistance,
-    userLocation,
     today,
     endOfThisWeek,
     startOfThisWeekend,
     endOfThisWeekend,
+  ]);
+
+  const distanceFilteredEvents = useMemo(() => {
+    if (!userLocation) {
+      return baseFilteredEvents;
+    }
+
+    return baseFilteredEvents.filter(
+      (event) =>
+        getDistanceInMiles(userLocation, {
+          lat: event.latitude,
+          lng: event.longitude,
+        }) <= selectedDistance
+    );
+  }, [baseFilteredEvents, selectedDistance, userLocation]);
+
+  const filteredEvents = useMemo(() => {
+    const shouldFallbackToBaseEvents =
+      userLocation &&
+      !hasManualLocationFocus &&
+      !hasAdjustedDistance &&
+      distanceFilteredEvents.length === 0 &&
+      baseFilteredEvents.length > 0;
+
+    if (shouldFallbackToBaseEvents) {
+      return baseFilteredEvents;
+    }
+
+    return distanceFilteredEvents;
+  }, [
+    baseFilteredEvents,
+    distanceFilteredEvents,
+    hasAdjustedDistance,
+    hasManualLocationFocus,
+    userLocation,
   ]);
 
   const totalPages = Math.ceil(filteredEvents.length / EVENTS_PER_PAGE);
@@ -181,12 +250,30 @@ const MapPage = () => {
     setHoveredEventId(id);
   };
 
+  const handleDistanceChange = (distance: number) => {
+    setSelectedDistance(distance);
+    setHasAdjustedDistance(true);
+  };
+
+  const handleUserLocationChange = (
+    location: Coordinates,
+    source: "auto" | "manual" = "manual"
+  ) => {
+    setUserLocation(location);
+
+    if (source === "manual") {
+      setHasManualLocationFocus(true);
+    }
+  };
+
   const handleResetFilters = () => {
     setSelectedSegment("All");
     setSelectedGenre("All");
     setSelectedPrice("All");
     setSelectedTime("All");
-    setSelectedDistance(5);
+    setSelectedDistance(25);
+    setHasManualLocationFocus(false);
+    setHasAdjustedDistance(false);
     setPage(0);
   };
 
@@ -197,6 +284,14 @@ const MapPage = () => {
   const handleNextPage = () => {
     setPage((currentPage) => Math.min(currentPage + 1, totalPages - 1));
   };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <span className="text-muted-foreground text-lg">Loading map events...</span>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background">
@@ -220,7 +315,7 @@ const MapPage = () => {
               onGenreChange={setSelectedGenre}
               onPriceChange={setSelectedPrice}
               onTimeChange={setSelectedTime}
-              onDistanceChange={setSelectedDistance}
+              onDistanceChange={handleDistanceChange}
               onSearchArea={handleResetFilters}
               eventCount={filteredEvents.length}
             />
@@ -275,13 +370,13 @@ const MapPage = () => {
 
           <div className="hidden lg:flex flex-1">
             <MapView
-              events={visibleEvents}
+              events={filteredEvents}
               userLocation={userLocation}
               selectedEventId={selectedEventId}
               hoveredEventId={hoveredEventId}
               onEventSelect={handleEventClick}
               onEventHover={handleEventHover}
-              onUserLocationChange={setUserLocation}
+              onUserLocationChange={handleUserLocationChange}
             />
           </div>
         </div>
@@ -293,7 +388,3 @@ const MapPage = () => {
 };
 
 export default MapPage;
-
-
-
-

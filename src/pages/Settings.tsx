@@ -1,38 +1,59 @@
-import React from   "react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import { Link } from "react-router-dom";    
+import { useNavigate } from "react-router-dom";
 import {
   User,
-  Settings as SettingsIcon,
   Shield,
   Bell,
-  Eye,
-  Lock,
-  UserX,
   ChevronRight,
   Moon,
   Sun,
-  Palette,
   Trash2,
   LogOut,
   ArrowLeft,
+  Check,
+  Camera,
 } from "lucide-react";
 import Navbar from "../components/layout/Navbar";
+import AuthModal from "../components/auth/AuthModal";
+import { useAuth } from "../lib/AuthContext";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogTitle,
+} from "../components/ui/alert-dialog";
 import { Switch } from "../components/ui/switch";
 import { Input } from "../components/ui/input";
-import { friends } from "../data/friends";
+import { supabase } from "../lib/supabase";
+import { toast } from "../hooks/use-toast";
 
-type SettingsSection = "main" | "profile" | "privacy" | "notifications" | "blocked";
+type SettingsSection = "main" | "profile" | "privacy" | "notifications";
+
+const AVATAR_BUCKETS = Array.from(
+  new Set(
+    [
+      import.meta.env.VITE_AVATAR_BUCKET as string | undefined,
+      (import.meta.env.VITE_MEMORY_PHOTOS_BUCKET as string | undefined) || "memory-photos",
+      "avatars",
+    ].filter(Boolean) as string[]
+  )
+);
 
 const Settings = () => {
+  const navigate = useNavigate();
+  const [showAuth, setShowAuth] = useState(false);
   const [activeSection, setActiveSection] = useState<SettingsSection>("main");
-
-  // Mock settings state
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deletingAccount, setDeletingAccount] = useState(false);
   const [settings, setSettings] = useState({
     // Profile
-    name: "Alex Johnson",
-    email: "alex@example.com",
+    name: "",
+    bio: "", 
+    avatarUrl: "", 
     // Privacy
     profileVisibility: "friends" as "public" | "friends" | "private",
     showBadges: true,
@@ -44,10 +65,425 @@ const Settings = () => {
     eventReminders: true,
     friendActivity: false,
     // Theme
-    darkMode: false,
+    darkMode: typeof window !== 'undefined' && localStorage.getItem('theme') === 'dark',
   });
+  const [saving, setSaving] = useState(false);
+  const [avatarFile, setAvatarFile] = useState<File | null>(null);
+  const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
 
-  const blockedFriends = friends.filter((f) => f.isBlocked);
+  const { user, signOut } = useAuth();
+
+  // Initialize dark mode from system preference or localStorage on mount
+  useEffect(() => {
+    const savedTheme = localStorage.getItem('theme');
+    if (savedTheme === 'dark') {
+      document.documentElement.classList.add('dark');
+      setSettings((prev) => ({ ...prev, darkMode: true }));
+    } else if (savedTheme === 'light') {
+      document.documentElement.classList.remove('dark');
+      setSettings((prev) => ({ ...prev, darkMode: false }));
+    } else {
+      // Check system preference
+      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+      if (prefersDark) {
+        document.documentElement.classList.add('dark');
+        setSettings((prev) => ({ ...prev, darkMode: true }));
+      }
+    }
+  }, []);
+
+  // Apply dark mode changes
+  useEffect(() => {
+    if (settings.darkMode) {
+      document.documentElement.classList.add('dark');
+      localStorage.setItem('theme', 'dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+      localStorage.setItem('theme', 'light');
+    }
+  }, [settings.darkMode]);
+
+  // Initialize profile fields from user data
+  useEffect(() => {
+    if (!user) return;
+
+    let mounted = true;
+    const displayName = (user as any)?.user_metadata?.full_name ||
+      (user?.email ? user.email.split("@")[0] : "Your Name");
+    const userMetadata = (user as any)?.user_metadata ?? {};
+
+    setSettings((prev) => ({
+      ...prev,
+      name: displayName,
+      bio: userMetadata.bio || "",
+      avatarUrl: userMetadata.avatar_url || "",
+      // Load privacy settings from user metadata
+      profileVisibility: (userMetadata.profile_visibility ?? "friends") as "public" | "friends" | "private",
+      showBadges: userMetadata.show_badges !== false,
+      showMemories: userMetadata.show_memories !== false,
+      showUpcomingHangouts: userMetadata.show_upcoming_hangouts !== false,
+      // Load notification settings from user metadata
+      hangoutInvites: userMetadata.notification_hangout_invites !== false,
+      friendRequests: userMetadata.notification_friend_requests !== false,
+      eventReminders: userMetadata.notification_event_reminders !== false,
+      friendActivity: userMetadata.notification_friend_activity !== false,
+    }));
+
+    setAvatarPreview(userMetadata.avatar_url || null);
+
+    // Pull profile row too so Settings reflects fresh values even if auth metadata lags.
+    supabase
+      .from("profiles")
+      .select("name,bio,avatar_url")
+      .eq("id", user.id)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (!mounted || !data) return;
+        setSettings((prev) => ({
+          ...prev,
+          name: data.name || prev.name,
+          bio: data.bio || prev.bio,
+          avatarUrl: data.avatar_url || prev.avatarUrl,
+        }));
+        if (data.avatar_url) {
+          setAvatarPreview(data.avatar_url);
+        }
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, [user]);
+
+  // Handle avatar file selection
+  useEffect(() => {
+    if (!avatarFile) return;
+    const url = URL.createObjectURL(avatarFile);
+    setAvatarPreview(url);
+    return () => URL.revokeObjectURL(url);
+  }, [avatarFile]);
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0] ?? null;
+    if (file && !file.type.startsWith("image/")) {
+      toast({
+        title: "Invalid file type",
+        description: "Please choose an image file.",
+        variant: "destructive",
+      });
+      return;
+    }
+    setAvatarFile(file);
+  };
+
+  const uploadAvatar = async (file: File) => {
+    if (!user) throw new Error("You must be signed in to change your avatar.");
+    const fileExt = file.name.split(".").pop() || "jpg";
+    const safeExt = fileExt.replace(/[^a-zA-Z0-9]/g, "") || "jpg";
+
+    let lastError: unknown = null;
+    for (const bucket of AVATAR_BUCKETS) {
+      const filePath = `${user.id}/avatars/${Date.now()}.${safeExt}`;
+      const { error: uploadError } = await supabase.storage
+        .from(bucket)
+        .upload(filePath, file, {
+          cacheControl: "3600",
+          upsert: true,
+          contentType: file.type,
+        });
+
+      if (uploadError) {
+        lastError = uploadError;
+        continue;
+      }
+
+      const { data } = supabase.storage.from(bucket).getPublicUrl(filePath);
+      return data.publicUrl;
+    }
+
+    throw new Error(
+      lastError instanceof Error ? lastError.message : "Unable to upload avatar."
+    );
+  };
+
+  const tryDeleteAccountViaRpc = async (userId: string): Promise<boolean> => {
+    const rpcAttempts: Array<{ fn: string; args: Record<string, unknown> }> = [
+      { fn: "delete_user_account", args: { user_id: userId } },
+      { fn: "delete_user_account", args: { target_user_id: userId } },
+      { fn: "delete_user_account", args: {} },
+      { fn: "delete_current_user_account", args: {} },
+    ];
+
+    for (const attempt of rpcAttempts) {
+      const { error } = await supabase.rpc(attempt.fn, attempt.args);
+      if (!error) {
+        return true;
+      }
+
+      const notConfigured =
+        error.code === "PGRST202" ||
+        error.code === "PGRST204" ||
+        /function .* does not exist|not found/i.test(error.message || "");
+
+      if (notConfigured) {
+        continue;
+      }
+
+      throw error;
+    }
+
+    return false;
+  };
+
+  const runClientSideAccountCleanup = async (userId: string) => {
+    const now = new Date().toISOString();
+
+    await Promise.allSettled([
+      supabase
+        .from("friendships")
+        .delete()
+        .or(`user_id.eq.${userId},friend_id.eq.${userId}`),
+      supabase.from("blocked_users").delete().eq("user_id", userId),
+      supabase.from("saved_events").delete().eq("user_id", userId),
+      supabase.from("event_recommendation_feedback").delete().eq("user_id", userId),
+      supabase.from("user_event_recommendations").delete().eq("user_id", userId),
+      supabase.from("memory_attendees").delete().eq("user_id", userId),
+      supabase
+        .from("profiles")
+        .upsert(
+          {
+            id: userId,
+            name: "Deleted User",
+            bio: null,
+            avatar_url: null,
+            profile_visibility: "private",
+            show_badges: false,
+            show_memories: false,
+            show_upcoming_hangouts: false,
+            updated_at: now,
+          },
+          { onConflict: "id" }
+        ),
+      supabase.auth.updateUser({
+        data: {
+          full_name: "Deleted User",
+          bio: null,
+          avatar_url: null,
+          account_deleted: true,
+        },
+      }),
+    ]);
+  };
+
+  const handleDeleteAccount = async () => {
+    if (!user) return;
+    
+    setDeletingAccount(true);
+    try {
+      const deletedViaRpc = await tryDeleteAccountViaRpc(user.id);
+
+      if (!deletedViaRpc) {
+        await runClientSideAccountCleanup(user.id);
+      }
+
+      await signOut();
+
+      toast({
+        title: "Account Deleted",
+        description: deletedViaRpc
+          ? "Your account was deleted successfully."
+          : "Your account has been deactivated and your app data was cleared.",
+      });
+
+      navigate("/");
+    } catch (error) {
+      console.error("Failed to delete account:", error);
+      toast({
+        title: "Error",
+        description: "Failed to delete account. Please try again or contact support.",
+        variant: "destructive",
+      });
+    } finally {
+      setDeletingAccount(false);
+      setShowDeleteConfirm(false);
+    }
+  };
+
+  const handleSavePrivacy = async () => {
+    if (!user) return;
+    
+    setSaving(true);
+    try {
+      // Save privacy settings to user metadata
+      const { error: authError } = await supabase.auth.updateUser({
+        data: {
+          profile_visibility: settings.profileVisibility,
+          show_badges: settings.showBadges,
+          show_memories: settings.showMemories,
+          show_upcoming_hangouts: settings.showUpcomingHangouts,
+        },
+      });
+      
+      if (authError) throw authError;
+      
+      // Also save to profiles table for easier querying
+      const { error: profileError } = await supabase.from("profiles").upsert({
+        id: user.id,
+        profile_visibility: settings.profileVisibility,
+        show_badges: settings.showBadges,
+        show_memories: settings.showMemories,
+        show_upcoming_hangouts: settings.showUpcomingHangouts,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: "id" }).select();
+      
+      if (profileError) {
+        console.warn("Profile table update skipped (may not exist):", profileError);
+      }
+      
+      toast({
+        title: "Success",
+        description: "Privacy settings saved successfully!",
+      });
+    } catch (error) {
+      console.error("Failed to save privacy settings:", error);
+      toast({
+        title: "Error",
+        description: "Failed to save privacy settings. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleSaveProfile = async () => {
+    if (!user) return;
+    
+    setSaving(true);
+    try {
+      let avatarUrl = settings.avatarUrl || null;
+      const normalizedName = settings.name.trim() || user.email?.split("@")[0] || "Your Name";
+      const normalizedBio = settings.bio.trim();
+
+      // Upload new avatar if selected
+      if (avatarFile) {
+        const uploaded = await uploadAvatar(avatarFile);
+        avatarUrl = uploaded;
+      }
+
+      // Update user metadata
+      const { error: authError } = await supabase.auth.updateUser({
+        data: { 
+          full_name: normalizedName,
+          bio: normalizedBio,
+          avatar_url: avatarUrl,
+        },
+      });
+      
+      if (authError) throw authError;
+      
+      // Save to profiles table
+      const { error: profileError } = await supabase.from("profiles").upsert({
+        id: user.id,
+        name: normalizedName,
+        bio: normalizedBio,
+        avatar_url: avatarUrl,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: "id" }).select();
+      
+      if (profileError) {
+        console.warn("Profile table update skipped (may not exist):", profileError);
+      }
+      
+      toast({
+        title: "Success",
+        description: "Profile updated successfully!",
+      });
+
+      setSettings((prev) => ({
+        ...prev,
+        name: normalizedName,
+        bio: normalizedBio,
+        avatarUrl: avatarUrl || "",
+      }));
+      setAvatarPreview(avatarUrl);
+    } catch (error) {
+      console.error("Failed to save profile:", error);
+      toast({
+        title: "Error",
+        description: "Failed to save profile. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setSaving(false);
+      setAvatarFile(null);
+    }
+  };
+
+  const handleSaveNotifications = async () => {
+    if (!user) return;
+    
+    setSaving(true);
+    try {
+      // Save notification settings to user metadata
+      const { error: authError } = await supabase.auth.updateUser({
+        data: {
+          notification_hangout_invites: settings.hangoutInvites,
+          notification_friend_requests: settings.friendRequests,
+          notification_event_reminders: settings.eventReminders,
+          notification_friend_activity: settings.friendActivity,
+        },
+      });
+      
+      if (authError) throw authError;
+      
+      // Also save to profiles table for easier querying
+      const { error: profileError } = await supabase.from("profiles").upsert({
+        id: user.id,
+        notification_hangout_invites: settings.hangoutInvites,
+        notification_friend_requests: settings.friendRequests,
+        notification_event_reminders: settings.eventReminders,
+        notification_friend_activity: settings.friendActivity,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: "id" }).select();
+      
+      if (profileError) {
+        console.warn("Profile table update skipped (may not exist):", profileError);
+      }
+      
+      toast({
+        title: "Success",
+        description: "Notification preferences saved successfully!",
+      });
+    } catch (error) {
+      console.error("Failed to save notification settings:", error);
+      toast({
+        title: "Error",
+        description: "Failed to save notification preferences. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (!user) {
+    return (
+      <div className="min-h-screen bg-background">
+        <Navbar />
+        <main className="pt-[72px]">
+          <div className="max-w-4xl mx-auto px-6 py-12">
+            <div className="bg-card rounded-2xl border border-border p-6 mb-6 text-center">
+              <h2 className="font-heading text-xl font-semibold text-foreground mb-2">You're not signed in</h2>
+              <p className="text-sm text-muted-foreground mb-4">Sign in to access your settings.</p>
+              <button onClick={() => setShowAuth(true)} className="btn-primary px-4 py-2">Sign In</button>
+            </div>
+          </div>
+        </main>
+        <AuthModal isOpen={showAuth} onClose={() => setShowAuth(false)} />
+      </div>
+    );
+  }
 
   const renderMain = () => (
     <motion.div
@@ -73,12 +509,6 @@ const Settings = () => {
         subtitle="Manage your notification preferences"
         onClick={() => setActiveSection("notifications")}
       />
-      <SettingsItem
-        icon={UserX}
-        title="Blocked Users"
-        subtitle={`${blockedFriends.length} blocked`}
-        onClick={() => setActiveSection("blocked")}
-      />
 
       <div className="pt-6 border-t border-border space-y-3">
         <div className="flex items-center justify-between p-4 rounded-xl bg-card border border-border">
@@ -98,7 +528,10 @@ const Settings = () => {
           />
         </div>
 
-        <button className="w-full flex items-center justify-center gap-2 p-4 rounded-xl text-destructive hover:bg-destructive/10 transition-colors">
+        <button
+          onClick={signOut}
+          className="w-full flex items-center justify-center gap-2 p-4 rounded-xl text-destructive hover:bg-destructive/10 transition-colors"
+        >
           <LogOut className="w-5 h-5" />
           <span className="font-medium">Sign Out</span>
         </button>
@@ -122,8 +555,34 @@ const Settings = () => {
 
       <div className="bg-card rounded-2xl border border-border p-6 space-y-6">
         <h2 className="font-heading text-lg font-semibold text-foreground">
-          Profile Details
+          Profile Information
         </h2>
+
+        {/* Avatar Upload */}
+        <div>
+          <label className="block text-sm font-medium text-foreground mb-3">
+            Profile Picture
+          </label>
+          <div className="flex items-center gap-4">
+            <div className="w-20 h-20 rounded-2xl bg-muted overflow-hidden flex items-center justify-center">
+              {avatarPreview ? (
+                <img src={avatarPreview} alt="avatar" className="w-full h-full object-cover" />
+              ) : (
+                <User className="w-10 h-10 text-muted-foreground" />
+              )}
+            </div>
+            <label className="btn-secondary px-4 py-2 cursor-pointer flex items-center gap-2">
+              <Camera className="w-4 h-4" />
+              <span>Change Photo</span>
+              <input
+                type="file"
+                accept="image/*"
+                onChange={handleFileChange}
+                className="hidden"
+              />
+            </label>
+          </div>
+        </div>
 
         <div>
           <label className="block text-sm font-medium text-foreground mb-2">
@@ -132,32 +591,109 @@ const Settings = () => {
           <Input
             value={settings.name}
             onChange={(e) => setSettings((s) => ({ ...s, name: e.target.value }))}
+            placeholder="Your name"
           />
         </div>
 
         <div>
           <label className="block text-sm font-medium text-foreground mb-2">
-            Email
+            Email (read-only)
           </label>
           <Input
             type="email"
-            value={settings.email}
-            onChange={(e) => setSettings((s) => ({ ...s, email: e.target.value }))}
+            value={user?.email || ""}
+            disabled
+            className="bg-muted cursor-not-allowed"
+          />
+          <p className="text-xs text-muted-foreground mt-1">
+            Email cannot be changed. Contact support if you need to update it.
+          </p>
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-foreground mb-2">
+            Bio
+          </label>
+          <textarea
+            value={settings.bio}
+            onChange={(e) => setSettings((s) => ({ ...s, bio: e.target.value }))}
+            className="input-field w-full h-24 resize-none"
+            placeholder="Tell others about yourself..."
           />
         </div>
 
-        <button className="btn-primary px-6 py-2">Save Changes</button>
+        <button
+          className="btn-primary px-6 py-2 flex items-center gap-2"
+          onClick={handleSaveProfile}
+          disabled={saving}
+        >
+          {saving ? (
+            <>
+              <div className="inline-block animate-spin">
+                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full" />
+              </div>
+              Saving...
+            </>
+          ) : (
+            <>
+              <Check className="w-4 h-4" />
+              Save Changes
+            </>
+          )}
+        </button>
       </div>
 
       <div className="bg-card rounded-2xl border border-border p-6">
         <h2 className="font-heading text-lg font-semibold text-foreground mb-4">
           Danger Zone
         </h2>
-        <button className="flex items-center gap-2 text-destructive hover:underline">
+        <button 
+          onClick={() => setShowDeleteConfirm(true)}
+          className="flex items-center gap-2 text-destructive hover:underline transition-colors"
+        >
           <Trash2 className="w-4 h-4" />
           Delete Account
         </button>
       </div>
+
+      {/* Delete Account Confirmation Dialog */}
+      <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
+        <AlertDialogContent className="max-w-md rounded-2xl">
+          <AlertDialogTitle className="text-destructive">Delete Account?</AlertDialogTitle>
+          <AlertDialogDescription className="space-y-3">
+            <p>
+              Are you absolutely sure you want to delete your account? This action cannot be undone.
+            </p>
+            <div className="bg-destructive/10 border border-destructive/30 rounded-xl p-3">
+              <p className="text-sm text-foreground">
+                <strong>This will:</strong>
+              </p>
+              <ul className="text-sm text-muted-foreground mt-2 space-y-1 list-disc list-inside">
+                <li>Permanently delete your account</li>
+                <li>Remove all your profile data</li>
+                <li>Delete all your memories and badges</li>
+                <li>Cancel all pending hangouts</li>
+              </ul>
+            </div>
+          </AlertDialogDescription>
+          <AlertDialogFooter className="mt-2">
+            <AlertDialogCancel disabled={deletingAccount}>Keep Account</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteAccount}
+              disabled={deletingAccount}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deletingAccount ? (
+                <><div className="inline-block animate-spin mr-2">
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full" />
+                </div>Deleting...</>
+              ) : (
+                "Delete Account"
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </motion.div>
   );
 
@@ -179,6 +715,17 @@ const Settings = () => {
         <h2 className="font-heading text-lg font-semibold text-foreground">
           Profile Visibility
         </h2>
+
+        <div className="bg-muted/50 rounded-lg p-3 text-sm text-muted-foreground">
+          <p>
+            Your profile visibility setting controls who can view your profile:
+          </p>
+          <ul className="mt-2 space-y-1 ml-2">
+            <li>• <strong>Public:</strong> Anyone can see your full profile</li>
+            <li>• <strong>Friends:</strong> Only your friends can see your profile</li>
+            <li>• <strong>Private:</strong> No one can view your profile</li>
+          </ul>
+        </div>
 
         <div className="space-y-3">
           {(["public", "friends", "private"] as const).map((option) => (
@@ -222,6 +769,10 @@ const Settings = () => {
           What others can see
         </h2>
 
+        <div className="bg-muted/50 rounded-lg p-3 text-sm text-muted-foreground">
+          These settings control what friends and other users can see on your profile (subject to your visibility setting):
+        </div>
+
         <ToggleSetting
           title="Show Badges"
           description="Display your earned badges on your profile"
@@ -242,6 +793,26 @@ const Settings = () => {
             setSettings((s) => ({ ...s, showUpcomingHangouts: checked }))
           }
         />
+
+        <button
+          className="btn-primary px-6 py-2 flex items-center gap-2 mt-6 w-full justify-center"
+          onClick={handleSavePrivacy}
+          disabled={saving}
+        >
+          {saving ? (
+            <>
+              <div className="inline-block animate-spin">
+                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full" />
+              </div>
+              Saving...
+            </>
+          ) : (
+            <>
+              <Check className="w-4 h-4" />
+              Save Privacy Settings
+            </>
+          )}
+        </button>
       </div>
     </motion.div>
   );
@@ -264,6 +835,10 @@ const Settings = () => {
         <h2 className="font-heading text-lg font-semibold text-foreground">
           Notification Preferences
         </h2>
+
+        <div className="bg-muted/50 rounded-lg p-3 text-sm text-muted-foreground mb-4">
+          <p>Choose what you'd like to be notified about:</p>
+        </div>
 
         <ToggleSetting
           title="Hangout Invites"
@@ -297,55 +872,26 @@ const Settings = () => {
             setSettings((s) => ({ ...s, friendActivity: checked }))
           }
         />
-      </div>
-    </motion.div>
-  );
 
-  const renderBlocked = () => (
-    <motion.div
-      initial={{ opacity: 0, x: 20 }}
-      animate={{ opacity: 1, x: 0 }}
-      className="space-y-6"
-    >
-      <button
-        onClick={() => setActiveSection("main")}
-        className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors"
-      >
-        <ArrowLeft className="w-4 h-4" />
-        Back to Settings
-      </button>
-
-      <div className="bg-card rounded-2xl border border-border p-6">
-        <h2 className="font-heading text-lg font-semibold text-foreground mb-4">
-          Blocked Users
-        </h2>
-
-        {blockedFriends.length > 0 ? (
-          <div className="space-y-3">
-            {blockedFriends.map((friend) => (
-              <div
-                key={friend.id}
-                className="flex items-center justify-between p-3 rounded-xl bg-muted/50"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center">
-                    <span className="font-medium text-muted-foreground">
-                      {friend.name.charAt(0)}
-                    </span>
-                  </div>
-                  <span className="font-medium text-foreground">{friend.name}</span>
-                </div>
-                <button className="text-sm text-primary hover:underline">
-                  Unblock
-                </button>
+        <button
+          className="btn-primary px-6 py-2 flex items-center gap-2 mt-6 w-full justify-center"
+          onClick={handleSaveNotifications}
+          disabled={saving}
+        >
+          {saving ? (
+            <>
+              <div className="inline-block animate-spin">
+                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full" />
               </div>
-            ))}
-          </div>
-        ) : (
-          <p className="text-muted-foreground text-center py-8">
-            You haven't blocked anyone
-          </p>
-        )}
+              Saving...
+            </>
+          ) : (
+            <>
+              <Check className="w-4 h-4" />
+              Save Notification Preferences
+            </>
+          )}
+        </button>
       </div>
     </motion.div>
   );
@@ -375,7 +921,6 @@ const Settings = () => {
           {activeSection === "profile" && renderProfile()}
           {activeSection === "privacy" && renderPrivacy()}
           {activeSection === "notifications" && renderNotifications()}
-          {activeSection === "blocked" && renderBlocked()}
         </div>
       </main>
     </div>

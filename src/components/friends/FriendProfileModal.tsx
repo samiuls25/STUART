@@ -1,28 +1,63 @@
-import React from "react";
+import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, Trophy, Camera, Calendar, UserMinus, VolumeX, Volume2 } from "lucide-react";
-import { Friend } from "../../data/friends";
-import { badges as allBadges, memories } from "../../data/badges";
-import BadgeCard from "../profile/BadgeCard";
+import { X, Trophy, Camera, Calendar, UserMinus } from "lucide-react";
+import { Friend } from "../../lib/friends";
 import MemoryCard from "../profile/MemoryCard";
+import { fetchSharedMemoriesWithUser, type Memory } from "../../lib/memories";
 
 interface FriendProfileModalProps {
   friend: Friend | null;
   isOpen: boolean;
   onClose: () => void;
-  onMute?: (friend: Friend) => void;
-  onBlock?: (friend: Friend) => void;
+  onRemove?: (friend: Friend) => void;
 }
 
-const FriendProfileModal = ({ friend, isOpen, onClose, onMute, onBlock }: FriendProfileModalProps) => {
+const FriendProfileModal = ({ friend, isOpen, onClose, onRemove }: FriendProfileModalProps) => {
+  const [visibleMemories, setVisibleMemories] = useState<Memory[]>([]);
+  const [loadingMemories, setLoadingMemories] = useState(false);
+  const friendId = friend?.id;
+
+  useEffect(() => {
+    if (!isOpen || !friendId) return;
+
+    let mounted = true;
+
+    const loadVisibleMemories = async () => {
+      setLoadingMemories(true);
+      try {
+        const rows = await fetchSharedMemoriesWithUser(friendId);
+        if (mounted) {
+          setVisibleMemories(rows);
+        }
+      } catch (error) {
+        console.warn("Unable to load visible friend memories", error);
+        if (mounted) {
+          setVisibleMemories([]);
+        }
+      } finally {
+        if (mounted) {
+          setLoadingMemories(false);
+        }
+      }
+    };
+
+    void loadVisibleMemories();
+
+    return () => {
+      mounted = false;
+    };
+  }, [friendId, isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) {
+      setVisibleMemories([]);
+      setLoadingMemories(false);
+    }
+  }, [isOpen]);
+
   if (!friend) return null;
 
-  const friendBadges = friend.badges
-    .map((id) => allBadges.find((b) => b.id === id))
-    .filter(Boolean);
-
-  // Mock shared memories (in real app, filter by attendees)
-  const sharedMemories = memories.slice(0, 2);
+  const friendBadges = friend.badgeSummaries ?? [];
 
   const statusColors = {
     online: "bg-green-500",
@@ -35,6 +70,10 @@ const FriendProfileModal = ({ friend, isOpen, onClose, onMute, onBlock }: Friend
     offline: "Offline",
     busy: "Busy",
   };
+
+  const resolvedStatus = (friend.status as string) in statusColors
+    ? (friend.status as "online" | "offline" | "busy")
+    : "offline";
 
   return (
     <AnimatePresence>
@@ -73,22 +112,22 @@ const FriendProfileModal = ({ friend, isOpen, onClose, onMute, onBlock }: Friend
               <div className="flex items-start gap-4">
                 <div className="relative">
                   <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-primary/20 to-accent/20 flex items-center justify-center">
-                    {friend.avatar ? (
-                      <img src={friend.avatar} alt={friend.name} className="w-full h-full rounded-2xl object-cover" />
+                    {friend.avatar_url ? (
+                      <img src={friend.avatar_url} alt={friend.name} className="w-full h-full rounded-2xl object-cover" />
                     ) : (
                       <span className="font-heading text-3xl font-bold text-primary">
                         {friend.name.charAt(0)}
                       </span>
                     )}
                   </div>
-                  <div className={`absolute -bottom-1 -right-1 w-5 h-5 rounded-full border-2 border-card ${statusColors[friend.status]}`} />
+                  <div className={`absolute -bottom-1 -right-1 w-5 h-5 rounded-full border-2 border-card ${statusColors[resolvedStatus]}`} />
                 </div>
 
                 <div className="flex-1">
                   <h3 className="font-heading text-xl font-bold text-foreground">{friend.name}</h3>
                   <p className="text-sm text-muted-foreground flex items-center gap-2 mt-1">
-                    <span className={`w-2 h-2 rounded-full ${statusColors[friend.status]}`} />
-                    {statusLabels[friend.status]}
+                    <span className={`w-2 h-2 rounded-full ${statusColors[resolvedStatus]}`} />
+                    {statusLabels[resolvedStatus]}
                   </p>
 
                   <div className="flex items-center gap-3 mt-3 text-sm text-muted-foreground">
@@ -108,26 +147,42 @@ const FriendProfileModal = ({ friend, isOpen, onClose, onMute, onBlock }: Friend
                   </h4>
                   <div className="flex flex-wrap gap-2">
                     {friendBadges.map((badge) => (
-                      <BadgeCard key={badge!.id} badge={badge!} compact />
+                      <span
+                        key={badge.id}
+                        className="inline-flex items-center gap-2 rounded-full border border-border bg-muted/40 px-3 py-1.5 text-xs font-medium text-foreground"
+                        title={`${badge.name} • Level ${badge.level}`}
+                      >
+                        <span>{badge.icon}</span>
+                        <span>{badge.name}</span>
+                      </span>
                     ))}
                   </div>
                 </div>
               )}
 
-              {/* Shared Memories */}
-              {sharedMemories.length > 0 && (
-                <div>
-                  <h4 className="font-heading font-semibold text-foreground flex items-center gap-2 mb-3">
-                    <Camera className="w-4 h-4 text-primary" />
-                    Shared Memories
-                  </h4>
+              {/* Memories */}
+              <div>
+                <h4 className="font-heading font-semibold text-foreground flex items-center gap-2 mb-3">
+                  <Camera className="w-4 h-4 text-primary" />
+                  Shared Memories
+                </h4>
+
+                {loadingMemories ? (
+                  <div className="rounded-xl border border-border bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
+                    Loading memories...
+                  </div>
+                ) : visibleMemories.length > 0 ? (
                   <div className="space-y-3">
-                    {sharedMemories.map((memory) => (
-                      <MemoryCard key={memory.id} memory={memory} compact />
+                    {visibleMemories.map((memory) => (
+                      <MemoryCard key={memory.id} memory={memory} allowDelete={false} editable={false} />
                     ))}
                   </div>
-                </div>
-              )}
+                ) : (
+                  <div className="rounded-xl border border-border bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
+                    No shared memories yet.
+                  </div>
+                )}
+              </div>
 
               {/* Upcoming Hangouts */}
               <div>
@@ -148,27 +203,11 @@ const FriendProfileModal = ({ friend, isOpen, onClose, onMute, onBlock }: Friend
             <div className="p-6 border-t border-border flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <button
-                  onClick={() => onMute?.(friend)}
-                  className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-muted-foreground hover:bg-muted transition-colors"
-                >
-                  {friend.isMuted ? (
-                    <>
-                      <Volume2 className="w-4 h-4" />
-                      Unmute
-                    </>
-                  ) : (
-                    <>
-                      <VolumeX className="w-4 h-4" />
-                      Mute
-                    </>
-                  )}
-                </button>
-                <button
-                  onClick={() => onBlock?.(friend)}
+                  onClick={() => onRemove?.(friend)}
                   className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-destructive hover:bg-destructive/10 transition-colors"
                 >
                   <UserMinus className="w-4 h-4" />
-                  Block
+                  Remove Friend
                 </button>
               </div>
 

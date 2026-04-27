@@ -1,7 +1,8 @@
 import { useState, useMemo, useEffect } from "react";
 import { motion } from "framer-motion";
-import { Search, Sparkles, X, Heart, MapPin } from "lucide-react";
+import { Search, Sparkles, X, Heart, MapPin, ArrowUp, Users } from "lucide-react";
 import React from "react";
+import Fuse from "fuse.js";
 import Navbar from "../components/layout/Navbar.tsx";
 import FilterBar from "../components/shared/FilterBar.tsx";
 import EventDetailModal from "../components/events/EventDetailModel.tsx";
@@ -15,7 +16,9 @@ import PlanBuilderCard from "../components/shared/PlanBuilderCard.tsx";
 import { type Event, fetchEvents } from "../data/events";
 import { toast } from "../hooks/use-toast.ts";
 import { saveEvent, unsaveEvent, getSavedEventIds } from "../lib/SavedEvents";
+import { trackEventView } from "../lib/eventIntelligence";
 import { useAuth } from "../lib/AuthContext";
+import { parseEventDate, isThisWeekend, isThisWeek, distanceMiles } from "../lib/eventFilters";
 
 const searchPlaceholders = [
   "free concerts this weekend",
@@ -25,7 +28,10 @@ const searchPlaceholders = [
   "family-friendly activities",
 ];
 
+const EVENTS_PER_PAGE = 24;
+
 const Explore = () => {
+  const { user, loading: authLoading } = useAuth();
   const [selectedSegment, setSelectedSegment] = useState<string>("All");
   const [selectedGenre, setSelectedGenre] = useState<string>("All");
   const [selectedPrice, setSelectedPrice] = useState<string>("All");
@@ -33,37 +39,98 @@ const Explore = () => {
   const [selectedDistance, setSelectedDistance] = useState<number>(5);
   const [selectedMood, setSelectedMood] = useState<string | null>(null);
   const [detailEvent, setDetailEvent] = useState<Event | null>(null);
+  const [detailOpenSuggest, setDetailOpenSuggest] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [placeholderIndex] = useState(Math.floor(Math.random() * searchPlaceholders.length));
 
   const [events, setEvents] = useState<Event[]>([]);
   const [loading, setLoading] = useState(true);
+  const [userLocation, setUserLocation] = useState<{ lat: number; lon: number } | null>(null);
+  const [searchResults, setSearchResults] = useState<Event[] | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageInput, setPageInput] = useState("1");
 
   useEffect(() => {
-    fetchEvents()
+    if (authLoading) {
+      return;
+    }
+
+    let isMounted = true;
+    setLoading(true);
+
+    fetchEvents(user?.id)
       .then((data) => {
-        console.log("Fetched events from Supabase:", data);
-        if (data.length > 0) {
-          console.log("First event object:", data[0]);
-          Object.entries(data[0]).forEach(([k, v]) => console.log(`${k}:`, v));
-        }
+        if (!isMounted) return;
         setEvents(data);
       })
-      .finally(() => setLoading(false));
-}, []);
+      .finally(() => {
+        if (!isMounted) return;
+        setLoading(false);
+      });
 
-console.log("Filter state:", {
-  selectedSegment,
-  selectedGenre,
-  selectedPrice,
-  selectedTime,
-  selectedDistance,
-  selectedMood,
-  searchQuery,
-});
+    return () => {
+      isMounted = false;
+    };
+  }, [authLoading, user?.id]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+    setPageInput("1");
+  }, [
+    searchQuery,
+    selectedSegment,
+    selectedGenre,
+    selectedPrice,
+    selectedTime,
+    selectedDistance,
+    selectedMood,
+  ]);
+
+  useEffect(() => {
+    if (!navigator.geolocation) return;
+    navigator.geolocation.getCurrentPosition(
+      (pos) => setUserLocation({ lat: pos.coords.latitude, lon: pos.coords.longitude }),
+      () => setUserLocation({ lat: 40.7128, lon: -74.006 }) // NYC default
+    );
+  }, []);
+
+  const fuse = useMemo(() => {
+    if (!events.length) return null;
+
+    const searchable = events.map((event) => ({
+      ...event,
+      title: event.name,
+      vibe: (event.tags ?? []).join(" "),
+    }));
+
+    return new Fuse(searchable, {
+      threshold: 0.35,
+      keys: [
+        { name: "title", weight: 0.7 },
+        { name: "vibe", weight: 0.2 },
+        { name: "venue", weight: 0.1 },
+      ],
+    });
+  }, [events]);
+
+  const handleSearch = (query: string, options?: { skipFuzzy?: boolean }) => {
+    setSearchQuery(query);
+
+    const trimmed = query.trim();
+    if (!trimmed || !fuse || options?.skipFuzzy) {
+      // Empty query or explicit skip: show all events (base list)
+      setSearchResults(null);
+      return;
+    }
+
+    const results = fuse.search(trimmed).map((r) => r.item as Event);
+    setSearchResults(results);
+  };
 
   const filteredEvents = useMemo(() => {
-    const filtered = events.filter((event) => {
+    const baseEvents = searchResults ?? events;
+
+    return baseEvents.filter((event) => {
       const matchesSegment =
         selectedSegment === "All" || event.segment === selectedSegment;
       const matchesGenre =
@@ -72,18 +139,27 @@ console.log("Filter state:", {
         selectedPrice === "All" ||
         (selectedPrice === "Free" && event.priceLevel === "free") ||
         event.priceLevel === selectedPrice;
+
+      let eventDistance = event.distance;
+      if (userLocation != null && event.latitude != null && event.longitude != null) {
+        eventDistance = distanceMiles(
+          userLocation.lat,
+          userLocation.lon,
+          event.latitude,
+          event.longitude
+        );
+      }
       const matchesDistance =
-        !event.distance || event.distance <= selectedDistance;
+        eventDistance == null || eventDistance <= selectedDistance;
+
+      const eventDate = parseEventDate(event.date);
       const matchesTime =
         selectedTime === "All" ||
         (selectedTime === "Now" && event.happeningNow) ||
         (selectedTime === "Tonight" && event.isTonight) ||
-        (!event.happeningNow && !event.isTonight);
-      const matchesSearch =
-        searchQuery === "" ||
-        (event.name && event.name.toLowerCase().includes(searchQuery.toLowerCase())) ||
-        (event.venue && event.venue.toLowerCase().includes(searchQuery.toLowerCase())) ||
-        (event.genre && event.genre.toLowerCase().includes(searchQuery.toLowerCase()));
+        (selectedTime === "This Weekend" && isThisWeekend(eventDate)) ||
+        (selectedTime === "This Week" && isThisWeek(eventDate));
+
       const matchesMood =
         !selectedMood ||
         (selectedMood === "adventurous" && event.tags?.includes("immersive")) ||
@@ -97,14 +173,13 @@ console.log("Filter state:", {
         matchesPrice &&
         matchesDistance &&
         matchesTime &&
-        matchesSearch &&
         matchesMood
       );
     });
-    console.log("Filtered events:", filtered);
-    return filtered;
   }, [
     events,
+    searchResults,
+    userLocation,
     selectedSegment,
     selectedGenre,
     selectedPrice,
@@ -115,7 +190,38 @@ console.log("Filter state:", {
   ]);
 
   const handleEventClick = (event: Event) => {
+    setDetailOpenSuggest(false);
     setDetailEvent(event);
+    if (event.isTrackable !== false) {
+      void trackEventView(event.id, "explore-card");
+    }
+  };
+
+  const handleSuggestFromCard = (event: Event, reactEvent: React.MouseEvent) => {
+    reactEvent.stopPropagation();
+
+    if (event.source === "hangout") {
+      toast({
+        title: "Suggest not available",
+        description: "Public hangouts are already shared through Hangouts.",
+      });
+      return;
+    }
+
+    if (!user) {
+      toast({
+        title: "Sign in required",
+        description: "Please sign in to suggest events.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setDetailOpenSuggest(true);
+    setDetailEvent(event);
+    if (event.isTrackable !== false) {
+      void trackEventView(event.id, "explore-card-suggest");
+    }
   };
 
   const handleSearchArea = () => {
@@ -124,7 +230,7 @@ console.log("Filter state:", {
     setSelectedPrice("All");
     setSelectedTime("All");
     setSelectedMood(null);
-    setSearchQuery("");
+    handleSearch("", { skipFuzzy: true });
   };
 
   const handleBuildPlan = () => {
@@ -132,6 +238,56 @@ console.log("Filter state:", {
       title: "Building your perfect plan...",
       description: "STUART is creating a personalized itinerary for you.",
     });
+  };
+
+  const totalPages = Math.max(1, Math.ceil(filteredEvents.length / EVENTS_PER_PAGE));
+  const safePage = Math.min(currentPage, totalPages);
+  const startIndex = (safePage - 1) * EVENTS_PER_PAGE;
+  const endIndex = startIndex + EVENTS_PER_PAGE;
+  const pagedEvents = filteredEvents.slice(startIndex, endIndex);
+
+  useEffect(() => {
+    setPageInput(String(safePage));
+  }, [safePage]);
+
+  const goToPrevPage = () => {
+    setCurrentPage((prev) => Math.max(1, prev - 1));
+  };
+
+  const goToNextPage = () => {
+    setCurrentPage((prev) => Math.min(totalPages, prev + 1));
+  };
+
+  const handlePageInputChange = (value: string) => {
+    setPageInput(value);
+  };
+
+  const commitPageInput = () => {
+    if (pageInput.trim() === "") {
+      setPageInput(String(safePage));
+      return;
+    }
+
+    const parsed = Number(pageInput);
+    if (!Number.isInteger(parsed)) {
+      setPageInput(String(safePage));
+      return;
+    }
+
+    const clamped = Math.max(1, Math.min(totalPages, parsed));
+    setCurrentPage(clamped);
+    setPageInput(String(clamped));
+  };
+
+  const scrollToEventsTop = () => {
+    const filtersAnchor = document.getElementById("filters-anchor");
+    if (filtersAnchor) {
+      const navOffset = 88;
+      const top = filtersAnchor.getBoundingClientRect().top + window.scrollY - navOffset;
+      window.scrollTo({ top: Math.max(top, 0), behavior: "smooth" });
+      return;
+    }
+    window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   if (loading) {
@@ -183,13 +339,13 @@ console.log("Filter state:", {
                 <input
                   type="text"
                   value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
+                  onChange={(e) => handleSearch(e.target.value)}
                   placeholder={`Try "${searchPlaceholders[placeholderIndex]}"`}
                   className="input-field w-full pl-14 pr-12 py-4 text-base rounded-2xl shadow-lg shadow-primary/5"
                 />
                 {searchQuery && (
                   <button
-                    onClick={() => setSearchQuery("")}
+                    onClick={() => handleSearch("", { skipFuzzy: true })}
                     className="absolute right-4 top-1/2 -translate-y-1/2 p-1 rounded-full hover:bg-muted transition-colors"
                   >
                     <X className="w-4 h-4 text-muted-foreground" />
@@ -200,34 +356,22 @@ console.log("Filter state:", {
               {/* Mood Selector */}
               <div className="flex flex-col items-center gap-3">
                 <p className="text-sm text-muted-foreground">What's your vibe today?</p>
-                <MoodSelector selectedMood={selectedMood} onMoodChange={setSelectedMood} />
+                <MoodSelector
+                  selectedMood={selectedMood}
+                  onMoodChange={setSelectedMood}
+                  onMoodSearch={(label) => handleSearch(label, { skipFuzzy: true })}
+                />
               </div>
             </motion.div>
           </div>
         </motion.section>
 
-        {/* Weather + Filters */}
+        {/* Weather */}
         <section className="max-w-7xl mx-auto px-6">
           <div className="flex items-center gap-4 mb-6">
             <WeatherIndicator className="flex-shrink-0" />
             <div className="flex-1" />
           </div>
-          
-          <FilterBar
-            selectedSegment={selectedSegment}
-            selectedGenre={selectedGenre}
-            selectedPrice={selectedPrice}
-            selectedTime={selectedTime}
-            selectedDistance={selectedDistance}
-            onSegmentChange={setSelectedSegment}
-            onGenreChange={setSelectedGenre}
-            onPriceChange={setSelectedPrice}
-            onTimeChange={setSelectedTime}
-            onDistanceChange={setSelectedDistance}
-            onSearchArea={handleSearchArea}
-            eventCount={filteredEvents.length}
-            showAdvancedFilters={true}
-          />
         </section>
 
         {/* Content Sections */}
@@ -236,34 +380,126 @@ console.log("Filter state:", {
           <PlanBuilderCard onBuildPlan={handleBuildPlan} />
           
           {/* Trending Section */}
-          <TrendingSection events={events} onEventClick={handleEventClick} />
+          <TrendingSection events={filteredEvents} onEventClick={handleEventClick} />
           
           {/* Recommended Section */}
           <RecommendedSection events={events} onEventClick={handleEventClick} />
 
+          {/* Filters */}
+          <div id="filters-anchor">
+            <FilterBar
+              selectedSegment={selectedSegment}
+              selectedGenre={selectedGenre}
+              selectedPrice={selectedPrice}
+              selectedTime={selectedTime}
+              selectedDistance={selectedDistance}
+              onSegmentChange={setSelectedSegment}
+              onGenreChange={setSelectedGenre}
+              onPriceChange={setSelectedPrice}
+              onTimeChange={setSelectedTime}
+              onDistanceChange={setSelectedDistance}
+              onSearchArea={handleSearchArea}
+              eventCount={filteredEvents.length}
+              showAdvancedFilters={true}
+            />
+          </div>
+
           {/* All Events Grid */}
-          <div className="mb-4">
+          <div id="all-events-anchor" className="mt-6 mb-4">
             <h2 className="font-heading text-lg font-semibold text-foreground">
               All Events
             </h2>
           </div>
           
           {filteredEvents.length > 0 ? (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ duration: 0.4, delay: 0.2 }}
-              className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5"
-            >
-              {filteredEvents.map((event, index) => (
-                <EventCardGrid
-                  key={event.id}
-                  event={event}
-                  onClick={handleEventClick}
-                  index={index}
-                />
-              ))}
-            </motion.div>
+            <>
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ duration: 0.4, delay: 0.2 }}
+                className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5"
+              >
+                {pagedEvents.map((event, index) => (
+                  <EventCardGrid
+                    key={event.id}
+                    event={event}
+                    onClick={handleEventClick}
+                    onSuggest={handleSuggestFromCard}
+                    index={index}
+                  />
+                ))}
+              </motion.div>
+
+              {totalPages > 1 && (
+                <div className="mt-8 flex flex-col items-center gap-3">
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={goToPrevPage}
+                      disabled={safePage <= 1}
+                      className="btn-secondary px-4 py-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      Previous
+                    </button>
+                    <div className="text-sm text-muted-foreground flex items-center gap-2">
+                      <span>Page</span>
+                      <input
+                        type="number"
+                        min={1}
+                        max={totalPages}
+                        value={pageInput}
+                        onChange={(e) => handlePageInputChange(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            commitPageInput();
+                          }
+                        }}
+                        onBlur={() => setPageInput(String(safePage))}
+                        className="w-16 rounded-md border border-border bg-card px-2 py-1 text-center text-foreground"
+                      />
+                      <span>of {totalPages}</span>
+                    </div>
+                    <button
+                      onClick={goToNextPage}
+                      disabled={safePage >= totalPages}
+                      className="btn-secondary px-4 py-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      Next
+                    </button>
+                  </div>
+                  <div className="w-full grid grid-cols-[1fr_auto_1fr] items-center gap-3">
+                    <div />
+                    <div className="flex items-center gap-3 justify-center">
+                      <button
+                        onClick={() => setCurrentPage(1)}
+                        disabled={safePage <= 1}
+                        className="btn-secondary px-5 py-2.5 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        Jump to First Page
+                      </button>
+                      <button
+                        onClick={() => setCurrentPage(totalPages)}
+                        disabled={safePage >= totalPages}
+                        className="btn-secondary px-5 py-2.5 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        Jump To Last Page
+                      </button>
+                    </div>
+                    <div className="flex justify-end">
+                      <button
+                        onClick={scrollToEventsTop}
+                        aria-label="Scroll to filters"
+                        className="h-10 w-10 inline-flex items-center justify-center rounded-full border border-border bg-card text-foreground hover:bg-muted transition-colors"
+                      >
+                        <ArrowUp className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Showing {startIndex + 1}-{Math.min(endIndex, filteredEvents.length)} of {filteredEvents.length}
+                  </p>
+                </div>
+              )}
+            </>
           ) : (
             <div className="mt-8">
               <EmptyState onSearchArea={handleSearchArea} />
@@ -272,7 +508,14 @@ console.log("Filter state:", {
         </section>
       </main>
 
-      <EventDetailModal event={detailEvent} onClose={() => setDetailEvent(null)} />
+      <EventDetailModal
+        event={detailEvent}
+        initialSuggestOpen={detailOpenSuggest}
+        onClose={() => {
+          setDetailEvent(null);
+          setDetailOpenSuggest(false);
+        }}
+      />
     </div>
   );
 };
@@ -281,25 +524,44 @@ console.log("Filter state:", {
 const EventCardGrid = ({
   event,
   onClick,
+  onSuggest,
   index,
 }: {
   event: Event;
   onClick: (event: Event) => void;
+  onSuggest: (event: Event, reactEvent: React.MouseEvent) => void;
   index: number;
 }) => {
   const { user } = useAuth();
   const [isSaved, setIsSaved] = useState(false);
 
+  const toScoreLabel = (score?: number) => {
+    if (typeof score !== "number" || Number.isNaN(score) || score <= 0) {
+      return "RECOMMENDED";
+    }
+    return `SCORE ${Math.round(score)}`;
+  };
+
   useEffect(() => {
-    if (user) {
+    if (user && event.isSaveable !== false) {
       getSavedEventIds().then((savedIds) => {
         setIsSaved(savedIds.includes(event.id));
       });
+    } else {
+      setIsSaved(false);
     }
-  }, [user, event.id]);
+  }, [user, event.id, event.isSaveable]);
 
   const handleSaveToggle = async (e: React.MouseEvent) => {
     e.stopPropagation();
+
+    if (event.isSaveable === false) {
+      toast({
+        title: "Save not available",
+        description: "Public hangouts are discoverable but not saved as ticketed events.",
+      });
+      return;
+    }
     
     if (!user) {
       toast({
@@ -345,6 +607,16 @@ const EventCardGrid = ({
         
         {/* Badges */}
         <div className="absolute top-3 left-3 flex items-center gap-2">
+          {event.sourceLabel && (
+            <span className="px-2 py-0.5 bg-background/85 text-foreground text-[10px] font-semibold rounded-full backdrop-blur-sm border border-border">
+              {event.sourceLabel}
+            </span>
+          )}
+          {event.source === "hangout" && event.isJoinedByCurrentUser && (
+            <span className="px-2 py-0.5 bg-green-500/85 text-white text-[10px] font-semibold rounded-full">
+              Joined
+            </span>
+          )}
           {event.happeningNow && (
             <span className="px-2 py-0.5 bg-green-500 text-white text-[10px] font-bold rounded-full animate-pulse">
               NOW
@@ -357,22 +629,24 @@ const EventCardGrid = ({
           )}
           {event.isRecommended && (
             <span className="px-2 py-0.5 bg-primary/90 text-primary-foreground text-[10px] font-bold rounded-full backdrop-blur-sm">
-              ★ {event.recommendationScore}% MATCH
+              ★ {toScoreLabel(event.recommendationScore)}
             </span>
           )}
         </div>
         
         {/* Save Button */}
-        <button
-          onClick={handleSaveToggle}
-          className={`absolute top-3 right-3 p-2 rounded-full backdrop-blur-sm opacity-0 group-hover:opacity-100 transition-all ${
-            isSaved 
-              ? "bg-primary text-primary-foreground" 
-              : "bg-background/80 hover:bg-primary/20"
-          }`}
-        >
-          <Heart className={`w-4 h-4 ${isSaved ? "fill-current" : ""}`} />
-        </button>
+        {event.isSaveable !== false && (
+          <button
+            onClick={handleSaveToggle}
+            className={`absolute top-3 right-3 p-2 rounded-full backdrop-blur-sm opacity-0 group-hover:opacity-100 transition-all ${
+              isSaved 
+                ? "bg-primary text-primary-foreground" 
+                : "bg-background/80 hover:bg-primary/20"
+            }`}
+          >
+            <Heart className={`w-4 h-4 ${isSaved ? "fill-current" : ""}`} />
+          </button>
+        )}
 
         <div className="absolute bottom-3 left-3">
           <span className="genre-tag active">{event.genre}</span>
@@ -393,6 +667,29 @@ const EventCardGrid = ({
         {event.price && (
           <p className="text-primary font-semibold text-sm mt-2">{event.price}</p>
         )}
+
+        <div className="mt-3 flex items-center gap-2">
+          <button
+            type="button"
+            onClick={(reactEvent) => {
+              reactEvent.stopPropagation();
+              onClick(event);
+            }}
+            className="text-xs px-2.5 py-1.5 rounded-full border border-border text-muted-foreground hover:text-foreground hover:border-primary/30 transition-colors"
+          >
+            View details
+          </button>
+          {event.source !== "hangout" && (
+            <button
+              type="button"
+              onClick={(reactEvent) => onSuggest(event, reactEvent)}
+              className="text-xs px-2.5 py-1.5 rounded-full bg-primary/10 text-primary hover:bg-primary/15 transition-colors flex items-center gap-1"
+            >
+              <Users className="w-3 h-3" />
+              Suggest
+            </button>
+          )}
+        </div>
       </div>
     </motion.div>
   );

@@ -1,4 +1,4 @@
-import React, { useMemo, useRef } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { Navigation, ZoomIn, ZoomOut } from "lucide-react";
 import { GoogleMap, useLoadScript, Marker } from "@react-google-maps/api";
@@ -17,10 +17,15 @@ interface MapViewProps {
   hoveredEventId: string | null;
   onEventSelect: (event: Event) => void;
   onEventHover: (id: string | null) => void;
-  onUserLocationChange: (location: Coordinates) => void;
+  onUserLocationChange: (
+    location: Coordinates,
+    source?: "auto" | "manual"
+  ) => void;
 }
 
 const containerStyle = { width: "100%", height: "100%" };
+const NYC_CENTER = { lat: 40.7128, lng: -74.006 };
+const DEFAULT_ZOOM = 12;
 
 export default function MapView({
   events,
@@ -36,7 +41,8 @@ export default function MapView({
   });
 
   const mapRef = useRef<google.maps.Map | null>(null);
-
+  const [mapCenter, setMapCenter] = useState<Coordinates>(NYC_CENTER);
+  const [mapZoom, setMapZoom] = useState(DEFAULT_ZOOM);
   const validEvents = useMemo(() => {
     return events.filter(
       (event) =>
@@ -46,17 +52,6 @@ export default function MapView({
         !Number.isNaN(event.longitude)
     );
   }, [events]);
-
-  const center = useMemo(() => {
-    if (validEvents.length > 0) {
-      return {
-        lat: validEvents[0].latitude,
-        lng: validEvents[0].longitude,
-      };
-    }
-
-    return { lat: 40.7128, lng: -74.006 };
-  }, [validEvents]);
 
   const handleCurrentLocation = () => {
     if (!navigator.geolocation) {
@@ -71,7 +66,9 @@ export default function MapView({
           lng: position.coords.longitude,
         };
 
-        onUserLocationChange(location);
+        onUserLocationChange(location, "manual");
+        setMapCenter(location);
+        setMapZoom(15);
         mapRef.current?.panTo(location);
         mapRef.current?.setZoom(15);
       },
@@ -80,6 +77,63 @@ export default function MapView({
       }
     );
   };
+
+  useEffect(() => {
+    if (!mapRef.current) {
+      return;
+    }
+
+    const map = mapRef.current;
+    const refreshMap = () => {
+      google.maps.event.trigger(map, "resize");
+    };
+
+    if (validEvents.length === 0) {
+      if (userLocation) {
+        setMapCenter(userLocation);
+        setMapZoom(13);
+        map.panTo(userLocation);
+        map.setZoom(13);
+      } else {
+        setMapCenter(NYC_CENTER);
+        setMapZoom(DEFAULT_ZOOM);
+        map.panTo(NYC_CENTER);
+        map.setZoom(DEFAULT_ZOOM);
+      }
+      window.setTimeout(refreshMap, 50);
+      return;
+    }
+
+    const bounds = new google.maps.LatLngBounds();
+
+    validEvents.forEach((event) => {
+      bounds.extend({
+        lat: event.latitude,
+        lng: event.longitude,
+      });
+    });
+
+    if (userLocation) {
+      bounds.extend(userLocation);
+    }
+
+    const nextCenter = bounds.getCenter();
+    if (nextCenter) {
+      setMapCenter({
+        lat: nextCenter.lat(),
+        lng: nextCenter.lng(),
+      });
+    }
+
+    map.fitBounds(bounds);
+
+    if (validEvents.length === 1 && !userLocation) {
+      setMapZoom(13);
+      map.setZoom(13);
+    }
+
+    window.setTimeout(refreshMap, 50);
+  }, [validEvents, userLocation]);
 
   if (loadError) return <div className="p-4">Google Map failed to load.</div>;
   if (!isLoaded) return <div className="p-4">Loading map…</div>;
@@ -93,10 +147,21 @@ export default function MapView({
     >
       <GoogleMap
         mapContainerStyle={containerStyle}
-        center={center}
-        zoom={12}
+        center={mapCenter}
+        zoom={mapZoom}
         onLoad={(map) => {
           mapRef.current = map;
+          window.setTimeout(() => {
+            google.maps.event.trigger(map, "resize");
+            map.panTo(mapCenter);
+            map.setZoom(mapZoom);
+          }, 0);
+        }}
+        onZoomChanged={() => {
+          const nextZoom = mapRef.current?.getZoom();
+          if (typeof nextZoom === "number") {
+            setMapZoom(nextZoom);
+          }
         }}
         options={{
           mapTypeControl: false,

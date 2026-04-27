@@ -1,67 +1,287 @@
-import { motion, AnimatePresence } from "framer-motion";
-import { X } from "lucide-react";
-import React from "react";
+import React, { useEffect, useMemo, useState } from "react";
+import { Loader2, Trash2 } from "lucide-react";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../ui/dialog";
+import { Button } from "../ui/button";
+import { Input } from "../ui/input";
+import { Textarea } from "../ui/textarea";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogTitle,
+} from "../ui/alert-dialog";
+import { getFriends, type Friend } from "../../lib/friends";
+import { createGroup, type UserGroup, updateGroup } from "../../lib/groups";
+import { useToast } from "../../hooks/use-toast";
+
 interface CreateGroupModalProps {
   isOpen: boolean;
   onClose: () => void;
+  onSaved?: (group: UserGroup) => void;
+  onDelete?: (group: UserGroup) => Promise<void> | void;
+  initialGroup?: UserGroup | null;
+  defaultMemberIds?: string[];
 }
 
-const CreateGroupModal = ({ isOpen, onClose }: CreateGroupModalProps) => {
-  if (!isOpen) return null;
+const CreateGroupModal = ({
+  isOpen,
+  onClose,
+  onSaved,
+  onDelete,
+  initialGroup,
+  defaultMemberIds,
+}: CreateGroupModalProps) => {
+  const { toast } = useToast();
+  const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
+  const [friends, setFriends] = useState<Friend[]>([]);
+  const [selectedMemberIds, setSelectedMemberIds] = useState<string[]>([]);
+  const [loadingFriends, setLoadingFriends] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+
+  const isEditMode = Boolean(initialGroup);
+
+  useEffect(() => {
+    if (!isOpen) {
+      setName("");
+      setDescription("");
+      setSelectedMemberIds([]);
+      return;
+    }
+
+    setName(initialGroup?.name || "");
+    setDescription(initialGroup?.description || "");
+    if (initialGroup) {
+      setSelectedMemberIds(initialGroup.members.filter((member) => member.role !== "admin").map((member) => member.userId));
+    } else {
+      setSelectedMemberIds([...new Set(defaultMemberIds ?? [])]);
+    }
+  }, [defaultMemberIds, initialGroup, isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    let mounted = true;
+    setLoadingFriends(true);
+
+    getFriends()
+      .then((rows) => {
+        if (!mounted) return;
+        setFriends(rows);
+      })
+      .catch((error) => {
+        console.error("Failed to load friends for group editor", error);
+        if (mounted) setFriends([]);
+      })
+      .finally(() => {
+        if (mounted) setLoadingFriends(false);
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, [isOpen]);
+
+  const selectableFriends = useMemo(
+    () => friends.filter((friend) => !friend.isBlocked),
+    [friends]
+  );
+
+  const toggleMember = (memberId: string) => {
+    setSelectedMemberIds((prev) =>
+      prev.includes(memberId) ? prev.filter((id) => id !== memberId) : [...prev, memberId]
+    );
+  };
+
+  const handleSave = async () => {
+    const normalizedName = name.trim();
+    if (!normalizedName) {
+      toast({
+        title: "Group name required",
+        description: "Please name your group before saving.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const payload = {
+        name: normalizedName,
+        description,
+        memberIds: selectedMemberIds,
+      };
+
+      const group = initialGroup
+        ? await updateGroup({ groupId: initialGroup.id, ...payload })
+        : await createGroup(payload);
+
+      toast({
+        title: initialGroup ? "Group updated" : "Group created",
+        description: `${group.name} is ready to use.`,
+      });
+
+      onSaved?.(group);
+      onClose();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to save group.";
+      toast({
+        title: "Could not save group",
+        description: message,
+        variant: "destructive",
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!initialGroup || !onDelete) return;
+
+    setDeleting(true);
+    try {
+      await onDelete(initialGroup);
+      setShowDeleteConfirm(false);
+      onClose();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to delete group.";
+      toast({
+        title: "Could not delete group",
+        description: message,
+        variant: "destructive",
+      });
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   return (
-    <AnimatePresence>
-      {/* Backdrop */}
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        onClick={onClose}
-        className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50"
-      />
+    <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-w-xl max-h-[85vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>{isEditMode ? "Edit Group" : "Create Group"}</DialogTitle>
+          <DialogDescription>
+            Build reusable friend groups for hangouts, memories, and event suggestions.
+          </DialogDescription>
+        </DialogHeader>
 
-      {/* Modal Container - centered */}
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 pointer-events-none">
-        <motion.div
-          initial={{ opacity: 0, scale: 0.95, y: 20 }}
-          animate={{ opacity: 1, scale: 1, y: 0 }}
-          exit={{ opacity: 0, scale: 0.95, y: 20 }}
-          className="w-full max-w-md pointer-events-auto"
-        >
-          <div className="bg-card rounded-2xl border border-border p-6 shadow-elevated max-h-[85vh] overflow-y-auto">
-            <div className="flex items-center justify-between mb-6">
-              <h2 className="font-heading text-xl font-bold text-foreground">
-                Create Group
-              </h2>
-              <button onClick={onClose} className="p-2 hover:bg-muted rounded-lg transition-colors">
-                <X className="w-5 h-5 text-muted-foreground" />
-              </button>
-            </div>
+        <div className="space-y-4">
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-foreground">Group Name</label>
+            <Input
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              placeholder="Weekend Crew"
+              maxLength={80}
+            />
+          </div>
 
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-foreground mb-2">
-                  Group Name
-                </label>
-                <input type="text" placeholder="e.g., Weekend Crew" className="input-field w-full" />
-              </div>
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-foreground">Description</label>
+            <Textarea
+              value={description}
+              onChange={(event) => setDescription(event.target.value)}
+              placeholder="People I usually plan outings with"
+              rows={3}
+              maxLength={240}
+            />
+          </div>
 
-              <div>
-                <label className="block text-sm font-medium text-foreground mb-2">
-                  Description
-                </label>
-                <textarea
-                  placeholder="What's this group about?"
-                  className="input-field w-full h-24 resize-none"
-                />
-              </div>
-
-              <button className="btn-primary w-full">Create Group</button>
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-foreground">Members ({selectedMemberIds.length})</label>
+            <div className="rounded-lg border border-border max-h-64 overflow-y-auto divide-y divide-border/60">
+              {loadingFriends ? (
+                <div className="p-4 text-sm text-muted-foreground">Loading friends...</div>
+              ) : selectableFriends.length === 0 ? (
+                <div className="p-4 text-sm text-muted-foreground">No friends available yet.</div>
+              ) : (
+                selectableFriends.map((friend) => {
+                  const isSelected = selectedMemberIds.includes(friend.id);
+                  return (
+                    <button
+                      key={friend.id}
+                      type="button"
+                      onClick={() => toggleMember(friend.id)}
+                      className={`w-full px-3 py-2 text-left flex items-center justify-between hover:bg-muted/40 transition-colors ${
+                        isSelected ? "bg-primary/5" : ""
+                      }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-full bg-muted overflow-hidden flex items-center justify-center text-xs font-medium text-foreground">
+                          {friend.avatar_url ? (
+                            <img src={friend.avatar_url} alt={friend.name} className="w-full h-full object-cover" />
+                          ) : (
+                            friend.name.charAt(0)
+                          )}
+                        </div>
+                        <div>
+                          <p className="text-sm text-foreground">{friend.name}</p>
+                          <p className="text-xs text-muted-foreground">{friend.email}</p>
+                        </div>
+                      </div>
+                      <div className={`w-4 h-4 rounded border ${isSelected ? "border-primary bg-primary" : "border-border"}`} />
+                    </button>
+                  );
+                })
+              )}
             </div>
           </div>
-        </motion.div>
-      </div>
-    </AnimatePresence>
+        </div>
+
+        <DialogFooter className="sm:justify-between">
+          <div>
+            {isEditMode && onDelete ? (
+              <Button
+                variant="outline"
+                onClick={() => setShowDeleteConfirm(true)}
+                disabled={saving || deleting}
+                className="text-destructive hover:text-destructive"
+              >
+                <Trash2 className="w-4 h-4" />
+                Delete Group
+              </Button>
+            ) : null}
+          </div>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={onClose} disabled={saving || deleting}>
+              Cancel
+            </Button>
+            <Button onClick={handleSave} disabled={saving || deleting}>
+              {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+              {isEditMode ? "Save Changes" : "Create Group"}
+            </Button>
+          </div>
+        </DialogFooter>
+
+        <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
+          <AlertDialogContent className="max-w-md rounded-2xl">
+            <AlertDialogTitle className="text-destructive">Delete Group?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently remove <span className="font-semibold text-foreground">{initialGroup?.name}</span>.
+              You can recreate it later, but member selection will be lost.
+            </AlertDialogDescription>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={deleting}>Keep Group</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={(event) => {
+                  event.preventDefault();
+                  void handleDelete();
+                }}
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                disabled={deleting}
+              >
+                {deleting ? "Deleting..." : "Delete Group"}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      </DialogContent>
+    </Dialog>
   );
 };
 

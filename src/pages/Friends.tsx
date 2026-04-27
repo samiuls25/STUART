@@ -1,43 +1,159 @@
-import { useState } from "react";
-import React from "react";
-import { motion } from "framer-motion";
-import { Search, UserPlus, Check, X, Bell, Filter, UserCheck } from "lucide-react";
+import { useState, useEffect } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import { Search, UserPlus, Check, X, Bell, UserCheck } from "lucide-react";
 import Navbar from "../components/layout/Navbar";
+import AuthModal from "../components/auth/AuthModal";
 import FriendCard from "../components/friends/FriendCard";
 import FriendProfileModal from "../components/friends/FriendProfileModal";
-import { friends, friendRequests, Friend } from "../data/friends.ts";
+import { getFriends, getPendingRequests, acceptFriendRequest, rejectFriendRequest, removeFriend, sendFriendRequest } from "../lib/friends";
+import type { Friend } from "../lib/friends";
+import { useAuth } from "../lib/AuthContext";
+import { toast } from "../hooks/use-toast";
 import { Input } from "../components/ui/input.tsx";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogTitle,
+} from "../components/ui/alert-dialog";
 
 const Friends = () => {
+  const { user } = useAuth();
+  const [showAuth, setShowAuth] = useState(false);
+  const [friends, setFriends] = useState<Friend[]>([]);
+  const [pendingRequests, setPendingRequests] = useState<Friend[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showAddFriend, setShowAddFriend] = useState(false);
+  const [friendEmail, setFriendEmail] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedFriend, setSelectedFriend] = useState<Friend | null>(null);
   const [showProfileModal, setShowProfileModal] = useState(false);
-  const [filter, setFilter] = useState<"all" | "online" | "muted">("all");
+  const [filter, setFilter] = useState<"all" | "online">("all");
+  const [friendToRemove, setFriendToRemove] = useState<Friend | null>(null);
+  const [removingFriend, setRemovingFriend] = useState(false);
 
-  const filteredFriends = friends.filter((friend) => {
-    const matchesSearch = friend.name.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesFilter =
-      filter === "all" ||
-      (filter === "online" && friend.status === "online") ||
-      (filter === "muted" && friend.isMuted);
-    return matchesSearch && matchesFilter && !friend.isBlocked;
-  });
+  const refreshFriends = () => {
+    return Promise.all([getFriends(), getPendingRequests()]).then(([friendsData, requestsData]) => {
+      setFriends(friendsData);
+      setPendingRequests(requestsData);
+    });
+  };
 
-  const pendingRequests = friendRequests.filter((r) => r.status === "pending");
+  useEffect(() => {
+    if (!user) {
+      setLoading(false);
+      return;
+    }
+
+    refreshFriends()
+      .finally(() => setLoading(false));
+  }, [user]);
 
   const handleViewProfile = (friend: Friend) => {
     setSelectedFriend(friend);
     setShowProfileModal(true);
   };
 
-  const handleMute = (friend: Friend) => {
-    console.log("Toggle mute for:", friend.name);
+  const handleRequestRemoveFriend = (friend: Friend) => {
+    setFriendToRemove(friend);
   };
 
-  const handleBlock = (friend: Friend) => {
-    console.log("Block:", friend.name);
+  const handleConfirmRemoveFriend = async () => {
+    if (!friendToRemove) return;
+
+    setRemovingFriend(true);
+    const success = await removeFriend(friendToRemove.id);
+
+    if (success) {
+      if (selectedFriend?.id === friendToRemove.id) {
+        setShowProfileModal(false);
+        setSelectedFriend(null);
+      }
+      await refreshFriends();
+      toast({ title: `${friendToRemove.name} was removed from your friends.` });
+      setFriendToRemove(null);
+    } else {
+      toast({ title: "Failed to remove friend", variant: "destructive" });
+    }
+
+    setRemovingFriend(false);
   };
+
+  const handleAcceptRequest = async (friendId: string) => {
+    const success = await acceptFriendRequest(friendId);
+    if (success) {
+      await refreshFriends();
+      toast({ title: "Friend request accepted!" });
+    } else {
+      toast({ title: "Failed to accept request", variant: "destructive" });
+    }
+  };
+
+  const handleRejectRequest = async (friendId: string) => {
+    const success = await rejectFriendRequest(friendId);
+    if (success) {
+      setPendingRequests(pendingRequests.filter((r) => r.id !== friendId));
+      toast({ title: "Friend request rejected" });
+    } else {
+      toast({ title: "Failed to reject request", variant: "destructive" });
+    }
+  };
+
+  const handleSendRequest = async () => {
+    if (!friendEmail.trim()) return;
+    
+    const success = await sendFriendRequest(friendEmail);
+    if (success) {
+      setFriendEmail("");
+      setShowAddFriend(false);
+      toast({ title: "Friend request sent!" });
+    } else {
+      toast({ 
+        title: "Couldn't send request", 
+        description: "Make sure the email is correct and the user has signed up",
+        variant: "destructive" 
+      });
+    }
+  };
+
+  const filteredFriends = friends.filter((friend) => {
+    const matchesSearch = friend.name.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesFilter =
+      filter === "all" ||
+      (filter === "online" && friend.status === "online");
+    return matchesSearch && matchesFilter;
+  });
+
+  const pendingRequestsData = pendingRequests;
+
+  if (!user) {
+    return (
+      <div className="min-h-screen bg-background">
+        <Navbar />
+
+        <main className="pt-[72px]">
+          <div className="max-w-4xl mx-auto px-6 py-16 text-center">
+            <div className="w-20 h-20 rounded-2xl bg-primary/10 flex items-center justify-center mx-auto mb-6">
+              <UserCheck className="w-10 h-10 text-primary" />
+            </div>
+            <h1 className="font-heading text-3xl font-bold text-foreground mb-3">Friends</h1>
+            <p className="text-muted-foreground mb-8 max-w-xl mx-auto">
+              Sign in to manage friends, accept requests, and grow your circle.
+            </p>
+            <button onClick={() => setShowAuth(true)} className="btn-primary px-6 py-3">
+              Sign In To Continue
+            </button>
+          </div>
+        </main>
+
+        <AuthModal isOpen={showAuth} onClose={() => setShowAuth(false)} />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background">
@@ -63,14 +179,14 @@ const Friends = () => {
             <TabsList className="grid w-full grid-cols-2">
               <TabsTrigger value="friends" className="flex items-center gap-2">
                 <UserCheck className="w-4 h-4" />
-                Friends ({friends.filter((f) => !f.isBlocked).length})
+                Friends ({friends.length})
               </TabsTrigger>
               <TabsTrigger value="requests" className="flex items-center gap-2 relative">
                 <Bell className="w-4 h-4" />
                 Requests
-                {pendingRequests.length > 0 && (
+                {pendingRequestsData.length > 0 && (
                   <span className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-primary text-primary-foreground text-xs flex items-center justify-center">
-                    {pendingRequests.length}
+                    {pendingRequestsData.length}
                   </span>
                 )}
               </TabsTrigger>
@@ -91,7 +207,7 @@ const Friends = () => {
                 </div>
 
                 <div className="flex gap-2">
-                  {(["all", "online", "muted"] as const).map((f) => (
+                  {(["all", "online"] as const).map((f) => (
                     <button
                       key={f}
                       onClick={() => setFilter(f)}
@@ -120,8 +236,7 @@ const Friends = () => {
                       <FriendCard
                         friend={friend}
                         onViewProfile={handleViewProfile}
-                        onMute={handleMute}
-                        onBlock={handleBlock}
+                        onRemove={handleRequestRemoveFriend}
                       />
                     </motion.div>
                   ))
@@ -136,6 +251,13 @@ const Friends = () => {
               <motion.button
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
+                onClick={() => {
+                  if (user) {
+                    setShowAddFriend(true);
+                  } else {
+                    setShowAuth(true);
+                  }
+                }}
                 className="w-full flex items-center justify-center gap-2 p-4 rounded-2xl border-2 border-dashed border-border hover:border-primary/50 text-muted-foreground hover:text-primary transition-colors"
               >
                 <UserPlus className="w-5 h-5" />
@@ -145,8 +267,8 @@ const Friends = () => {
 
             {/* Requests Tab */}
             <TabsContent value="requests" className="space-y-4">
-              {pendingRequests.length > 0 ? (
-                pendingRequests.map((request, index) => (
+              {pendingRequestsData.length > 0 ? (
+                pendingRequestsData.map((request, index) => (
                   <motion.div
                     key={request.id}
                     initial={{ opacity: 0, y: 10 }}
@@ -156,22 +278,28 @@ const Friends = () => {
                   >
                     <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-primary/20 to-accent/20 flex items-center justify-center">
                       <span className="font-heading text-lg font-bold text-primary">
-                        {request.from.name.charAt(0)}
+                        {request.name?.charAt(0) ?? "?"}
                       </span>
                     </div>
 
                     <div className="flex-1">
-                      <p className="font-medium text-foreground">{request.from.name}</p>
+                      <p className="font-medium text-foreground">{request.name}</p>
                       <p className="text-sm text-muted-foreground">
-                        {request.from.mutualFriends} mutual friends • Sent {request.sentAt}
+                        {request.email}
                       </p>
                     </div>
 
                     <div className="flex items-center gap-2">
-                      <button className="p-2.5 rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 transition-colors">
+                      <button
+                        className="p-2.5 rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+                        onClick={() => handleAcceptRequest(request.id)}
+                      >
                         <Check className="w-5 h-5" />
                       </button>
-                      <button className="p-2.5 rounded-xl bg-muted text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors">
+                      <button
+                        className="p-2.5 rounded-xl bg-muted text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors"
+                        onClick={() => handleRejectRequest(request.id)}
+                      >
                         <X className="w-5 h-5" />
                       </button>
                     </div>
@@ -192,9 +320,83 @@ const Friends = () => {
         friend={selectedFriend}
         isOpen={showProfileModal}
         onClose={() => setShowProfileModal(false)}
-        onMute={handleMute}
-        onBlock={handleBlock}
+        onRemove={handleRequestRemoveFriend}
       />
+
+      <AlertDialog
+        open={Boolean(friendToRemove)}
+        onOpenChange={(open) => {
+          if (!open && !removingFriend) {
+            setFriendToRemove(null);
+          }
+        }}
+      >
+        <AlertDialogContent className="max-w-md rounded-2xl">
+          <AlertDialogTitle className="text-destructive">Remove Friend?</AlertDialogTitle>
+          <AlertDialogDescription>
+            Are you sure you want to remove this friend?
+          </AlertDialogDescription>
+          <div className="rounded-xl border border-destructive/30 bg-destructive/10 p-3 text-sm text-foreground">
+            <strong>{friendToRemove?.name || "This friend"}</strong> will be removed from your friends list.
+          </div>
+          <AlertDialogFooter className="mt-2">
+            <AlertDialogCancel disabled={removingFriend}>Keep Friend</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                void handleConfirmRemoveFriend();
+              }}
+              disabled={removingFriend}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {removingFriend ? "Removing..." : "Remove Friend"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Add Friend Modal */}
+      <AnimatePresence>
+        {showAddFriend && user && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowAddFriend(false)}
+              className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50"
+            />
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 pointer-events-none">
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+                className="w-full max-w-md bg-card rounded-2xl shadow-2xl pointer-events-auto p-6"
+              >
+                <h2 className="text-xl font-heading font-bold text-foreground mb-4">
+                  Add Friend
+                </h2>
+                <Input
+                  type="email"
+                  placeholder="Enter friend's email"
+                  value={friendEmail}
+                  onChange={(e) => setFriendEmail(e.target.value)}
+                  className="mb-4"
+                  disabled={!user}
+                />
+                <div className="flex gap-2">
+                  <button onClick={() => setShowAddFriend(false)} className="btn-secondary flex-1">
+                    Cancel
+                  </button>
+                  <button onClick={handleSendRequest} className="btn-primary flex-1" disabled={!user}>
+                    Send Request
+                  </button>
+                </div>
+              </motion.div>
+            </div>
+          </>
+        )}
+      </AnimatePresence>
+      <AuthModal isOpen={showAuth} onClose={() => setShowAuth(false)} />
     </div>
   );
 };
