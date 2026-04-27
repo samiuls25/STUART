@@ -370,7 +370,7 @@ const MapPage = () => {
 
           <div className="hidden lg:flex flex-1">
             <MapView
-              events={filteredEvents}
+              events={visibleEvents}
               userLocation={userLocation}
               selectedEventId={selectedEventId}
               hoveredEventId={hoveredEventId}
