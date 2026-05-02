@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useMemo } from "react";
 import { motion } from "framer-motion";
 import { ChevronDown, Filter, RefreshCw, MapPin, Clock, DollarSign } from "lucide-react";
 import { segments, genres, priceLevels, timeFilters, distanceOptions } from "../../data/events";
@@ -17,7 +17,67 @@ interface FilterBarProps {
   onSearchArea: () => void;
   eventCount: number;
   showAdvancedFilters?: boolean;
+  /**
+   * Optional live counts for each segment/genre derived from currently loaded
+   * events. When provided, the dropdowns include data-driven entries that
+   * aren't in the canonical hardcoded list, show counts inline, and disable
+   * options that would yield zero results.
+   */
+  segmentCounts?: Record<string, number>;
+  genreCounts?: Record<string, number>;
 }
+
+interface DropdownOption {
+  value: string;
+  label: string;
+  disabled: boolean;
+}
+
+const buildDynamicOptions = (
+  canonical: string[],
+  counts: Record<string, number> | undefined,
+  formatLabel: (value: string, count: number | undefined) => string,
+): DropdownOption[] => {
+  if (!counts) {
+    return canonical.map((value) => ({
+      value,
+      label: formatLabel(value, undefined),
+      disabled: false,
+    }));
+  }
+
+  // Union of canonical (preserves intentional ordering for known values) and
+  // any data-only values, sorted alphabetically among the data-only set.
+  const seen = new Set<string>();
+  const ordered: string[] = [];
+
+  canonical.forEach((value) => {
+    if (!seen.has(value)) {
+      ordered.push(value);
+      seen.add(value);
+    }
+  });
+
+  Object.keys(counts)
+    .filter((value) => value && value !== "All")
+    .sort((a, b) => a.localeCompare(b))
+    .forEach((value) => {
+      if (!seen.has(value)) {
+        ordered.push(value);
+        seen.add(value);
+      }
+    });
+
+  return ordered.map((value) => {
+    const count = value === "All" ? undefined : counts[value] ?? 0;
+    return {
+      value,
+      label: formatLabel(value, count),
+      // "All" never disables; everything else disables when count would be 0.
+      disabled: value !== "All" && (count ?? 0) === 0,
+    };
+  });
+};
 
 const FilterBar = ({
   selectedSegment,
@@ -33,7 +93,26 @@ const FilterBar = ({
   onSearchArea,
   eventCount,
   showAdvancedFilters = true,
+  segmentCounts,
+  genreCounts,
 }: FilterBarProps) => {
+  const segmentOptions = useMemo(
+    () =>
+      buildDynamicOptions(segments, segmentCounts, (value, count) => {
+        const display = value === "All" ? "All Categories" : value;
+        return count != null ? `${display} (${count})` : display;
+      }),
+    [segmentCounts],
+  );
+
+  const genreOptions = useMemo(
+    () =>
+      buildDynamicOptions(genres, genreCounts, (value, count) => {
+        const display = value === "All" ? "All Genres" : value;
+        return count != null ? `${display} (${count})` : display;
+      }),
+    [genreCounts],
+  );
   return (
     <motion.div
       initial={{ opacity: 0, y: -10 }}
@@ -48,9 +127,9 @@ const FilterBar = ({
           onChange={(e) => onSegmentChange(e.target.value)}
           className="appearance-none bg-secondary text-secondary-foreground px-4 py-2 pr-10 rounded-lg text-sm font-medium cursor-pointer hover:bg-secondary/80 transition-colors border border-border focus:outline-none focus:ring-2 focus:ring-primary/50"
         >
-          {segments.map((segment) => (
-            <option key={segment} value={segment}>
-              {segment === "All" ? "All Categories" : segment}
+          {segmentOptions.map((option) => (
+            <option key={option.value} value={option.value} disabled={option.disabled}>
+              {option.label}
             </option>
           ))}
         </select>
@@ -64,9 +143,9 @@ const FilterBar = ({
           onChange={(e) => onGenreChange(e.target.value)}
           className="appearance-none bg-secondary text-secondary-foreground px-4 py-2 pr-10 rounded-lg text-sm font-medium cursor-pointer hover:bg-secondary/80 transition-colors border border-border focus:outline-none focus:ring-2 focus:ring-primary/50"
         >
-          {genres.map((genre) => (
-            <option key={genre} value={genre}>
-              {genre === "All" ? "All Genres" : genre}
+          {genreOptions.map((option) => (
+            <option key={option.value} value={option.value} disabled={option.disabled}>
+              {option.label}
             </option>
           ))}
         </select>

@@ -9,6 +9,8 @@ import EventDetailModal from "../components/events/EventDetailModel.tsx";
 import EmptyState from "../components/shared/EmptyState.tsx"; 
 import MoodSelector from "../components/profile/MoodSelector.tsx";
 import WeatherIndicator from "../components/shared/WeatherIndicator.tsx";
+import LocationBanner from "../components/shared/LocationBanner.tsx";
+import { useUserLocation } from "../hooks/useUserLocation";
 import TrendingSection from "../components/events/TrendingSection.tsx";
 import RecommendedSection from "../components/events/RecommendedSection.tsx";
 // import PlanBuilderCard from "../components/shared/PlanBuilderCard.tsx";
@@ -18,7 +20,13 @@ import { toast } from "../hooks/use-toast.ts";
 import { saveEvent, unsaveEvent, getSavedEventIds } from "../lib/SavedEvents";
 import { trackEventView } from "../lib/eventIntelligence";
 import { useAuth } from "../lib/AuthContext";
-import { parseEventDate, isThisWeekend, isThisWeek, distanceMiles } from "../lib/eventFilters";
+import {
+  parseEventDate,
+  isThisWeekend,
+  isThisWeek,
+  distanceMiles,
+  computeFilterCounts,
+} from "../lib/eventFilters";
 
 const searchPlaceholders = [
   "free concerts this weekend",
@@ -45,7 +53,11 @@ const Explore = () => {
 
   const [events, setEvents] = useState<Event[]>([]);
   const [loading, setLoading] = useState(true);
-  const [userLocation, setUserLocation] = useState<{ lat: number; lon: number } | null>(null);
+  const {
+    location: userLocation,
+    usingFallback: locationUsingFallback,
+    requestLocation,
+  } = useUserLocation();
   const [searchResults, setSearchResults] = useState<Event[] | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [pageInput, setPageInput] = useState("1");
@@ -86,13 +98,18 @@ const Explore = () => {
     selectedMood,
   ]);
 
-  useEffect(() => {
-    if (!navigator.geolocation) return;
-    navigator.geolocation.getCurrentPosition(
-      (pos) => setUserLocation({ lat: pos.coords.latitude, lon: pos.coords.longitude }),
-      () => setUserLocation({ lat: 40.7128, lon: -74.006 }) // NYC default
-    );
-  }, []);
+  const handleUseMyLocation = () => {
+    requestLocation();
+    setTimeout(() => {
+      if (locationUsingFallback) {
+        toast({
+          title: "Location still blocked",
+          description:
+            "Click the lock icon in the address bar to enable Location for this site, then try again.",
+        });
+      }
+    }, 1000);
+  };
 
   const fuse = useMemo(() => {
     if (!events.length) return null;
@@ -127,8 +144,31 @@ const Explore = () => {
     setSearchResults(results);
   };
 
+  const filterBaseEvents = useMemo(() => searchResults ?? events, [searchResults, events]);
+
+  const { segmentCounts, genreCounts } = useMemo(
+    () =>
+      computeFilterCounts(filterBaseEvents, {
+        segment: selectedSegment,
+        genre: selectedGenre,
+        price: selectedPrice,
+        time: selectedTime,
+        distance: selectedDistance,
+        userLocation,
+      }),
+    [
+      filterBaseEvents,
+      selectedSegment,
+      selectedGenre,
+      selectedPrice,
+      selectedTime,
+      selectedDistance,
+      userLocation,
+    ],
+  );
+
   const filteredEvents = useMemo(() => {
-    const baseEvents = searchResults ?? events;
+    const baseEvents = filterBaseEvents;
 
     return baseEvents.filter((event) => {
       const matchesSegment =
@@ -388,6 +428,14 @@ const Explore = () => {
 
           {/* Filters */}
           <div id="filters-anchor">
+            {locationUsingFallback && (
+              <div className="mb-3">
+                <LocationBanner
+                  usingFallback={locationUsingFallback}
+                  onUseRealLocation={handleUseMyLocation}
+                />
+              </div>
+            )}
             <FilterBar
               selectedSegment={selectedSegment}
               selectedGenre={selectedGenre}
@@ -402,6 +450,8 @@ const Explore = () => {
               onSearchArea={handleSearchArea}
               eventCount={filteredEvents.length}
               showAdvancedFilters={true}
+              segmentCounts={segmentCounts}
+              genreCounts={genreCounts}
             />
           </div>
 

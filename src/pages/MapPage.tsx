@@ -7,6 +7,7 @@ import EventCard from "../components/events/EventCard";
 import MapView from "../components/map/MapView";
 import EventDetailModal from "../components/events/EventDetailModel";
 import EmptyState from "../components/shared/EmptyState";
+import LocationBanner from "../components/shared/LocationBanner";
 import { fetchEvents, type Event } from "../data/events";
 import { useAuth } from "../lib/AuthContext";
 import {
@@ -14,7 +15,10 @@ import {
   isThisWeekend,
   isThisWeek,
   distanceMiles,
+  computeFilterCounts,
 } from "../lib/eventFilters";
+import { useUserLocation } from "../hooks/useUserLocation";
+import { toast } from "../hooks/use-toast";
 
 const MapPage = () => {
   const { user, loading: authLoading } = useAuth();
@@ -23,7 +27,11 @@ const MapPage = () => {
   const [selectedPrice, setSelectedPrice] = useState("All");
   const [selectedTime, setSelectedTime] = useState("All");
   const [selectedDistance, setSelectedDistance] = useState(5);
-  const [userLocation, setUserLocation] = useState<{ lat: number; lon: number } | null>(null);
+  const {
+    location: userLocation,
+    usingFallback: locationUsingFallback,
+    requestLocation,
+  } = useUserLocation();
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
   const [hoveredEventId, setHoveredEventId] = useState<string | null>(null);
   const [detailEvent, setDetailEvent] = useState<Event | null>(null);
@@ -60,16 +68,42 @@ const MapPage = () => {
     };
   }, [authLoading, user?.id]);
 
-  // Mirror Explore's geolocation flow: prompt the browser, fall back to NYC
-  // center if denied/unavailable so the distance filter still produces sensible
-  // results. The Recenter button on the map handles re-prompting.
-  useEffect(() => {
-    if (!navigator.geolocation) return;
-    navigator.geolocation.getCurrentPosition(
-      (pos) => setUserLocation({ lat: pos.coords.latitude, lon: pos.coords.longitude }),
-      () => setUserLocation({ lat: 40.7128, lon: -74.006 }),
-    );
-  }, []);
+  const handleUseMyLocation = () => {
+    requestLocation();
+    // If the browser has hard-blocked the prompt (3+ dismissals), the call
+    // will fail silently and stay on the NYC fallback. Surface a hint so the
+    // user knows to fix it via the address-bar lock icon.
+    setTimeout(() => {
+      if (locationUsingFallback) {
+        toast({
+          title: "Location still blocked",
+          description:
+            "Click the lock icon in the address bar to enable Location for this site, then try again.",
+        });
+      }
+    }, 1000);
+  };
+
+  const { segmentCounts, genreCounts } = useMemo(
+    () =>
+      computeFilterCounts(events, {
+        segment: selectedSegment,
+        genre: selectedGenre,
+        price: selectedPrice,
+        time: selectedTime,
+        distance: selectedDistance,
+        userLocation,
+      }),
+    [
+      events,
+      selectedSegment,
+      selectedGenre,
+      selectedPrice,
+      selectedTime,
+      selectedDistance,
+      userLocation,
+    ],
+  );
 
   const filteredEvents = useMemo(() => {
     return events.filter((event) => {
@@ -165,6 +199,14 @@ const MapPage = () => {
             transition={{ duration: 0.5 }}
             className="w-full md:w-[360px] lg:w-[440px] xl:w-[480px] flex-shrink-0 flex flex-col border-r border-border bg-card/50"
           >
+            {locationUsingFallback && (
+              <div className="px-4 pt-3">
+                <LocationBanner
+                  usingFallback={locationUsingFallback}
+                  onUseRealLocation={handleUseMyLocation}
+                />
+              </div>
+            )}
             <FilterBar
               selectedSegment={selectedSegment}
               selectedGenre={selectedGenre}
@@ -178,6 +220,8 @@ const MapPage = () => {
               onDistanceChange={setSelectedDistance}
               onSearchArea={handleSearchArea}
               eventCount={filteredEvents.length}
+              segmentCounts={segmentCounts}
+              genreCounts={genreCounts}
             />
 
             <div className="flex-1 overflow-y-auto scrollbar-thin p-4 space-y-3">
