@@ -200,14 +200,29 @@ const MapPage = () => {
     <div className="min-h-screen bg-background">
       <Navbar />
 
-      <main className="pt-[72px] h-screen flex flex-col">
-        <div className="flex-1 flex overflow-hidden">
+      <main className="pt-[72px] flex flex-col h-[calc(100dvh-72px)] min-h-0 overflow-hidden md:h-screen">
+        <div className="flex flex-1 flex-col md:flex-row min-h-0 overflow-hidden">
+          {/* Map — visible on mobile above the list; desktop fills remaining width */}
+          <div className="order-1 flex h-[38vh] min-h-[240px] w-full shrink-0 flex-col border-b border-border md:order-2 md:h-auto md:min-h-0 md:flex-1 md:border-b-0 md:border-l md:border-border">
+            <MapView
+              events={filteredEvents}
+              selectedEventId={selectedEventId}
+              hoveredEventId={hoveredEventId}
+              onEventSelect={handleEventClick}
+              onEventHover={handleEventHover}
+              onBackgroundClick={handleClearSelection}
+              userLocation={userLocation}
+              showUserLocationPin={Boolean(userLocation && !locationUsingFallback)}
+              distanceLimitMiles={selectedDistance}
+            />
+          </div>
+
           {/* Left: Event List */}
           <motion.div
             initial={{ opacity: 0, x: -20 }}
             animate={{ opacity: 1, x: 0 }}
             transition={{ duration: 0.5 }}
-            className="w-full md:w-[360px] lg:w-[440px] xl:w-[480px] flex-shrink-0 flex flex-col border-r border-border bg-card/50"
+            className="order-2 flex min-h-0 flex-1 flex-col bg-card/50 md:order-1 md:h-full md:w-[360px] md:flex-none lg:w-[440px] xl:w-[480px] shrink-0 border-border md:border-r"
           >
             {locationUsingFallback && (
               <div className="px-4 pt-3">
@@ -253,21 +268,6 @@ const MapPage = () => {
               )}
             </div>
           </motion.div>
-
-          {/* Right: Map */}
-          <div className="hidden md:flex flex-1 min-w-0">
-            <MapView
-              events={filteredEvents}
-              selectedEventId={selectedEventId}
-              hoveredEventId={hoveredEventId}
-              onEventSelect={handleEventClick}
-              onEventHover={handleEventHover}
-              onBackgroundClick={handleClearSelection}
-              userLocation={userLocation}
-              showUserLocationPin={Boolean(userLocation && !locationUsingFallback)}
-              distanceLimitMiles={selectedDistance}
-            />
-          </div>
         </div>
       </main>
 

@@ -575,14 +575,14 @@ const Hangouts = () => {
       <Navbar />
 
       <main className="pt-[72px]">
-        <div className="max-w-4xl mx-auto px-6 py-12">
+        <div className="max-w-4xl mx-auto px-4 sm:px-6 py-12">
           {/* Header */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            className="flex items-center justify-between mb-6"
+            className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between mb-6 min-w-0"
           >
-            <div>
+            <div className="min-w-0 flex-1">
               <h1 className="font-heading text-3xl font-bold text-foreground mb-2">
                 Hangouts
               </h1>
@@ -591,10 +591,11 @@ const Hangouts = () => {
               </p>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex flex-col gap-2 w-full shrink-0 md:flex-row md:flex-wrap md:justify-end md:items-center md:w-auto md:max-w-none">
               <button
+                type="button"
                 onClick={() => setShowDateFilter(!showDateFilter)}
-                className={`p-3 rounded-xl border transition-all ${
+                className={`p-3 rounded-xl border transition-all shrink-0 self-start md:self-auto ${
                   hasActiveFilter
                     ? "border-primary bg-primary/5 text-primary"
                     : "border-border text-muted-foreground hover:text-foreground hover:border-primary/30"
@@ -606,18 +607,18 @@ const Hangouts = () => {
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
                 onClick={() => setShowCreateGroupModal(true)}
-                className="btn-secondary px-5 py-3 flex items-center gap-2"
+                className="btn-secondary px-4 py-2.5 md:px-5 md:py-3 flex items-center justify-center gap-2 w-full md:w-auto"
               >
-                <Users className="w-5 h-5" />
+                <Users className="w-5 h-5 shrink-0" />
                 <span>New Group</span>
               </motion.button>
               <motion.button
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
                 onClick={() => setShowCreateModal(true)}
-                className="btn-primary px-5 py-3 flex items-center gap-2"
+                className="btn-primary px-4 py-2.5 md:px-5 md:py-3 flex items-center justify-center gap-2 w-full md:w-auto"
               >
-                <Plus className="w-5 h-5" />
+                <Plus className="w-5 h-5 shrink-0" />
                 <span>New Hangout</span>
               </motion.button>
             </div>

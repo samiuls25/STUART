@@ -284,9 +284,9 @@ const Profile = () => {
             animate={{ opacity: 1, y: 0 }}
             className="bg-card rounded-2xl border border-border p-6 shadow-elevated"
           >
-            <div className="flex items-start gap-6">
+            <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:gap-6">
               {/* Avatar */}
-              <div className="relative flex-shrink-0">
+              <div className="relative flex-shrink-0 mx-auto sm:mx-0">
                 <div className="w-24 h-24 rounded-2xl bg-gradient-to-br from-primary/20 to-accent/20 flex items-center justify-center overflow-hidden">
                   {avatarUrl ? (
                     <img src={avatarUrl} alt={displayName} className="w-full h-full object-cover" />
@@ -300,17 +300,18 @@ const Profile = () => {
               </div>
 
               {/* Info */}
-              <div className="flex-1 min-w-0">
-                <div className="flex items-start justify-between gap-4 mb-3">
-                  <div>
+              <div className="flex-1 min-w-0 w-full">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4 mb-3">
+                  <div className="min-w-0 text-center sm:text-left">
                     <h1 className="font-heading text-2xl font-bold text-foreground mb-1">{displayName}</h1>
-                    <p className="text-sm text-muted-foreground">{user.email}</p>
+                    <p className="text-sm text-muted-foreground truncate">{user.email}</p>
                   </div>
                   <button
+                    type="button"
                     onClick={() => setEditing(true)}
-                    className="btn-secondary px-4 py-2 flex items-center gap-2"
+                    className="btn-secondary px-4 py-2 inline-flex items-center justify-center gap-2 shrink-0 w-full sm:w-auto whitespace-nowrap"
                   >
-                    <User className="w-4 h-4" />
+                    <User className="w-4 h-4 shrink-0" />
                     Edit Profile
                   </button>
                 </div>
@@ -340,7 +341,7 @@ const Profile = () => {
           </motion.div>
 
           {/* Tabs */}
-          <div className="flex gap-2 mb-6">
+          <div className="flex flex-wrap gap-2 mb-6">
             {[
               { id: "overview" as TabType, label: "Overview", icon: User },
               { id: "badges" as TabType, label: "Badges", icon: Trophy },
@@ -553,7 +554,7 @@ const Profile = () => {
                     <div className="space-y-8">
                       {memoryTimelineGroups.map((group, groupIndex) => (
                         <section key={group.label} className="space-y-3">
-                          <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+                          <h3 className="inline-flex rounded-lg border border-border bg-muted px-3 py-1.5 text-sm font-semibold uppercase tracking-wide text-foreground">
                             {group.label}
                           </h3>
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
