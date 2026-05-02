@@ -26,9 +26,10 @@ This section reflects the current codebase behavior.
   - Genre
   - Price
   - Time windows (Now, Tonight, This Weekend, This Week)
-  - Distance (`Any distance` by default; optional caps from 1 mi through 100 mi, with geolocation fallback to NYC). When a cap is active on the Map page, a faint radius ring and “you are here” dot appear for real (non-fallback) locations.
+  - Distance (`Any distance` by default; optional caps from 1 mi through 100 mi, with geolocation fallback to NYC). When a cap is active on the Map page, a faint radius ring and “you are here” dot appear for real (non-fallback) locations. Mile distances shown on cards and in the detail modal are truncated for display (e.g. one decimal).
 - Segment and genre dropdowns are derived live from the loaded events with per-option counts; options that would yield zero matches are disabled, and any data-only values (e.g. "Rock", "Religious") are surfaced even when they're not in the canonical list.
-- Mood-driven filtering through mood shortcuts.
+- **What’s your vibe today** chips filter by **segment/genre** buckets defined in `matchesEventMood()` (`src/lib/eventFilters.ts`) so moods stay aligned with synced Ticketmaster data (not fragile tag keywords).
+- **Below `md`**, the filter bar is **collapsed by default** (“tap to filter”) so mobile users keep vertical space for results; expanding opens compact dropdowns.
 - Weather-aware UI card (Open-Meteo) with recommendation text.
 - Trending strip with ranked/fallback trending logic.
 - Personalized recommendations section with reasons.
@@ -62,6 +63,7 @@ This section reflects the current codebase behavior.
 ### Hangouts
 
 - Auth-gated hangout workspace.
+- **Narrow screens:** header actions (date filter, New Group, New Hangout) stack full-width so buttons are not clipped horizontally.
 - Create hangout wizard (3-step):
   - Activity details
   - Time and location
@@ -137,7 +139,7 @@ Note: legacy `/groups` and `/groups/:id` routes now redirect to `/hangouts`.
 
 ### Profile
 
-- Profile header with avatar, bio, counts.
+- Profile header with avatar, bio, counts (responsive layout so **Edit Profile** stays a normal button on small screens).
 - Edit profile modal (name, bio, avatar upload).
 - Tabbed profile experience:
   - Overview
@@ -149,8 +151,9 @@ Note: legacy `/groups` and `/groups/:id` routes now redirect to `/hangouts`.
   - unlocked vs locked states
   - level and progress rendering
 - Memories:
-  - timeline mode grouped by month/year
+  - timeline mode grouped by month/year (section labels use themed muted backgrounds for contrast in dark mode)
   - gallery mode masonry layout
+  - memory cards: date badge on the hero image uses **dark text on a light pill** so it stays readable regardless of theme tokens
   - memory usage monitoring warnings
 - Quick links to Saved, Friends, Hangouts.
 - Sign out action.
@@ -178,7 +181,7 @@ Note: legacy `/groups` and `/groups/:id` routes now redirect to `/hangouts`.
 ### Notifications
 
 - Notification feed for current user.
-- Unread badge and count in navbar.
+- Unread badge and count in navbar (desktop bar; bell remains visible on mobile).
 - Realtime updates via Supabase channels.
 - Notification actions:
   - mark read
@@ -190,14 +193,19 @@ Note: legacy `/groups` and `/groups/:id` routes now redirect to `/hangouts`.
 
 ### Map
 
-- Split-screen map experience:
-  - left list with cards
-  - right OpenStreetMap surface rendered via Leaflet (no API key required)
-- Marker rendering from event coordinates with marker clustering (`react-leaflet-cluster`); densely packed pins collapse into a single themed bubble that splits on zoom-in. Filters still work transparently — the cluster group is fully reactive to its child markers.
-- Marker hover/selection with tooltip previews.
-- Full filter parity with Explore (segment, genre, price, time, distance) in map context.
+- **Desktop (`md+`):** split view - scrollable **event list on the left**, **OpenStreetMap** on the right via Leaflet (no API key required).
+- **Mobile:** stacked layout - **map on top** (fixed viewport fraction with a minimum height), **list + filters below** so both surfaces remain usable.
+- Marker clustering (`react-leaflet-cluster`): dense pins merge into a themed bubble and **spiderfy** on zoom; the cluster/list hover state clears on pan/zoom and on spiderfy/unspiderfy so tooltips don’t stick incorrectly.
+- Marker hover/selection with tooltip previews (only while hovered/active).
+- Same filters as Explore (segment, genre, price, time, distance); **below `md`**, filters use the same **collapsed-by-default** bar as Explore.
 - Recenter button uses browser geolocation when available (falls back to NYC center).
 - Event detail modal integration from map/list clicks.
+
+### Navigation and theme
+
+- **Desktop:** primary routes (Explore, Map, Hangouts, Friends, Saved, Profile) in the top bar.
+- **Below `md`:** routes live in a **right-hand sheet** (hamburger); notifications bell stays on the bar; **Settings** is duplicated into the sheet on small screens.
+- **Dark / light mode** is toggled from the **navbar** (works **without signing in**) via `src/lib/themePreference.ts` (`localStorage` key `theme`). Bootstrap runs in `src/app/main.tsx`.
 
 ### Settings
 
@@ -220,7 +228,6 @@ Note: legacy `/groups` and `/groups/:id` routes now redirect to `/hangouts`.
   - friend requests
   - event reminders
   - friend activity
-- Theme toggle (dark mode class + localStorage persistence).
 - Account deletion flow:
   - RPC attempts first
   - client-side cleanup fallback
@@ -275,7 +282,7 @@ The "More like this" / "Not interested" quick actions appear only on Explore gri
 
 ### Geolocation
 
-`useUserLocation()` (in `src/hooks/useUserLocation.ts`) wraps a single mount-time call to `navigator.geolocation.getCurrentPosition`. On success the user's real coordinates power the distance filter on the Explore and Map pages. On denial / unavailability it falls back to NYC (40.7128, -74.006) and flips a `usingFallback` flag, which renders a `LocationBanner` above the filter bar explaining the situation and offering a "Use my location" button to re-prompt. The Ticketmaster sync script remains NYC-scoped, so users outside NYC who grant location will see distances correctly computed but very few events within range.
+`useUserLocation()` (in `src/hooks/useUserLocation.ts`) wraps a single mount-time call to `navigator.geolocation.getCurrentPosition`. On success the user's real coordinates power the distance filter on the Explore and Map pages and populate **computed mile distances** on cards/modals (`formatDistanceMiles` truncation for display). On denial / unavailability it falls back to NYC (40.7128, -74.006) and flips a `usingFallback` flag, which renders a `LocationBanner` above the filter bar explaining the situation and offering a "Use my location" button to re-prompt. The Ticketmaster sync script remains NYC-scoped, so users outside NYC who grant location will see distances correctly computed but very few events within range.
 
 ## Automation and Scripts
 
@@ -286,7 +293,8 @@ The "More like this" / "Not interested" quick actions appear only on Explore gri
 - `npm run build:dev` - development-mode build.
 - `npm run lint` - ESLint.
 - `npm run preview` - preview built app.
-- `npm run events:sync` - sync Ticketmaster events then recompute intelligence.
+- `npm run events:sync` - sync Ticketmaster events (multi-borough geo by default) then recompute intelligence.
+- `npm run events:sync:legacy` - same pipeline using a single `city=New York` Ticketmaster query (lighter / debugging).
 - `npm run events:intelligence` - full intelligence recompute.
 - `npm run events:intelligence:incremental` - incremental intelligence recompute.
 - `npm run events:prune:dry-run` - prune simulation only.
@@ -295,10 +303,10 @@ The "More like this" / "Not interested" quick actions appear only on Explore gri
 ### Python Scripts
 
 - `src/scripts/sync_ticketmaster.py`
-  - fetches Ticketmaster pages
-  - transforms/upserts events
-  - deduplicates
-  - prunes stale and unreferenced events
+  - **Default:** queries five NYC-area **geo circles** (Manhattan, Brooklyn, Queens, Bronx, Staten Island), merges results, **dedupes by Ticketmaster event id**, then upserts (outer borough coverage vs a single `city=New York` ascending-date crawl).
+  - **Legacy:** `--legacy-city-only` or `npm run events:sync:legacy` uses one city query (fewer API calls).
+  - Pagination uses env-tunable **`TICKETMASTER_PAGE_SIZE`** (default 100) and **`TICKETMASTER_MAX_PAGES`** (default **per zone** in multi-geo mode). Ticketmaster Discovery caps **~1000 events per query**, so effective pages are `min(max_pages, 1000 // page_size)` - values above that are ignored.
+  - transforms/upserts events, deduplicates near-duplicates by title/date/venue, prunes stale/unreferenced events
 - `src/scripts/recompute_event_intelligence.py`
   - refreshes temporal flags (`happening_now`, `is_tonight`)
   - computes trending rankings
@@ -381,7 +389,8 @@ Optional:
 - `VITE_MEMORY_SOFT_CAP_WARNING_RATIO` (default: 0.8)
 - `EVENT_PAST_RETENTION_DAYS` (default: 2)
 - `TICKETMASTER_WINDOW_DAYS` (default: 45)
-- `TICKETMASTER_MAX_PAGES` (default: 6)
+- `TICKETMASTER_MAX_PAGES` (default: 15) — max pages **per geo zone** (legacy: total for one city query). Capped automatically at **~1000 ÷ page size** (Ticketmaster Discovery limit per request).
+- `TICKETMASTER_PAGE_SIZE` (default: 100) — events per Ticketmaster API page (Discovery commonly allows up to 200).
 
 Example:
 
@@ -399,7 +408,8 @@ VITE_MEMORY_PHOTO_SOFT_CAP=600
 VITE_MEMORY_SOFT_CAP_WARNING_RATIO=0.8
 EVENT_PAST_RETENTION_DAYS=2
 TICKETMASTER_WINDOW_DAYS=45
-TICKETMASTER_MAX_PAGES=6
+TICKETMASTER_MAX_PAGES=15
+TICKETMASTER_PAGE_SIZE=100
 ```
 
 ## Local Setup
@@ -486,28 +496,19 @@ npm run events:prune
 
 ## Deployment (Netlify)
 
-The app is a Vite SPA, so deployment is just publishing the `dist/` directory. Two flows are supported:
+The app is a Vite SPA, so deployment is just publishing the `dist/` directory. The method we chose was using Netlify CLI:
 
-### Option A - Netlify builds from the GitHub repo (not chosen)
+1. Put **`VITE_SUPABASE_URL`** and **`VITE_SUPABASE_ANON_KEY`** in a local `.env` **before** `npm run build` so Vite can inline them into the JS bundle.
+2. Run **`npm run build`**. Confirm **`dist/_redirects`** exists (Vite copies `public/_redirects`). It contains the SPA fallback so deep links and refreshes on routes like `/profile` resolve to `index.html`.
+3.  Run **`npx netlify deploy --prod --dir=dist`**. Client-side routing behaves correctly because Netlify honors **`_redirects`** at the site root. Takes into account netlify.toml.
 
-1. Link the GitHub repo in Netlify. `netlify.toml` already defines:
-   - `command = "npm run build"`
-   - `publish = "dist"`
-   - SPA fallback (`/* → /index.html 200`)
-   - Cache headers and basic security headers
-2. Under **Site settings → Environment variables**, add:
-   - `VITE_SUPABASE_URL`
-   - `VITE_SUPABASE_ANON_KEY`
-3. Trigger a deploy. Netlify will build with those values inlined.
+Optional sanity check before upload:
 
-GitHub repository secrets (used by the daily sync workflow) are scoped to GitHub Actions runners. They are **not** automatically forwarded to Netlify; any `VITE_*` value Netlify needs at build time must also be saved in Netlify's environment variables panel.
+```bash
+npm run preview
+```
 
-### Option B - Manual `dist/` upload (drag-and-drop) (chosen)
-
-1. Ensure the local `.env` contains the two frontend `VITE_*` variables.
-2. Run `npm run build`. Vite inlines the values into the bundle.
-3. Drag the resulting `dist/` folder into Netlify's deploy UI.
-4. Netlify picks up `public/_redirects` (already copied into `dist/`) for SPA routing.
+opens the built app locally.
 
 The Supabase anon key is published in the bundle by design - Row-Level Security policies are what protect data, not key secrecy. The map provider (OpenStreetMap via Leaflet) requires no API key at all.
 
@@ -516,5 +517,5 @@ The Supabase anon key is published in the bundle by design - Row-Level Security 
 - "Missing VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY": ensure frontend env vars are set.
 - Empty hangouts/memories/recommendations with setup errors: look at schema snapshots in `docs/db/` and verify RLS policies.
 - Map tiles not rendering: confirm the browser has network access to `tile.openstreetmap.org`; corporate proxies sometimes block it.
-- Direct page refresh (e.g. `/profile`) returns 404 on Netlify: confirm `public/_redirects` (or `netlify.toml`'s redirect rule) is in place.
+- Direct page refresh (e.g. `/profile`) returns 404 on Netlify: confirm **`dist/_redirects`** exists after build (copied from `public/_redirects`). Git-connected builds can also rely on **`netlify.toml`** `[[redirects]]`.
 - Sync/intelligence scripts failing: verify Python env and service-role credentials.
