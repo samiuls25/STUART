@@ -11,7 +11,7 @@ import MoodSelector from "../components/profile/MoodSelector.tsx";
 import WeatherIndicator from "../components/shared/WeatherIndicator.tsx";
 import TrendingSection from "../components/events/TrendingSection.tsx";
 import RecommendedSection from "../components/events/RecommendedSection.tsx";
-import PlanBuilderCard from "../components/shared/PlanBuilderCard.tsx";
+// import PlanBuilderCard from "../components/shared/PlanBuilderCard.tsx";
 // import { events, type Event } from "../data/events.ts";
 import { type Event, fetchEvents } from "../data/events";
 import { toast } from "../hooks/use-toast.ts";
@@ -233,12 +233,12 @@ const Explore = () => {
     handleSearch("", { skipFuzzy: true });
   };
 
-  const handleBuildPlan = () => {
-    toast({
-      title: "Building your perfect plan...",
-      description: "STUART is creating a personalized itinerary for you.",
-    });
-  };
+  // const handleBuildPlan = () => {
+  //   toast({
+  //     title: "Building your perfect plan...",
+  //     description: "STUART is creating a personalized itinerary for you.",
+  //   });
+  // };
 
   const totalPages = Math.max(1, Math.ceil(filteredEvents.length / EVENTS_PER_PAGE));
   const safePage = Math.min(currentPage, totalPages);
@@ -376,9 +376,10 @@ const Explore = () => {
 
         {/* Content Sections */}
         <section className="max-w-7xl mx-auto px-6 py-8">
-          {/* Plan Builder */}
-          <PlanBuilderCard onBuildPlan={handleBuildPlan} />
-          
+          {/* Plan Builder
+              <PlanBuilderCard onBuildPlan={handleBuildPlan} />
+          */}
+
           {/* Trending Section */}
           <TrendingSection events={filteredEvents} onEventClick={handleEventClick} />
           

@@ -28,6 +28,12 @@ import { parseEventDate } from "../../lib/eventFilters";
 import CreateGroupModal from "../groups/CreateGroupModal";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../ui/dialog";
 import { Button } from "../ui/button";
+import FeedbackButtons from "../shared/FeedbackButtons";
+import {
+  recordRecommendationFeedback,
+  getLocalFeedbackForEvent,
+  type RecommendationFeedbackType,
+} from "../../lib/recommendationFeedback";
 
 const pad2 = (value: number) => String(value).padStart(2, "0");
 
@@ -103,6 +109,7 @@ const EventDetailModal = ({ event, onClose, initialSuggestOpen = false }: EventD
   const [suggestFriends, setSuggestFriends] = useState<Friend[]>([]);
   const [selectedGroupIds, setSelectedGroupIds] = useState<string[]>([]);
   const [selectedFriendIds, setSelectedFriendIds] = useState<string[]>([]);
+  const [submittedFeedback, setSubmittedFeedback] = useState<RecommendationFeedbackType | null>(null);
 
   const toScoreLabel = (score?: number) => {
     if (typeof score !== "number" || Number.isNaN(score) || score <= 0) {
@@ -120,6 +127,25 @@ const EventDetailModal = ({ event, onClose, initialSuggestOpen = false }: EventD
       setIsSaved(false);
     }
   }, [user, event]);
+
+  useEffect(() => {
+    if (event) {
+      setSubmittedFeedback(getLocalFeedbackForEvent(event.id));
+    } else {
+      setSubmittedFeedback(null);
+    }
+  }, [event]);
+
+  const handleRecommendationFeedback = async (feedbackId: string) => {
+    if (!event) return;
+    const typed = feedbackId as RecommendationFeedbackType;
+    setSubmittedFeedback(typed);
+    await recordRecommendationFeedback(event.id, typed);
+    toast({
+      title: "Thanks for the feedback",
+      description: "STUART will use this to tune your recommendations.",
+    });
+  };
 
   const resolvedHangoutId =
     event?.hangoutId
@@ -421,10 +447,10 @@ const EventDetailModal = ({ event, onClose, initialSuggestOpen = false }: EventD
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             onClick={onClose}
-            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50"
+            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[1500]"
           />
 
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 pointer-events-none">
+          <div className="fixed inset-0 z-[1500] flex items-center justify-center p-4 pointer-events-none">
             <motion.div
               initial={{ opacity: 0, scale: 0.95, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -493,6 +519,17 @@ const EventDetailModal = ({ event, onClose, initialSuggestOpen = false }: EventD
                         ))}
                       </ul>
                     </div>
+                  )}
+
+                  {/* Recommendation Feedback */}
+                  {event.isRecommended && (
+                    submittedFeedback ? (
+                      <div className="bg-muted/50 rounded-xl p-3 text-center text-xs text-muted-foreground">
+                        Thanks — your feedback was recorded.
+                      </div>
+                    ) : (
+                      <FeedbackButtons onFeedback={handleRecommendationFeedback} />
+                    )
                   )}
 
                   {/* Details Grid */}
