@@ -53,6 +53,53 @@ export function distanceMiles(
   return R * c;
 }
 
+/** Display miles truncated to one decimal (e.g. 8.862… → "8.8"). */
+export function formatDistanceMiles(miles: number): string {
+  if (!Number.isFinite(miles) || miles <= 0) return "";
+  const truncated = Math.floor(miles * 10) / 10;
+  return truncated % 1 === 0 ? String(truncated) : truncated.toFixed(1);
+}
+
+/**
+ * Explore "vibe" chips — maps moods to segments/genres present in synced data.
+ * Keeps logic data-driven so browse isn't empty when tags omit legacy keywords.
+ */
+export function matchesEventMood(event: Event, moodId: string | null): boolean {
+  if (!moodId) return true;
+
+  const genre = event.genre ?? "";
+  const segment = event.segment ?? "";
+
+  switch (moodId) {
+    case "adventurous":
+      return segment === "Sports" || segment === "Miscellaneous" || genre === "Exhibition" || genre === "Dance" || genre === "Comedy";
+    case "chill":
+      return genre === "Jazz" || genre === "Classical" || genre === "Family" || genre === "Exhibition" || genre === "Theater";
+    case "social":
+      return (
+        segment === "Music"
+        || genre === "Hangout"
+        || genre === "Pop"
+        || genre === "Electronic"
+        || genre === "Hip-Hop"
+        || genre === "Comedy"
+        || genre === "Opera"
+      );
+    case "artsy":
+      return segment === "Arts" 
+      || segment === "Arts & Theatre" 
+      || genre === "Musical" 
+      || genre === "Theater" 
+      || genre === "Exhibition" 
+      || genre === "Fine Art" 
+      || genre === "Miscellaneous Theatre"
+      || genre === "Opera"
+      || genre === "Performance Art";
+    default:
+      return true;
+  }
+}
+
 export interface FilterState {
   segment: string;
   genre: string;

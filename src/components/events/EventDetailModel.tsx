@@ -24,7 +24,7 @@ import { useAuth } from "../../lib/AuthContext";
 import { createHangout, getCurrentUserHangoutMembership, joinPublicHangout, leavePublicHangout, type CreateHangoutInput } from "../../lib/hangouts";
 import { getFriends, type Friend } from "../../lib/friends";
 import { fetchGroupsForCurrentUser, groupMemberIds, type UserGroup } from "../../lib/groups";
-import { parseEventDate } from "../../lib/eventFilters";
+import { parseEventDate, formatDistanceMiles } from "../../lib/eventFilters";
 import CreateGroupModal from "../groups/CreateGroupModal";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../ui/dialog";
 import { Button } from "../ui/button";
@@ -553,7 +553,9 @@ const EventDetailModal = ({ event, onClose, initialSuggestOpen = false }: EventD
                         <Navigation className="w-5 h-5 text-primary" />
                         <div>
                           <p className="text-xs text-muted-foreground">Distance</p>
-                          <p className="font-medium text-foreground text-sm">{event.distance} mi away</p>
+                          <p className="font-medium text-foreground text-sm">
+                            {formatDistanceMiles(event.distance)} mi away
+                          </p>
                         </div>
                       </div>
                     )}

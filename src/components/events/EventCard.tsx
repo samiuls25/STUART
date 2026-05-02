@@ -10,6 +10,7 @@ import {
   getLocalFeedbackForEvent,
   type RecommendationFeedbackType,
 } from "../../lib/recommendationFeedback";
+import { formatDistanceMiles } from "../../lib/eventFilters";
 
 interface EventCardProps {
   event: Event;
@@ -175,7 +176,7 @@ const EventCard = ({
             {typeof event.distance === "number" && event.distance > 0 && (
               <span className="flex items-center gap-1 text-xs text-muted-foreground">
                 <Navigation className="w-3 h-3" />
-                {event.distance} mi
+                {formatDistanceMiles(event.distance)} mi
               </span>
             )}
           </div>

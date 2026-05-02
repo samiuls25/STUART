@@ -33,6 +33,7 @@ import {
   computeFilterCounts,
   isEventUpcomingForBrowse,
   withComputedDistance,
+  matchesEventMood,
 } from "../lib/eventFilters";
 
 const searchPlaceholders = [
@@ -214,12 +215,7 @@ const Explore = () => {
         (selectedTime === "This Weekend" && isThisWeekend(eventDate)) ||
         (selectedTime === "This Week" && isThisWeek(eventDate));
 
-      const matchesMood =
-        !selectedMood ||
-        (selectedMood === "adventurous" && event.tags?.includes("immersive")) ||
-        (selectedMood === "chill" && (event.tags?.includes("intimate") || event.tags?.includes("cultural"))) ||
-        (selectedMood === "social" && (event.tags?.includes("nightlife") || event.tags?.includes("concert"))) ||
-        (selectedMood === "artsy" && (event.segment === "Arts" || event.tags?.includes("art")));
+      const matchesMood = matchesEventMood(event, selectedMood);
 
       return (
         matchesSegment &&
