@@ -1,4 +1,5 @@
 import { parseISO, startOfDay, nextSaturday, nextSunday, addDays } from "date-fns";
+import type { Event } from "../data/events";
 
 /** Parse event date string (ISO "2024-12-28" or "Dec 28, 2024") to Date or null */
 export function parseEventDate(dateStr: string | undefined): Date | null {
@@ -50,4 +51,171 @@ export function distanceMiles(
       Math.sin(dLon / 2) ** 2;
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   return R * c;
+}
+
+/** Display miles truncated to one decimal (e.g. 8.862… → "8.8"). */
+export function formatDistanceMiles(miles: number): string {
+  if (!Number.isFinite(miles) || miles <= 0) return "";
+  const truncated = Math.floor(miles * 10) / 10;
+  return truncated % 1 === 0 ? String(truncated) : truncated.toFixed(1);
+}
+
+/**
+ * Explore "vibe" chips — maps moods to segments/genres present in synced data.
+ * Keeps logic data-driven so browse isn't empty when tags omit legacy keywords.
+ */
+export function matchesEventMood(event: Event, moodId: string | null): boolean {
+  if (!moodId) return true;
+
+  const genre = event.genre ?? "";
+  const segment = event.segment ?? "";
+
+  switch (moodId) {
+    case "adventurous":
+      return segment === "Sports" || segment === "Miscellaneous" || genre === "Exhibition" || genre === "Dance" || genre === "Comedy";
+    case "chill":
+      return genre === "Jazz" || genre === "Classical" || genre === "Family" || genre === "Exhibition" || genre === "Theater";
+    case "social":
+      return (
+        segment === "Music"
+        || genre === "Hangout"
+        || genre === "Pop"
+        || genre === "Electronic"
+        || genre === "Hip-Hop"
+        || genre === "Comedy"
+        || genre === "Opera"
+      );
+    case "artsy":
+      return segment === "Arts" 
+      || segment === "Arts & Theatre" 
+      || genre === "Musical" 
+      || genre === "Theater" 
+      || genre === "Exhibition" 
+      || genre === "Fine Art" 
+      || genre === "Miscellaneous Theatre"
+      || genre === "Opera"
+      || genre === "Performance Art";
+    default:
+      return true;
+  }
+}
+
+export interface FilterState {
+  segment: string;
+  genre: string;
+  price: string;
+  time: string;
+  /** `null` means no distance cap ("Any distance"). */
+  distance: number | null;
+  userLocation: { lat: number; lon: number } | null;
+}
+
+const matchesSegment = (event: Event, value: string) =>
+  value === "All" || event.segment === value;
+
+const matchesGenre = (event: Event, value: string) =>
+  value === "All" || event.genre === value;
+
+const matchesPrice = (event: Event, value: string) => {
+  if (value === "All") return true;
+  if (value === "Free") return event.priceLevel === "free";
+  return event.priceLevel === value;
+};
+
+const matchesTime = (event: Event, value: string) => {
+  if (value === "All") return true;
+  if (value === "Now") return Boolean(event.happeningNow);
+  if (value === "Tonight") return Boolean(event.isTonight);
+  const eventDate = parseEventDate(event.date);
+  if (value === "This Weekend") return isThisWeekend(eventDate);
+  if (value === "This Week") return isThisWeek(eventDate);
+  return true;
+};
+
+const matchesDistance = (
+  event: Event,
+  maxDistance: number | null,
+  userLocation: FilterState["userLocation"],
+) => {
+  if (maxDistance == null) return true;
+
+  let eventDistance = event.distance ?? null;
+  if (
+    userLocation != null &&
+    typeof event.latitude === "number" &&
+    typeof event.longitude === "number"
+  ) {
+    eventDistance = distanceMiles(
+      userLocation.lat,
+      userLocation.lon,
+      event.latitude,
+      event.longitude,
+    );
+  }
+  return eventDistance == null || eventDistance <= maxDistance;
+};
+
+/** Hide events whose calendar date is strictly before today (local timezone). */
+export function isEventUpcomingForBrowse(event: Event): boolean {
+  const d = parseEventDate(event.date);
+  if (!d) return true;
+  return startOfDay(d).getTime() >= startOfDay(new Date()).getTime();
+}
+
+/** Attach a freshly computed mile distance when lat/lon + userLocation exist. */
+export function withComputedDistance(
+  event: Event,
+  userLocation: { lat: number; lon: number } | null,
+): Event {
+  if (
+    userLocation == null ||
+    typeof event.latitude !== "number" ||
+    typeof event.longitude !== "number"
+  ) {
+    return event;
+  }
+  return {
+    ...event,
+    distance: distanceMiles(
+      userLocation.lat,
+      userLocation.lon,
+      event.latitude,
+      event.longitude,
+    ),
+  };
+}
+
+/**
+ * Compute counts of events that would match each segment/genre value if the
+ * user changed only that one filter, holding the others constant. This drives
+ * the dynamic dropdown labels and disabled state in the FilterBar so users
+ * see exactly how many events each option will yield.
+ */
+export function computeFilterCounts(events: Event[], filters: FilterState) {
+  const segmentCounts: Record<string, number> = {};
+  const genreCounts: Record<string, number> = {};
+
+  for (const event of events) {
+    const passesGenre = matchesGenre(event, filters.genre);
+    const passesPrice = matchesPrice(event, filters.price);
+    const passesTime = matchesTime(event, filters.time);
+    const passesDistance = matchesDistance(event, filters.distance, filters.userLocation);
+    const passesSegment = matchesSegment(event, filters.segment);
+
+    // Segment column count: holds genre/price/time/distance, varies segment.
+    if (passesGenre && passesPrice && passesTime && passesDistance) {
+      segmentCounts.All = (segmentCounts.All ?? 0) + 1;
+      const segmentKey = event.segment ?? "Other";
+      segmentCounts[segmentKey] = (segmentCounts[segmentKey] ?? 0) + 1;
+    }
+
+    // Genre column count: holds segment/price/time/distance, varies genre.
+    if (passesSegment && passesPrice && passesTime && passesDistance) {
+      genreCounts.All = (genreCounts.All ?? 0) + 1;
+      const genreKey = event.genre ?? "Other";
+      genreCounts[genreKey] = (genreCounts[genreKey] ?? 0) + 1;
+    }
+  }
+
+  return { segmentCounts, genreCounts };
 }

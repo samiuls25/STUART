@@ -360,7 +360,7 @@ const MemoryCard = ({ memory, compact = false, displayMode = "default", allowDel
         />
         <div className="flex-1 min-w-0">
           <p className="font-medium text-foreground text-sm truncate">{memory.eventName}</p>
-          <p className="text-xs text-muted-foreground">{memory.date}</p>
+          <p className="text-xs font-medium text-neutral-700 dark:text-neutral-300">{memory.date}</p>
         </div>
         <div className="flex items-center gap-1 text-xs text-muted-foreground">
           <Camera className="w-3 h-3" />
@@ -455,13 +455,13 @@ const MemoryCard = ({ memory, compact = false, displayMode = "default", allowDel
                     {memory.eventName}
                   </h2>
 
-                  <div className="flex items-center gap-4 text-sm text-muted-foreground mb-6">
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-neutral-600 dark:text-neutral-300 mb-6">
                     <span className="flex items-center gap-1">
-                      <MapPin className="w-4 h-4" />
+                      <MapPin className="w-4 h-4 shrink-0" />
                       {memory.location}
                     </span>
                     <span className="flex items-center gap-1">
-                      <Clock className="w-4 h-4" />
+                      <Clock className="w-4 h-4 shrink-0" />
                       {memory.date} at {memory.time}
                     </span>
                   </div>
@@ -656,8 +656,8 @@ const MemoryCard = ({ memory, compact = false, displayMode = "default", allowDel
             {galleryPhotos.length}
           </div>
 
-          {/* Date Badge */}
-          <div className="absolute top-3 left-3 px-2 py-1 rounded-full bg-white/90 backdrop-blur-sm text-xs font-medium text-foreground">
+          {/* Date Badge — always dark text on light pill so dark-mode theme tokens don't wash out */}
+          <div className="absolute top-3 left-3 px-2 py-1 rounded-full bg-white/95 backdrop-blur-sm text-xs font-semibold text-neutral-900 shadow-sm ring-1 ring-black/10">
             {memory.date}
           </div>
         </div>
@@ -668,13 +668,13 @@ const MemoryCard = ({ memory, compact = false, displayMode = "default", allowDel
             {memory.eventName}
           </h3>
 
-          <div className="flex items-center gap-4 text-xs text-muted-foreground mb-3">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-neutral-600 dark:text-neutral-300 mb-3">
             <span className="flex items-center gap-1">
-              <MapPin className="w-3 h-3" />
+              <MapPin className="w-3 h-3 shrink-0" />
               {memory.location}
             </span>
             <span className="flex items-center gap-1">
-              <Clock className="w-3 h-3" />
+              <Clock className="w-3 h-3 shrink-0" />
               {memory.time}
             </span>
           </div>
@@ -778,13 +778,13 @@ const MemoryCard = ({ memory, compact = false, displayMode = "default", allowDel
                   {memory.eventName}
                 </h2>
 
-                <div className="flex items-center gap-4 text-sm text-muted-foreground mb-6">
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-neutral-600 dark:text-neutral-300 mb-6">
                   <span className="flex items-center gap-1">
-                    <MapPin className="w-4 h-4" />
+                    <MapPin className="w-4 h-4 shrink-0" />
                     {memory.location}
                   </span>
                   <span className="flex items-center gap-1">
-                    <Clock className="w-4 h-4" />
+                    <Clock className="w-4 h-4 shrink-0" />
                     {memory.date} at {memory.time}
                   </span>
                 </div>

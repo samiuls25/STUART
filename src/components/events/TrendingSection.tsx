@@ -2,6 +2,7 @@ import { motion } from "framer-motion";
 import React from "react";
 import { TrendingUp, Flame, Clock3, Sparkles } from "lucide-react";
 import type { Event } from "../../data/events";
+import { isEventUpcomingForBrowse } from "../../lib/eventFilters";
 
 interface TrendingSectionProps {
   events: Event[];
@@ -9,25 +10,6 @@ interface TrendingSectionProps {
 }
 
 const TRENDING_LIST_SIZE = 10;
-
-const isCurrentOrFutureEvent = (event: Event) => {
-  if (event.happeningNow || event.isTonight) {
-    return true;
-  }
-
-  if (!event.date) {
-    return true;
-  }
-
-  const parsed = new Date(`${event.date}T00:00:00`);
-  if (Number.isNaN(parsed.getTime())) {
-    return true;
-  }
-
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  return parsed >= today;
-};
 
 const TrendingSection = ({ events, onEventClick }: TrendingSectionProps) => {
   const toScoreLabel = (score?: number) => {
@@ -37,7 +19,7 @@ const TrendingSection = ({ events, onEventClick }: TrendingSectionProps) => {
     return `Score ${Math.round(score)}`;
   };
 
-  const relevantEvents = events.filter(isCurrentOrFutureEvent);
+  const relevantEvents = events.filter(isEventUpcomingForBrowse);
 
   const rankedTrendingEvents = relevantEvents
     .filter((e) => e.isTrending)

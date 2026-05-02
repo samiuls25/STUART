@@ -24,10 +24,16 @@ import { useAuth } from "../../lib/AuthContext";
 import { createHangout, getCurrentUserHangoutMembership, joinPublicHangout, leavePublicHangout, type CreateHangoutInput } from "../../lib/hangouts";
 import { getFriends, type Friend } from "../../lib/friends";
 import { fetchGroupsForCurrentUser, groupMemberIds, type UserGroup } from "../../lib/groups";
-import { parseEventDate } from "../../lib/eventFilters";
+import { parseEventDate, formatDistanceMiles } from "../../lib/eventFilters";
 import CreateGroupModal from "../groups/CreateGroupModal";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../ui/dialog";
 import { Button } from "../ui/button";
+import FeedbackButtons from "../shared/FeedbackButtons";
+import {
+  recordRecommendationFeedback,
+  getLocalFeedbackForEvent,
+  type RecommendationFeedbackType,
+} from "../../lib/recommendationFeedback";
 
 const pad2 = (value: number) => String(value).padStart(2, "0");
 
@@ -103,6 +109,7 @@ const EventDetailModal = ({ event, onClose, initialSuggestOpen = false }: EventD
   const [suggestFriends, setSuggestFriends] = useState<Friend[]>([]);
   const [selectedGroupIds, setSelectedGroupIds] = useState<string[]>([]);
   const [selectedFriendIds, setSelectedFriendIds] = useState<string[]>([]);
+  const [submittedFeedback, setSubmittedFeedback] = useState<RecommendationFeedbackType | null>(null);
 
   const toScoreLabel = (score?: number) => {
     if (typeof score !== "number" || Number.isNaN(score) || score <= 0) {
@@ -120,6 +127,25 @@ const EventDetailModal = ({ event, onClose, initialSuggestOpen = false }: EventD
       setIsSaved(false);
     }
   }, [user, event]);
+
+  useEffect(() => {
+    if (event) {
+      setSubmittedFeedback(getLocalFeedbackForEvent(event.id));
+    } else {
+      setSubmittedFeedback(null);
+    }
+  }, [event]);
+
+  const handleRecommendationFeedback = async (feedbackId: string) => {
+    if (!event) return;
+    const typed = feedbackId as RecommendationFeedbackType;
+    setSubmittedFeedback(typed);
+    await recordRecommendationFeedback(event.id, typed);
+    toast({
+      title: "Thanks for the feedback",
+      description: "STUART will use this to tune your recommendations.",
+    });
+  };
 
   const resolvedHangoutId =
     event?.hangoutId
@@ -421,10 +447,10 @@ const EventDetailModal = ({ event, onClose, initialSuggestOpen = false }: EventD
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             onClick={onClose}
-            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50"
+            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[1500]"
           />
 
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 pointer-events-none">
+          <div className="fixed inset-0 z-[1500] flex items-center justify-center p-4 pointer-events-none">
             <motion.div
               initial={{ opacity: 0, scale: 0.95, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -495,6 +521,17 @@ const EventDetailModal = ({ event, onClose, initialSuggestOpen = false }: EventD
                     </div>
                   )}
 
+                  {/* Recommendation Feedback - shown on every event so the
+                      recommender can learn from any interaction, not just
+                      from events that were already surfaced as recommended. */}
+                  {submittedFeedback ? (
+                    <div className="bg-muted/50 rounded-xl p-3 text-center text-xs text-muted-foreground">
+                      Thanks — your feedback was recorded.
+                    </div>
+                  ) : (
+                    <FeedbackButtons onFeedback={handleRecommendationFeedback} />
+                  )}
+
                   {/* Details Grid */}
                   <div className="grid grid-cols-2 gap-3">
                     <div className="flex items-center gap-3 p-3 bg-muted/50 rounded-xl">
@@ -511,16 +548,18 @@ const EventDetailModal = ({ event, onClose, initialSuggestOpen = false }: EventD
                         <p className="font-medium text-foreground text-sm">{event.time}</p>
                       </div>
                     </div>
-                    {event.distance && (
+                    {typeof event.distance === "number" && event.distance > 0 && (
                       <div className="flex items-center gap-3 p-3 bg-muted/50 rounded-xl">
                         <Navigation className="w-5 h-5 text-primary" />
                         <div>
                           <p className="text-xs text-muted-foreground">Distance</p>
-                          <p className="font-medium text-foreground text-sm">{event.distance} mi away</p>
+                          <p className="font-medium text-foreground text-sm">
+                            {formatDistanceMiles(event.distance)} mi away
+                          </p>
                         </div>
                       </div>
                     )}
-                    {event.travelTime && (
+                    {typeof event.travelTime === "number" && event.travelTime > 0 && (
                       <div className="flex items-center gap-3 p-3 bg-muted/50 rounded-xl">
                         <Car className="w-5 h-5 text-primary" />
                         <div>
@@ -545,10 +584,24 @@ const EventDetailModal = ({ event, onClose, initialSuggestOpen = false }: EventD
                 {/* CTA Footer */}
                 <div className="p-4 border-t border-border bg-muted/30 flex items-center gap-4">
                   <div className="flex-1">
-                    <p className="text-xs text-muted-foreground">Starting from</p>
-                    <p className={`text-xl font-bold ${event.priceLevel === 'free' ? 'text-green-500' : 'text-primary'}`}>
-                      {event.priceLevel === 'free' ? 'Free' : event.price}
-                    </p>
+                    {event.priceLevel === "free" ? (
+                      <>
+                        <p className="text-xs text-muted-foreground">Admission</p>
+                        <p className="text-xl font-bold text-green-500">Free</p>
+                      </>
+                    ) : event.price ? (
+                      <>
+                        <p className="text-xs text-muted-foreground">Starting from</p>
+                        <p className="text-xl font-bold text-primary">{event.price}</p>
+                      </>
+                    ) : (
+                      <>
+                        <p className="text-xs text-muted-foreground">Pricing</p>
+                        <p className="text-sm font-medium text-foreground/70">
+                          See ticket page for details
+                        </p>
+                      </>
+                    )}
                   </div>
                   {isHangoutEvent ? (
                     hangoutMembershipState === "joined" ? (

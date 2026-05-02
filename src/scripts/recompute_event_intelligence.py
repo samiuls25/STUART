@@ -24,6 +24,23 @@ RECOMMENDATION_TOP_N = 25
 COLD_START_MIN_SCORE = 8
 INCREMENTAL_DEFAULT_WINDOW_MINUTES = int(os.getenv("EVENT_INTELLIGENCE_INCREMENTAL_WINDOW_MINUTES", "20"))
 
+# Per-feedback adjustments applied during recommendation scoring. Negative
+# weights bias candidate events away from things the user explicitly disliked;
+# positive weights nudge similar items higher.
+FEEDBACK_WEIGHTS = {
+    # Hard suppressions: never rank the same event again.
+    "not-interested_event_penalty": -1000,
+    # "Too expensive" => downweight events at the same price level.
+    "too-expensive_price_penalty": -25,
+    # "Too far" => downweight events in the same neighborhood.
+    "too-far_neighborhood_penalty": -20,
+    # "More like this" => boost events sharing segment/genre/tags.
+    "more_segment_boost": 10,
+    "more_genre_boost": 12,
+    "more_tag_boost_per_overlap": 4,
+    "more_tag_boost_max": 16,
+}
+
 
 def fetch_all(table: str, columns: str = "*"):
     all_rows = []
@@ -318,7 +335,113 @@ def build_friend_graph(friendships):
     return graph
 
 
-def compute_recommendations(events, saved_events, friendships):
+def fetch_feedback_safe():
+    """Load recommendation feedback rows. Tolerates missing-table errors so
+    the script continues to work even before the feedback table is created."""
+    try:
+        return fetch_all(
+            "event_recommendation_feedback",
+            "user_id,event_id,feedback,created_at",
+        )
+    except Exception as exc:  # noqa: BLE001
+        message = str(exc).lower()
+        if "does not exist" in message or "schema cache" in message or "42p01" in message:
+            print(
+                "event_recommendation_feedback table not available - "
+                "skipping feedback signal in this run."
+            )
+            return []
+        raise
+
+
+def index_feedback(feedback_rows, events_by_id):
+    """Group feedback into per-user lookup structures, plus the price levels,
+    neighborhoods, segments, genres, and tags the user reacted to."""
+    direct = defaultdict(dict)              # (user_id) -> {event_id: feedback_type}
+    avoid_price = defaultdict(set)          # (user_id) -> {price_level}
+    avoid_neighborhood = defaultdict(set)   # (user_id) -> {neighborhood}
+    boost_segments = defaultdict(set)       # (user_id) -> {segment}
+    boost_genres = defaultdict(set)         # (user_id) -> {genre}
+    boost_tags = defaultdict(set)           # (user_id) -> {tag}
+
+    for row in feedback_rows:
+        user_id = row.get("user_id")
+        event_id = row.get("event_id")
+        feedback = row.get("feedback")
+        if not user_id or not event_id or not feedback:
+            continue
+
+        direct[user_id][event_id] = feedback
+        anchor = events_by_id.get(event_id) or {}
+
+        if feedback == "too-expensive":
+            price = anchor.get("price_level")
+            if price:
+                avoid_price[user_id].add(price)
+        elif feedback == "too-far":
+            neighborhood = anchor.get("neighborhood")
+            if neighborhood:
+                avoid_neighborhood[user_id].add(neighborhood)
+        elif feedback == "more":
+            segment = anchor.get("segment")
+            if segment:
+                boost_segments[user_id].add(segment)
+            genre = anchor.get("genre")
+            if genre:
+                boost_genres[user_id].add(genre)
+            for tag in anchor.get("tags") or []:
+                boost_tags[user_id].add(tag)
+
+    return {
+        "direct": direct,
+        "avoid_price": avoid_price,
+        "avoid_neighborhood": avoid_neighborhood,
+        "boost_segments": boost_segments,
+        "boost_genres": boost_genres,
+        "boost_tags": boost_tags,
+    }
+
+
+def apply_feedback_adjustment(score, reasons, user_id, event, feedback_index):
+    """Mutates `score` and `reasons` based on the user's feedback history.
+    Returns (new_score, new_reasons, suppress_flag). When suppress_flag is True
+    the candidate should be dropped entirely."""
+    direct_for_user = feedback_index["direct"].get(user_id) or {}
+    direct_feedback = direct_for_user.get(event["id"])
+    if direct_feedback == "not-interested":
+        return score, reasons, True
+
+    if direct_feedback == "too-expensive":
+        score += FEEDBACK_WEIGHTS["too-expensive_price_penalty"]
+    if direct_feedback == "too-far":
+        score += FEEDBACK_WEIGHTS["too-far_neighborhood_penalty"]
+
+    if event.get("price_level") in feedback_index["avoid_price"].get(user_id, set()):
+        score += FEEDBACK_WEIGHTS["too-expensive_price_penalty"]
+    if event.get("neighborhood") in feedback_index["avoid_neighborhood"].get(user_id, set()):
+        score += FEEDBACK_WEIGHTS["too-far_neighborhood_penalty"]
+
+    if event.get("segment") in feedback_index["boost_segments"].get(user_id, set()):
+        score += FEEDBACK_WEIGHTS["more_segment_boost"]
+        reasons.append("Similar to events you liked")
+    if event.get("genre") in feedback_index["boost_genres"].get(user_id, set()):
+        score += FEEDBACK_WEIGHTS["more_genre_boost"]
+        reasons.append("Matches a genre you liked")
+
+    boost_tags = feedback_index["boost_tags"].get(user_id, set())
+    if boost_tags:
+        overlap = sum(1 for tag in (event.get("tags") or []) if tag in boost_tags)
+        if overlap > 0:
+            tag_boost = min(
+                FEEDBACK_WEIGHTS["more_tag_boost_max"],
+                overlap * FEEDBACK_WEIGHTS["more_tag_boost_per_overlap"],
+            )
+            score += tag_boost
+
+    return score, reasons, False
+
+
+def compute_recommendations(events, saved_events, friendships, feedback_index=None):
     today = datetime.now(ZoneInfo(DEFAULT_EVENT_TIMEZONE)).date()
 
     events_by_id = {event["id"]: event for event in events}
@@ -345,7 +468,8 @@ def compute_recommendations(events, saved_events, friendships):
 
     friend_graph = build_friend_graph(friendships)
 
-    users = set(saved_by_user.keys()) | set(friend_graph.keys())
+    feedback_users = set(feedback_index["direct"].keys()) if feedback_index else set()
+    users = set(saved_by_user.keys()) | set(friend_graph.keys()) | feedback_users
 
     upsert_rows = []
 
@@ -424,6 +548,13 @@ def compute_recommendations(events, saved_events, friendships):
                 score += 8
                 reasons.append("Happening right now")
 
+            if feedback_index is not None:
+                score, reasons, suppressed = apply_feedback_adjustment(
+                    score, reasons, user_id, event, feedback_index
+                )
+                if suppressed:
+                    continue
+
             if score >= min_score_for_user:
                 user_recs.append((event_id, score, reasons[:3]))
 
@@ -457,7 +588,7 @@ def compute_recommendations(events, saved_events, friendships):
     print(f"Upserted {len(upsert_rows)} personalized recommendation row(s)")
 
 
-def compute_recommendations_for_users(events, saved_events, friendships, target_users):
+def compute_recommendations_for_users(events, saved_events, friendships, target_users, feedback_index=None):
     if not target_users:
         print("Incremental recommendations: no target users")
         return
@@ -561,6 +692,13 @@ def compute_recommendations_for_users(events, saved_events, friendships, target_
                 score += 8
                 reasons.append("Happening right now")
 
+            if feedback_index is not None:
+                score, reasons, suppressed = apply_feedback_adjustment(
+                    score, reasons, user_id, event, feedback_index
+                )
+                if suppressed:
+                    continue
+
             if score >= min_score_for_user:
                 user_recs.append((event_id, score, reasons[:3]))
 
@@ -623,25 +761,27 @@ def parse_args():
 def main():
     args = parse_args()
 
-    events = fetch_all(
-        "events",
-        "id,date,time,segment,genre,tags,is_tonight,happening_now,is_trending,trending_rank",
+    event_columns = (
+        "id,date,time,segment,genre,tags,price_level,neighborhood,"
+        "is_tonight,happening_now,is_trending,trending_rank"
     )
+
+    events = fetch_all("events", event_columns)
     saved_events = fetch_all("saved_events", "user_id,event_id,saved_at")
     event_views = fetch_all("event_views", "user_id,event_id,viewed_at")
     friendships = fetch_all("friendships", "user_id,friend_id,status")
+    feedback_rows = fetch_feedback_safe()
 
     print(
-        f"Loaded {len(events)} events, {len(saved_events)} saves, {len(event_views)} views, {len(friendships)} friendships"
+        f"Loaded {len(events)} events, {len(saved_events)} saves, "
+        f"{len(event_views)} views, {len(friendships)} friendships, "
+        f"{len(feedback_rows)} feedback signal(s)"
     )
 
     refresh_event_time_flags(events)
 
     # Re-read events after time flag refresh so trending/recommendations use latest flags.
-    events = fetch_all(
-        "events",
-        "id,date,time,segment,genre,tags,is_tonight,happening_now,is_trending,trending_rank",
-    )
+    events = fetch_all("events", event_columns)
 
     if args.mode == "full":
         compute_trending(events, saved_events, event_views)
@@ -666,20 +806,22 @@ def main():
         compute_trending_incremental(events, saved_events, event_views, candidate_event_ids)
 
     # Re-read events after trending refresh so recommendation can use updated rank.
-    events = fetch_all(
-        "events",
-        "id,date,time,segment,genre,tags,is_tonight,happening_now,is_trending,trending_rank",
-    )
+    events = fetch_all("events", event_columns)
+
+    events_by_id = {event["id"]: event for event in events}
+    feedback_index = index_feedback(feedback_rows, events_by_id)
 
     if args.mode == "full":
-        compute_recommendations(events, saved_events, friendships)
+        compute_recommendations(events, saved_events, friendships, feedback_index)
     else:
         cutoff = datetime.utcnow() - timedelta(minutes=max(1, args.window_minutes))
         cutoff_iso = cutoff.isoformat()
         recent_saves = fetch_recent_rows("saved_events", "user_id,event_id,saved_at", "saved_at", cutoff_iso)
 
         seed_users = {row.get("user_id") for row in recent_saves if row.get("user_id")}
-        target_users = set(seed_users)
+        # Anyone who left feedback recently should also have their recs refreshed.
+        feedback_users = set(feedback_index["direct"].keys())
+        target_users = set(seed_users) | feedback_users
 
         # Expand to friends because recommendation reasons include friend saved activity.
         for row in friendships:
@@ -692,7 +834,9 @@ def main():
             if friend_id in seed_users and user_id:
                 target_users.add(user_id)
 
-        compute_recommendations_for_users(events, saved_events, friendships, target_users)
+        compute_recommendations_for_users(
+            events, saved_events, friendships, target_users, feedback_index
+        )
 
     print("Event intelligence recompute complete.")
 

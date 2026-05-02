@@ -7,6 +7,7 @@ import EventCard from "../components/events/EventCard";
 import MapView from "../components/map/MapView";
 import EventDetailModal from "../components/events/EventDetailModel";
 import EmptyState from "../components/shared/EmptyState";
+import LocationBanner from "../components/shared/LocationBanner";
 import { fetchEvents, type Event } from "../data/events";
 import { useAuth } from "../lib/AuthContext";
 import {
@@ -14,7 +15,12 @@ import {
   isThisWeekend,
   isThisWeek,
   distanceMiles,
+  computeFilterCounts,
+  isEventUpcomingForBrowse,
+  withComputedDistance,
 } from "../lib/eventFilters";
+import { useUserLocation } from "../hooks/useUserLocation";
+import { toast } from "../hooks/use-toast";
 
 const MapPage = () => {
   const { user, loading: authLoading } = useAuth();
@@ -22,8 +28,12 @@ const MapPage = () => {
   const [selectedGenre, setSelectedGenre] = useState("All");
   const [selectedPrice, setSelectedPrice] = useState("All");
   const [selectedTime, setSelectedTime] = useState("All");
-  const [selectedDistance, setSelectedDistance] = useState(5);
-  const [userLocation, setUserLocation] = useState<{ lat: number; lon: number } | null>(null);
+  const [selectedDistance, setSelectedDistance] = useState<number | null>(null);
+  const {
+    location: userLocation,
+    usingFallback: locationUsingFallback,
+    requestLocation,
+  } = useUserLocation();
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
   const [hoveredEventId, setHoveredEventId] = useState<string | null>(null);
   const [detailEvent, setDetailEvent] = useState<Event | null>(null);
@@ -60,19 +70,50 @@ const MapPage = () => {
     };
   }, [authLoading, user?.id]);
 
-  // Mirror Explore's geolocation flow: prompt the browser, fall back to NYC
-  // center if denied/unavailable so the distance filter still produces sensible
-  // results. The Recenter button on the map handles re-prompting.
-  useEffect(() => {
-    if (!navigator.geolocation) return;
-    navigator.geolocation.getCurrentPosition(
-      (pos) => setUserLocation({ lat: pos.coords.latitude, lon: pos.coords.longitude }),
-      () => setUserLocation({ lat: 40.7128, lon: -74.006 }),
-    );
-  }, []);
+  const browseEvents = useMemo(
+    () => events.filter(isEventUpcomingForBrowse),
+    [events],
+  );
+
+  const handleUseMyLocation = () => {
+    requestLocation();
+    // If the browser has hard-blocked the prompt (3+ dismissals), the call
+    // will fail silently and stay on the NYC fallback. Surface a hint so the
+    // user knows to fix it via the address-bar lock icon.
+    setTimeout(() => {
+      if (locationUsingFallback) {
+        toast({
+          title: "Location still blocked",
+          description:
+            "Click the lock icon in the address bar to enable Location for this site, then try again.",
+        });
+      }
+    }, 1000);
+  };
+
+  const { segmentCounts, genreCounts } = useMemo(
+    () =>
+      computeFilterCounts(browseEvents, {
+        segment: selectedSegment,
+        genre: selectedGenre,
+        price: selectedPrice,
+        time: selectedTime,
+        distance: selectedDistance,
+        userLocation,
+      }),
+    [
+      browseEvents,
+      selectedSegment,
+      selectedGenre,
+      selectedPrice,
+      selectedTime,
+      selectedDistance,
+      userLocation,
+    ],
+  );
 
   const filteredEvents = useMemo(() => {
-    return events.filter((event) => {
+    return browseEvents.filter((event) => {
       const matchesSegment =
         selectedSegment === "All" || event.segment === selectedSegment;
       const matchesGenre =
@@ -92,7 +133,9 @@ const MapPage = () => {
         );
       }
       const matchesDistance =
-        eventDistance == null || eventDistance <= selectedDistance;
+        selectedDistance == null
+        || eventDistance == null
+        || eventDistance <= selectedDistance;
 
       const eventDate = parseEventDate(event.date);
       const matchesTime =
@@ -109,9 +152,9 @@ const MapPage = () => {
         matchesDistance &&
         matchesTime
       );
-    });
+    }).map((event) => withComputedDistance(event, userLocation));
   }, [
-    events,
+    browseEvents,
     selectedSegment,
     selectedGenre,
     selectedPrice,
@@ -134,6 +177,7 @@ const MapPage = () => {
   const handleClearSelection = () => {
     setDetailEvent(null);
     setSelectedEventId(null);
+    setHoveredEventId(null);
   };
 
   const handleSearchArea = () => {
@@ -141,7 +185,7 @@ const MapPage = () => {
     setSelectedGenre("All");
     setSelectedPrice("All");
     setSelectedTime("All");
-    setSelectedDistance(5);
+    setSelectedDistance(null);
   };
 
   if (loading) {
@@ -156,15 +200,38 @@ const MapPage = () => {
     <div className="min-h-screen bg-background">
       <Navbar />
 
-      <main className="pt-[72px] h-screen flex flex-col">
-        <div className="flex-1 flex overflow-hidden">
+      <main className="pt-[72px] flex flex-col h-[calc(100dvh-72px)] min-h-0 overflow-hidden md:h-screen">
+        <div className="flex flex-1 flex-col md:flex-row min-h-0 overflow-hidden">
+          {/* Map — visible on mobile above the list; desktop fills remaining width */}
+          <div className="order-1 flex h-[38vh] min-h-[240px] w-full shrink-0 flex-col border-b border-border md:order-2 md:h-auto md:min-h-0 md:flex-1 md:border-b-0 md:border-l md:border-border">
+            <MapView
+              events={filteredEvents}
+              selectedEventId={selectedEventId}
+              hoveredEventId={hoveredEventId}
+              onEventSelect={handleEventClick}
+              onEventHover={handleEventHover}
+              onBackgroundClick={handleClearSelection}
+              userLocation={userLocation}
+              showUserLocationPin={Boolean(userLocation && !locationUsingFallback)}
+              distanceLimitMiles={selectedDistance}
+            />
+          </div>
+
           {/* Left: Event List */}
           <motion.div
             initial={{ opacity: 0, x: -20 }}
             animate={{ opacity: 1, x: 0 }}
             transition={{ duration: 0.5 }}
-            className="w-full md:w-[360px] lg:w-[440px] xl:w-[480px] flex-shrink-0 flex flex-col border-r border-border bg-card/50"
+            className="order-2 flex min-h-0 flex-1 flex-col bg-card/50 md:order-1 md:h-full md:w-[360px] md:flex-none lg:w-[440px] xl:w-[480px] shrink-0 border-border md:border-r"
           >
+            {locationUsingFallback && (
+              <div className="px-4 pt-3">
+                <LocationBanner
+                  usingFallback={locationUsingFallback}
+                  onUseRealLocation={handleUseMyLocation}
+                />
+              </div>
+            )}
             <FilterBar
               selectedSegment={selectedSegment}
               selectedGenre={selectedGenre}
@@ -178,6 +245,8 @@ const MapPage = () => {
               onDistanceChange={setSelectedDistance}
               onSearchArea={handleSearchArea}
               eventCount={filteredEvents.length}
+              segmentCounts={segmentCounts}
+              genreCounts={genreCounts}
             />
 
             <div className="flex-1 overflow-y-auto scrollbar-thin p-4 space-y-3">
@@ -191,6 +260,7 @@ const MapPage = () => {
                     onHover={handleEventHover}
                     onClick={handleEventClick}
                     index={index}
+                    showQuickFeedback={Boolean(event.isRecommended || event.isTrending)}
                   />
                 ))
               ) : (
@@ -198,18 +268,6 @@ const MapPage = () => {
               )}
             </div>
           </motion.div>
-
-          {/* Right: Map */}
-          <div className="hidden md:flex flex-1 min-w-0">
-            <MapView
-              events={filteredEvents}
-              selectedEventId={selectedEventId}
-              hoveredEventId={hoveredEventId}
-              onEventSelect={handleEventClick}
-              onEventHover={handleEventHover}
-              onBackgroundClick={handleClearSelection}
-            />
-          </div>
         </div>
       </main>
 

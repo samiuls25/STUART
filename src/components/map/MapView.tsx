@@ -1,11 +1,29 @@
 import React, { useEffect, useMemo, useRef } from "react";
 import { motion } from "framer-motion";
 import { Navigation, ZoomIn, ZoomOut } from "lucide-react";
-import { MapContainer, TileLayer, useMap, useMapEvents } from "react-leaflet";
-import type { Map as LeafletMap, LatLngTuple } from "leaflet";
+import { MapContainer, TileLayer, useMap, useMapEvents, Circle, CircleMarker } from "react-leaflet";
+import L, { type Map as LeafletMap, type LatLngTuple } from "leaflet";
 import "leaflet/dist/leaflet.css";
+import MarkerClusterGroup from "react-leaflet-cluster";
+import "leaflet.markercluster/dist/MarkerCluster.css";
+import "leaflet.markercluster/dist/MarkerCluster.Default.css";
 import type { Event } from "../../data/events";
 import MapPin from "./MapPin";
+
+// Build the icon Leaflet renders for an aggregated cluster of markers. Sized
+// and colored to match the theme of our individual MapPin pins so the map
+// reads as one coherent UI rather than mixing default Leaflet visuals.
+const createClusterIcon = (cluster: { getChildCount: () => number }) => {
+  const count = cluster.getChildCount();
+  const size = count >= 100 ? 56 : count >= 25 ? 48 : 40;
+
+  return L.divIcon({
+    html: `<div class="stuart-cluster-bubble" style="width:${size}px;height:${size}px;line-height:${size}px;">${count}</div>`,
+    className: "stuart-cluster-wrapper",
+    iconSize: [size, size],
+    iconAnchor: [size / 2, size / 2],
+  });
+};
 
 interface MapViewProps {
   events: Event[];
@@ -14,6 +32,12 @@ interface MapViewProps {
   onEventSelect: (event: Event) => void;
   onEventHover: (id: string | null) => void;
   onBackgroundClick?: () => void;
+  /** Browser geolocation / fallback coords — drives optional "you are here" marker. */
+  userLocation?: { lat: number; lon: number } | null;
+  /** When true and userLocation is set, render a dot at the user's position (skip during NYC fallback). */
+  showUserLocationPin?: boolean;
+  /** When set with userLocation, draws a faint radius circle for the active distance filter. Ignored when null ("Any distance"). */
+  distanceLimitMiles?: number | null;
 }
 
 const NYC_CENTER: LatLngTuple = [40.7128, -74.006];
@@ -77,6 +101,17 @@ const MapBackgroundClickHandler = ({
   return null;
 };
 
+// Clear React hover state when the user pans or zooms so a pin that was only
+// "virtually" hovered during cluster spiderfy doesn't keep the sidebar + pin
+// chrome stuck in a hover/selected mismatch.
+const MapLeafletHoverClear = ({ onClear }: { onClear: () => void }) => {
+  useMapEvents({
+    zoomstart: onClear,
+    dragstart: onClear,
+  });
+  return null;
+};
+
 const isFiniteLatLng = (target: LatLngTuple): boolean =>
   Number.isFinite(target[0]) && Number.isFinite(target[1]);
 
@@ -103,8 +138,25 @@ export default function MapView({
   onEventSelect,
   onEventHover,
   onBackgroundClick,
+  userLocation = null,
+  showUserLocationPin = false,
+  distanceLimitMiles = null,
 }: MapViewProps) {
   const mapRef = useRef<LeafletMap | null>(null);
+  /** MarkerClusterGroup instance from leaflet.markercluster (runtime plugin; not on core Leaflet typings). */
+  const clusterRef = useRef<L.Layer | null>(null);
+
+  useEffect(() => {
+    const group = clusterRef.current;
+    if (!group) return;
+    const clearHoverFromCluster = () => onEventHover(null);
+    group.on("spiderfied", clearHoverFromCluster);
+    group.on("unspiderfied", clearHoverFromCluster);
+    return () => {
+      group.off("spiderfied", clearHoverFromCluster);
+      group.off("unspiderfied", clearHoverFromCluster);
+    };
+  }, [events, onEventHover]);
 
   const center = useMemo<LatLngTuple>(() => {
     const first = events.find(
@@ -192,20 +244,63 @@ export default function MapView({
           }}
         />
 
+        <MapLeafletHoverClear onClear={() => onEventHover(null)} />
+
         {onBackgroundClick && (
           <MapBackgroundClickHandler onBackgroundClick={onBackgroundClick} />
         )}
 
-        {events.map((event) => (
-          <MapPin
-            key={event.id}
-            event={event}
-            isActive={selectedEventId === event.id}
-            isHovered={hoveredEventId === event.id}
-            onSelect={onEventSelect}
-            onHover={onEventHover}
+        {showUserLocationPin && userLocation && distanceLimitMiles != null && (
+          <Circle
+            center={[userLocation.lat, userLocation.lon]}
+            radius={distanceLimitMiles * 1609.344}
+            pathOptions={{
+              color: "hsl(var(--primary))",
+              fillColor: "hsl(var(--primary))",
+              fillOpacity: 0.07,
+              weight: 1,
+              opacity: 0.45,
+            }}
           />
-        ))}
+        )}
+
+        {/* Cluster densely-packed markers into a single bubble that splits
+            into individual pins on zoom-in. With 300+ events concentrated in
+            Manhattan, this dramatically reduces visual clutter and DOM/marker
+            overhead. The cluster group is fully reactive: applying filters
+            removes children and the clusters re-render automatically. */}
+        <MarkerClusterGroup
+          ref={clusterRef}
+          chunkedLoading
+          showCoverageOnHover={false}
+          spiderfyOnMaxZoom
+          maxClusterRadius={60}
+          iconCreateFunction={createClusterIcon}
+        >
+          {events.map((event) => (
+            <MapPin
+              key={event.id}
+              event={event}
+              isActive={selectedEventId === event.id}
+              isHovered={hoveredEventId === event.id}
+              onSelect={onEventSelect}
+              onHover={onEventHover}
+            />
+          ))}
+        </MarkerClusterGroup>
+
+        {showUserLocationPin && userLocation && (
+          <CircleMarker
+            center={[userLocation.lat, userLocation.lon]}
+            radius={8}
+            pathOptions={{
+              color: "#ffffff",
+              fillColor: "hsl(var(--primary))",
+              fillOpacity: 1,
+              weight: 2,
+            }}
+          />
+        )}
       </MapContainer>
 
       {/* Zoom controls */}
