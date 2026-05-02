@@ -6,6 +6,7 @@ import { motion } from "framer-motion";
 import AuthModal from "../auth/AuthModal.tsx";
 import { useAuth } from "../../lib/AuthContext";
 import { useNotificationCount } from "../../hooks/use-notifications";
+import ThemeToggle from "./ThemeToggle.tsx";
 
 const navItems = [
   { path: "/", label: "Explore", icon: Compass },
@@ -60,7 +61,9 @@ const Navbar = () => {
             </div>
 
             {/* Right Actions */}
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2 md:gap-3">
+              <ThemeToggle />
+
               {user && (
                 <Link
                   to="/notifications"

@@ -6,8 +6,6 @@ import {
   Shield,
   Bell,
   ChevronRight,
-  Moon,
-  Sun,
   Trash2,
   LogOut,
   ArrowLeft,
@@ -64,44 +62,12 @@ const Settings = () => {
     friendRequests: true,
     eventReminders: true,
     friendActivity: false,
-    // Theme
-    darkMode: typeof window !== 'undefined' && localStorage.getItem('theme') === 'dark',
   });
   const [saving, setSaving] = useState(false);
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
 
   const { user, signOut } = useAuth();
-
-  // Initialize dark mode from system preference or localStorage on mount
-  useEffect(() => {
-    const savedTheme = localStorage.getItem('theme');
-    if (savedTheme === 'dark') {
-      document.documentElement.classList.add('dark');
-      setSettings((prev) => ({ ...prev, darkMode: true }));
-    } else if (savedTheme === 'light') {
-      document.documentElement.classList.remove('dark');
-      setSettings((prev) => ({ ...prev, darkMode: false }));
-    } else {
-      // Check system preference
-      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-      if (prefersDark) {
-        document.documentElement.classList.add('dark');
-        setSettings((prev) => ({ ...prev, darkMode: true }));
-      }
-    }
-  }, []);
-
-  // Apply dark mode changes
-  useEffect(() => {
-    if (settings.darkMode) {
-      document.documentElement.classList.add('dark');
-      localStorage.setItem('theme', 'dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-      localStorage.setItem('theme', 'light');
-    }
-  }, [settings.darkMode]);
 
   // Initialize profile fields from user data
   useEffect(() => {
@@ -511,23 +477,6 @@ const Settings = () => {
       />
 
       <div className="pt-6 border-t border-border space-y-3">
-        <div className="flex items-center justify-between p-4 rounded-xl bg-card border border-border">
-          <div className="flex items-center gap-3">
-            {settings.darkMode ? (
-              <Moon className="w-5 h-5 text-primary" />
-            ) : (
-              <Sun className="w-5 h-5 text-primary" />
-            )}
-            <span className="font-medium text-foreground">Dark Mode</span>
-          </div>
-          <Switch
-            checked={settings.darkMode}
-            onCheckedChange={(checked) =>
-              setSettings((s) => ({ ...s, darkMode: checked }))
-            }
-          />
-        </div>
-
         <button
           onClick={signOut}
           className="w-full flex items-center justify-center gap-2 p-4 rounded-xl text-destructive hover:bg-destructive/10 transition-colors"
