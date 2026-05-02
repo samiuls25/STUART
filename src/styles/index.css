@@ -283,6 +283,40 @@
     box-shadow: 0 0 20px hsl(var(--primary) / 0.4);
   }
 
+  /* Leaflet (OpenStreetMap) overrides — strip the default DivIcon container
+     styling so .map-pin renders cleanly, and theme the tooltip and attribution
+     to match the rest of the app. */
+  .stuart-map-pin-wrapper {
+    background: transparent;
+    border: none;
+  }
+
+  .leaflet-tooltip.stuart-map-tooltip {
+    @apply bg-card text-foreground border border-border rounded-lg p-3;
+    box-shadow: var(--shadow-elevated);
+  }
+
+  .leaflet-tooltip.stuart-map-tooltip::before {
+    border-top-color: hsl(var(--card)) !important;
+  }
+
+  .leaflet-container {
+    @apply bg-muted text-foreground;
+    font-family: inherit;
+    /* Trap Leaflet's internal z-index ladder (panes 200-700, controls 1000)
+       inside its own stacking context. Without this, tiles and controls leak
+       up to the root stacking context and cover app modals (z-50). */
+    isolation: isolate;
+  }
+
+  .leaflet-control-attribution {
+    @apply bg-card/80 text-muted-foreground text-[10px];
+  }
+
+  .leaflet-control-attribution a {
+    @apply text-primary;
+  }
+
   .nav-link {
     @apply text-muted-foreground hover:text-foreground font-medium px-4 py-2 rounded-lg;
     @apply transition-all duration-200 relative;
