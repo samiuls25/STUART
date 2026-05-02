@@ -15,4 +15,11 @@ export default defineConfig(({ mode }) => ({
       "@": path.resolve(__dirname, "./src"),
     },
   },
+  // Pre-bundle deps that are only reached through lazy-loaded routes so the
+  // dev server doesn't return 504 (Outdated Optimize Dep) the first time the
+  // user navigates to the route. Required for Leaflet because MapPage is
+  // lazy-imported via React.lazy.
+  optimizeDeps: {
+    include: ["leaflet", "react-leaflet"],
+  },
 }));

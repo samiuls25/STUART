@@ -1,8 +1,30 @@
+import { supabase } from "./supabase";
+
 let supportsIsPublicColumnCache: boolean | null = null;
 let inFlightSupportCheck: Promise<boolean> | null = null;
 
-const HANGOUTS_IS_PUBLIC_TOKEN = '"rowFilter.hangouts.is_public"';
+const isMissingColumnCode = (code: string | undefined) =>
+  code === "42703" || code === "PGRST204";
 
+const isMissingColumnMessage = (message: string | undefined) => {
+  if (!message) return false;
+  const lower = message.toLowerCase();
+  return (
+    lower.includes("does not exist")
+    || lower.includes("column hangouts.is_public")
+    || lower.includes("could not find")
+  );
+};
+
+/**
+ * Detect whether the `hangouts.is_public` column is present in the connected
+ * Supabase project. Newer Supabase deployments return 401 on the bare
+ * `/rest/v1/` OpenAPI endpoint, so we probe via a zero-row select instead -
+ * that uses the standard PostgREST path the rest of the app already relies on.
+ *
+ * The result is cached for the lifetime of the page since schema doesn't
+ * change at runtime.
+ */
 export async function hasHangoutsIsPublicColumn(): Promise<boolean> {
   if (supportsIsPublicColumnCache !== null) {
     return supportsIsPublicColumnCache;
@@ -13,31 +35,25 @@ export async function hasHangoutsIsPublicColumn(): Promise<boolean> {
   }
 
   inFlightSupportCheck = (async () => {
-    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
-    const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
-
-    if (!supabaseUrl || !supabaseAnonKey) {
-      supportsIsPublicColumnCache = false;
-      return false;
-    }
-
     try {
-      const response = await fetch(`${supabaseUrl}/rest/v1/`, {
-        headers: {
-          apikey: supabaseAnonKey,
-          Authorization: `Bearer ${supabaseAnonKey}`,
-        },
-      });
+      const { error } = await supabase
+        .from("hangouts")
+        .select("is_public")
+        .limit(0);
 
-      if (!response.ok) {
+      if (!error) {
+        supportsIsPublicColumnCache = true;
+        return true;
+      }
+
+      if (isMissingColumnCode(error.code) || isMissingColumnMessage(error.message)) {
         supportsIsPublicColumnCache = false;
         return false;
       }
 
-      const openApiText = await response.text();
-      const supports = openApiText.includes(HANGOUTS_IS_PUBLIC_TOKEN);
-      supportsIsPublicColumnCache = supports;
-      return supports;
+      // Unrelated error (RLS / network / auth). Fall back to runtime row sniffing.
+      supportsIsPublicColumnCache = false;
+      return false;
     } catch {
       supportsIsPublicColumnCache = false;
       return false;
