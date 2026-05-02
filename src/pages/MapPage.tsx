@@ -16,6 +16,8 @@ import {
   isThisWeek,
   distanceMiles,
   computeFilterCounts,
+  isEventUpcomingForBrowse,
+  withComputedDistance,
 } from "../lib/eventFilters";
 import { useUserLocation } from "../hooks/useUserLocation";
 import { toast } from "../hooks/use-toast";
@@ -26,7 +28,7 @@ const MapPage = () => {
   const [selectedGenre, setSelectedGenre] = useState("All");
   const [selectedPrice, setSelectedPrice] = useState("All");
   const [selectedTime, setSelectedTime] = useState("All");
-  const [selectedDistance, setSelectedDistance] = useState(5);
+  const [selectedDistance, setSelectedDistance] = useState<number | null>(null);
   const {
     location: userLocation,
     usingFallback: locationUsingFallback,
@@ -68,6 +70,11 @@ const MapPage = () => {
     };
   }, [authLoading, user?.id]);
 
+  const browseEvents = useMemo(
+    () => events.filter(isEventUpcomingForBrowse),
+    [events],
+  );
+
   const handleUseMyLocation = () => {
     requestLocation();
     // If the browser has hard-blocked the prompt (3+ dismissals), the call
@@ -86,7 +93,7 @@ const MapPage = () => {
 
   const { segmentCounts, genreCounts } = useMemo(
     () =>
-      computeFilterCounts(events, {
+      computeFilterCounts(browseEvents, {
         segment: selectedSegment,
         genre: selectedGenre,
         price: selectedPrice,
@@ -95,7 +102,7 @@ const MapPage = () => {
         userLocation,
       }),
     [
-      events,
+      browseEvents,
       selectedSegment,
       selectedGenre,
       selectedPrice,
@@ -106,7 +113,7 @@ const MapPage = () => {
   );
 
   const filteredEvents = useMemo(() => {
-    return events.filter((event) => {
+    return browseEvents.filter((event) => {
       const matchesSegment =
         selectedSegment === "All" || event.segment === selectedSegment;
       const matchesGenre =
@@ -126,7 +133,9 @@ const MapPage = () => {
         );
       }
       const matchesDistance =
-        eventDistance == null || eventDistance <= selectedDistance;
+        selectedDistance == null
+        || eventDistance == null
+        || eventDistance <= selectedDistance;
 
       const eventDate = parseEventDate(event.date);
       const matchesTime =
@@ -143,9 +152,9 @@ const MapPage = () => {
         matchesDistance &&
         matchesTime
       );
-    });
+    }).map((event) => withComputedDistance(event, userLocation));
   }, [
-    events,
+    browseEvents,
     selectedSegment,
     selectedGenre,
     selectedPrice,
@@ -168,6 +177,7 @@ const MapPage = () => {
   const handleClearSelection = () => {
     setDetailEvent(null);
     setSelectedEventId(null);
+    setHoveredEventId(null);
   };
 
   const handleSearchArea = () => {
@@ -175,7 +185,7 @@ const MapPage = () => {
     setSelectedGenre("All");
     setSelectedPrice("All");
     setSelectedTime("All");
-    setSelectedDistance(5);
+    setSelectedDistance(null);
   };
 
   if (loading) {
@@ -235,6 +245,7 @@ const MapPage = () => {
                     onHover={handleEventHover}
                     onClick={handleEventClick}
                     index={index}
+                    showQuickFeedback={Boolean(event.isRecommended || event.isTrending)}
                   />
                 ))
               ) : (
@@ -252,6 +263,9 @@ const MapPage = () => {
               onEventSelect={handleEventClick}
               onEventHover={handleEventHover}
               onBackgroundClick={handleClearSelection}
+              userLocation={userLocation}
+              showUserLocationPin={Boolean(userLocation && !locationUsingFallback)}
+              distanceLimitMiles={selectedDistance}
             />
           </div>
         </div>

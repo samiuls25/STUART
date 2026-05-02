@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from "react";
 import { motion } from "framer-motion";
-import { Search, Sparkles, X, Heart, MapPin, ArrowUp, Users } from "lucide-react";
+import { Search, Sparkles, X, Heart, MapPin, ArrowUp, Users, ThumbsUp, ThumbsDown } from "lucide-react";
 import React from "react";
 import Fuse from "fuse.js";
 import Navbar from "../components/layout/Navbar.tsx";
@@ -19,6 +19,11 @@ import { type Event, fetchEvents } from "../data/events";
 import { toast } from "../hooks/use-toast.ts";
 import { saveEvent, unsaveEvent, getSavedEventIds } from "../lib/SavedEvents";
 import { trackEventView } from "../lib/eventIntelligence";
+import {
+  recordRecommendationFeedback,
+  getLocalFeedbackForEvent,
+  type RecommendationFeedbackType,
+} from "../lib/recommendationFeedback";
 import { useAuth } from "../lib/AuthContext";
 import {
   parseEventDate,
@@ -26,6 +31,8 @@ import {
   isThisWeek,
   distanceMiles,
   computeFilterCounts,
+  isEventUpcomingForBrowse,
+  withComputedDistance,
 } from "../lib/eventFilters";
 
 const searchPlaceholders = [
@@ -44,7 +51,7 @@ const Explore = () => {
   const [selectedGenre, setSelectedGenre] = useState<string>("All");
   const [selectedPrice, setSelectedPrice] = useState<string>("All");
   const [selectedTime, setSelectedTime] = useState<string>("All");
-  const [selectedDistance, setSelectedDistance] = useState<number>(5);
+  const [selectedDistance, setSelectedDistance] = useState<number | null>(null);
   const [selectedMood, setSelectedMood] = useState<string | null>(null);
   const [detailEvent, setDetailEvent] = useState<Event | null>(null);
   const [detailOpenSuggest, setDetailOpenSuggest] = useState(false);
@@ -85,6 +92,11 @@ const Explore = () => {
     };
   }, [authLoading, user?.id]);
 
+  const browseEvents = useMemo(
+    () => events.filter(isEventUpcomingForBrowse),
+    [events],
+  );
+
   useEffect(() => {
     setCurrentPage(1);
     setPageInput("1");
@@ -112,9 +124,9 @@ const Explore = () => {
   };
 
   const fuse = useMemo(() => {
-    if (!events.length) return null;
+    if (!browseEvents.length) return null;
 
-    const searchable = events.map((event) => ({
+    const searchable = browseEvents.map((event) => ({
       ...event,
       title: event.name,
       vibe: (event.tags ?? []).join(" "),
@@ -128,7 +140,7 @@ const Explore = () => {
         { name: "venue", weight: 0.1 },
       ],
     });
-  }, [events]);
+  }, [browseEvents]);
 
   const handleSearch = (query: string, options?: { skipFuzzy?: boolean }) => {
     setSearchQuery(query);
@@ -144,7 +156,7 @@ const Explore = () => {
     setSearchResults(results);
   };
 
-  const filterBaseEvents = useMemo(() => searchResults ?? events, [searchResults, events]);
+  const filterBaseEvents = useMemo(() => searchResults ?? browseEvents, [searchResults, browseEvents]);
 
   const { segmentCounts, genreCounts } = useMemo(
     () =>
@@ -190,7 +202,9 @@ const Explore = () => {
         );
       }
       const matchesDistance =
-        eventDistance == null || eventDistance <= selectedDistance;
+        selectedDistance == null
+        || eventDistance == null
+        || eventDistance <= selectedDistance;
 
       const eventDate = parseEventDate(event.date);
       const matchesTime =
@@ -215,10 +229,9 @@ const Explore = () => {
         matchesTime &&
         matchesMood
       );
-    });
+    }).map((event) => withComputedDistance(event, userLocation));
   }, [
-    events,
-    searchResults,
+    filterBaseEvents,
     userLocation,
     selectedSegment,
     selectedGenre,
@@ -226,7 +239,6 @@ const Explore = () => {
     selectedTime,
     selectedDistance,
     selectedMood,
-    searchQuery,
   ]);
 
   const handleEventClick = (event: Event) => {
@@ -269,6 +281,7 @@ const Explore = () => {
     setSelectedGenre("All");
     setSelectedPrice("All");
     setSelectedTime("All");
+    setSelectedDistance(null);
     setSelectedMood(null);
     handleSearch("", { skipFuzzy: true });
   };
@@ -424,7 +437,7 @@ const Explore = () => {
           <TrendingSection events={filteredEvents} onEventClick={handleEventClick} />
           
           {/* Recommended Section */}
-          <RecommendedSection events={events} onEventClick={handleEventClick} />
+          <RecommendedSection events={browseEvents} onEventClick={handleEventClick} />
 
           {/* Filters */}
           <div id="filters-anchor">
@@ -585,6 +598,9 @@ const EventCardGrid = ({
 }) => {
   const { user } = useAuth();
   const [isSaved, setIsSaved] = useState(false);
+  const [submittedFeedback, setSubmittedFeedback] = useState<RecommendationFeedbackType | null>(
+    () => getLocalFeedbackForEvent(event.id),
+  );
 
   const toScoreLabel = (score?: number) => {
     if (typeof score !== "number" || Number.isNaN(score) || score <= 0) {
@@ -592,6 +608,10 @@ const EventCardGrid = ({
     }
     return `SCORE ${Math.round(score)}`;
   };
+
+  useEffect(() => {
+    setSubmittedFeedback(getLocalFeedbackForEvent(event.id));
+  }, [event.id]);
 
   useEffect(() => {
     if (user && event.isSaveable !== false) {
@@ -602,6 +622,25 @@ const EventCardGrid = ({
       setIsSaved(false);
     }
   }, [user, event.id, event.isSaveable]);
+
+  const handleFeedback = async (
+    reactEvent: React.MouseEvent,
+    feedback: RecommendationFeedbackType,
+  ) => {
+    reactEvent.stopPropagation();
+    if (submittedFeedback) return;
+
+    setSubmittedFeedback(feedback);
+    await recordRecommendationFeedback(event.id, feedback);
+
+    toast({
+      title: "Thanks for the feedback",
+      description:
+        feedback === "more"
+          ? "We'll prioritize similar events in your recommendations."
+          : "We'll downrank similar events for you.",
+    });
+  };
 
   const handleSaveToggle = async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -715,11 +754,13 @@ const EventCardGrid = ({
           <MapPin className="w-3.5 h-3.5" />
           {event.venue}
         </p>
-        {event.price && (
+        {event.priceLevel === "free" ? (
+          <p className="text-sm font-semibold text-green-500 mt-2">Free</p>
+        ) : event.price ? (
           <p className="text-primary font-semibold text-sm mt-2">{event.price}</p>
-        )}
+        ) : null}
 
-        <div className="mt-3 flex items-center gap-2">
+        <div className="mt-3 flex items-center gap-2 flex-wrap">
           <button
             type="button"
             onClick={(reactEvent) => {
@@ -741,6 +782,45 @@ const EventCardGrid = ({
             </button>
           )}
         </div>
+
+        {(event.isRecommended || event.isTrending) && (
+        <div className="mt-3 pt-3 border-t border-border/50 flex items-center justify-end gap-2 text-xs text-muted-foreground">
+          {submittedFeedback ? (
+            <span className="flex items-center gap-1.5 italic">
+              {submittedFeedback === "more" ? (
+                <>
+                  <ThumbsUp className="w-3 h-3 text-green-500" />
+                  Thanks — we'll find more like this
+                </>
+              ) : (
+                <>
+                  <ThumbsDown className="w-3 h-3 text-destructive" />
+                  Got it — we'll downrank similar events
+                </>
+              )}
+            </span>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={(reactEvent) => handleFeedback(reactEvent, "more")}
+                className="flex items-center gap-1 px-2 py-1 rounded-full hover:bg-green-500/10 hover:text-green-500 transition-colors"
+              >
+                <ThumbsUp className="w-3 h-3" />
+                More like this
+              </button>
+              <button
+                type="button"
+                onClick={(reactEvent) => handleFeedback(reactEvent, "not-interested")}
+                className="flex items-center gap-1 px-2 py-1 rounded-full hover:bg-destructive/10 hover:text-destructive transition-colors"
+              >
+                <ThumbsDown className="w-3 h-3" />
+                Not interested
+              </button>
+            </>
+          )}
+        </div>
+        )}
       </div>
     </motion.div>
   );

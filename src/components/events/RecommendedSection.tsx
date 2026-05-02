@@ -2,30 +2,12 @@ import { motion } from "framer-motion";
 import React from "react";
 import { Sparkles, Star, Info, Heart } from "lucide-react";
 import type { Event } from "../../data/events";
+import { isEventUpcomingForBrowse } from "../../lib/eventFilters";
 
 interface RecommendedSectionProps {
   events: Event[];
   onEventClick: (event: Event) => void;
 }
-
-const isCurrentOrFutureEvent = (event: Event) => {
-  if (event.happeningNow || event.isTonight) {
-    return true;
-  }
-
-  if (!event.date) {
-    return true;
-  }
-
-  const parsed = new Date(`${event.date}T00:00:00`);
-  if (Number.isNaN(parsed.getTime())) {
-    return true;
-  }
-
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  return parsed >= today;
-};
 
 const RecommendedSection = ({ events, onEventClick }: RecommendedSectionProps) => {
   const toScoreLabel = (score?: number) => {
@@ -37,7 +19,7 @@ const RecommendedSection = ({ events, onEventClick }: RecommendedSectionProps) =
 
   const recommendedEvents = events
     .filter((e) => e.isRecommended)
-    .filter(isCurrentOrFutureEvent)
+    .filter(isEventUpcomingForBrowse)
     .sort((a, b) => (b.recommendationScore || 0) - (a.recommendationScore || 0))
     .slice(0, 4);
 

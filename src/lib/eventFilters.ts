@@ -58,7 +58,8 @@ export interface FilterState {
   genre: string;
   price: string;
   time: string;
-  distance: number;
+  /** `null` means no distance cap ("Any distance"). */
+  distance: number | null;
   userLocation: { lat: number; lon: number } | null;
 }
 
@@ -86,9 +87,11 @@ const matchesTime = (event: Event, value: string) => {
 
 const matchesDistance = (
   event: Event,
-  maxDistance: number,
+  maxDistance: number | null,
   userLocation: FilterState["userLocation"],
 ) => {
+  if (maxDistance == null) return true;
+
   let eventDistance = event.distance ?? null;
   if (
     userLocation != null &&
@@ -104,6 +107,36 @@ const matchesDistance = (
   }
   return eventDistance == null || eventDistance <= maxDistance;
 };
+
+/** Hide events whose calendar date is strictly before today (local timezone). */
+export function isEventUpcomingForBrowse(event: Event): boolean {
+  const d = parseEventDate(event.date);
+  if (!d) return true;
+  return startOfDay(d).getTime() >= startOfDay(new Date()).getTime();
+}
+
+/** Attach a freshly computed mile distance when lat/lon + userLocation exist. */
+export function withComputedDistance(
+  event: Event,
+  userLocation: { lat: number; lon: number } | null,
+): Event {
+  if (
+    userLocation == null ||
+    typeof event.latitude !== "number" ||
+    typeof event.longitude !== "number"
+  ) {
+    return event;
+  }
+  return {
+    ...event,
+    distance: distanceMiles(
+      userLocation.lat,
+      userLocation.lon,
+      event.latitude,
+      event.longitude,
+    ),
+  };
+}
 
 /**
  * Compute counts of events that would match each segment/genre value if the

@@ -20,6 +20,11 @@ export default defineConfig(({ mode }) => ({
   // user navigates to the route. Required for Leaflet because MapPage is
   // lazy-imported via React.lazy.
   optimizeDeps: {
-    include: ["leaflet", "react-leaflet"],
+    include: [
+      "leaflet",
+      "react-leaflet",
+      "react-leaflet-cluster",
+      "leaflet.markercluster",
+    ],
   },
 }));

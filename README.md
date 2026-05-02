@@ -26,7 +26,8 @@ This section reflects the current codebase behavior.
   - Genre
   - Price
   - Time windows (Now, Tonight, This Weekend, This Week)
-  - Distance (with geolocation fallback to NYC)
+  - Distance (`Any distance` by default; optional caps from 1 mi through 100 mi, with geolocation fallback to NYC). When a cap is active on the Map page, a faint radius ring and “you are here” dot appear for real (non-fallback) locations.
+- Segment and genre dropdowns are derived live from the loaded events with per-option counts; options that would yield zero matches are disabled, and any data-only values (e.g. "Rock", "Religious") are surfaced even when they're not in the canonical list.
 - Mood-driven filtering through mood shortcuts.
 - Weather-aware UI card (Open-Meteo) with recommendation text.
 - Trending strip with ranked/fallback trending logic.
@@ -48,6 +49,7 @@ This section reflects the current codebase behavior.
   - recommendation reasons and score
 - Save/unsave actions.
 - Ticket outbound links for ticketed events.
+- Recommendation feedback controls (More like this / Not interested / Too expensive / Too far) with localStorage persistence and best-effort Supabase write.
 - Suggest to group/friends flow:
   - loads groups and friends
   - allows mixed selection (groups + individuals)
@@ -190,10 +192,11 @@ Note: legacy `/groups` and `/groups/:id` routes now redirect to `/hangouts`.
 
 - Split-screen map experience:
   - left list with cards
-  - right Google Map surface
-- Marker rendering from event coordinates.
+  - right OpenStreetMap surface rendered via Leaflet (no API key required)
+- Marker rendering from event coordinates with marker clustering (`react-leaflet-cluster`); densely packed pins collapse into a single themed bubble that splits on zoom-in. Filters still work transparently — the cluster group is fully reactive to its child markers.
 - Marker hover/selection with tooltip previews.
-- Segment/genre filtering in map context.
+- Full filter parity with Explore (segment, genre, price, time, distance) in map context.
+- Recenter button uses browser geolocation when available (falls back to NYC center).
 - Event detail modal integration from map/list clicks.
 
 ### Settings
@@ -259,6 +262,21 @@ Badges are computed from signals like:
 
 Computed results are synced to Supabase `badges` with metadata and level/progress.
 
+### Recommendation Feedback
+
+When users react to a recommended event with one of the four feedback buttons
+("More like this", "Not interested", "Too expensive", "Too far") the response is:
+
+- Saved to `localStorage` under `stuart.recommendationFeedback.v1` for instant, client-side suppression of repeats.
+- Best-effort persisted to `public.event_recommendation_feedback` (if the table exists). Missing-table or RLS errors are tolerated silently.
+- Consumed by `recompute_event_intelligence.py`, which down-weights events sharing the same price level / neighborhood as disliked anchors, suppresses "not interested" events outright, and boosts events that share a segment / genre / tag with "more like this" anchors.
+
+The "More like this" / "Not interested" quick actions appear only on Explore grid cards and Map list rows that are **trending or recommended**, so casual browsing stays visually quiet. The full four-button feedback panel inside every **event detail modal** remains available for any event so richer signals ("Too expensive", "Too far") are still easy to capture after someone opens details.
+
+### Geolocation
+
+`useUserLocation()` (in `src/hooks/useUserLocation.ts`) wraps a single mount-time call to `navigator.geolocation.getCurrentPosition`. On success the user's real coordinates power the distance filter on the Explore and Map pages. On denial / unavailability it falls back to NYC (40.7128, -74.006) and flips a `usingFallback` flag, which renders a `LocationBanner` above the filter bar explaining the situation and offering a "Use my location" button to re-prompt. The Ticketmaster sync script remains NYC-scoped, so users outside NYC who grant location will see distances correctly computed but very few events within range.
+
 ## Automation and Scripts
 
 ### NPM Scripts
@@ -300,12 +318,12 @@ Workflow: `.github/workflows/sync-events.yml`
 ## Tech Stack
 
 - Frontend: React 18, TypeScript, Vite.
-- Routing: React Router v6.
+- Routing: React Router v6 (lazy-loaded route bundles via `React.lazy`).
 - UI: Tailwind CSS, shadcn-style Radix primitives, lucide icons, framer-motion.
 - Data Fetching: Supabase JS, TanStack Query (provider present).
 - Search: Fuse.js.
 - Date utilities: date-fns.
-- Maps: `@react-google-maps/api`.
+- Maps: Leaflet + OpenStreetMap tiles via `react-leaflet` (no API key, no billing).
 - Backend services: Supabase Auth, Postgres, Storage, Realtime, RLS.
 - Data jobs: Python 3.11 scripts with Supabase service-key access.
 
@@ -333,18 +351,20 @@ docs/
 - npm 9+
 - Python 3.11
 - A Supabase project
-- Google Maps API key (for map page)
 - Ticketmaster API key (for sync scripts)
 
 ## Environment Variables
 
-Create a `.env` file in the project root.
+Vite inlines any `VITE_*` variable that is set when `npm run build` runs. The same variable can come from a local `.env`, a GitHub Actions secret, or a Netlify env var - the code only reads `import.meta.env.VITE_*`, so the source is interchangeable.
 
-Required for frontend:
+Create a `.env` file in the project root for local development.
+
+Required for frontend (must be set wherever the build runs):
 
 - `VITE_SUPABASE_URL`
 - `VITE_SUPABASE_ANON_KEY`
-- `VITE_GOOGLE_MAPS_API_KEY`
+
+The map page uses OpenStreetMap tiles via Leaflet, so no map provider key is required.
 
 Required for Python scripts:
 
@@ -369,7 +389,6 @@ Example:
 VITE_SUPABASE_URL=https://your-project.supabase.co
 VITE_SUPABASE_ANON_KEY=your-anon-key
 SUPABASE_SERVICE_KEY=your-service-role-key
-VITE_GOOGLE_MAPS_API_KEY=your-google-maps-key
 VITE_TICKETMASTER_API_KEY=your-ticketmaster-key
 
 # Optional
@@ -448,7 +467,8 @@ npm run events:prune
   - Public hangouts are discoverable but are not saved as ticketed events.
   - This follows the `saved_events.event_id -> events.id` relationship.
 - Legacy group pages exist in code, but routes are redirected to Hangouts.
-- Plan Builder and feedback controls are currently UX scaffolds (no backend persistence yet).
+- Recommendation feedback controls persist locally via `localStorage` and best-effort to the `event_recommendation_feedback` table; missing-table errors are tolerated. The recommender script reads this table when present and adjusts scores accordingly.
+- Explore and Map browse feeds hide events whose calendar date is strictly before today (local timezone); undated rows are kept. Saved and other pages are not filtered this way.
 - Some behaviors include compatibility fallbacks for partially migrated schemas (for example, optional `is_public` support and memory table fallbacks).
 
 ## Current Route Map
@@ -464,9 +484,37 @@ npm run events:prune
 - `/groups` -> redirected to `/hangouts`
 - `/groups/:id` -> redirected to `/hangouts`
 
+## Deployment (Netlify)
+
+The app is a Vite SPA, so deployment is just publishing the `dist/` directory. Two flows are supported:
+
+### Option A - Netlify builds from the GitHub repo (not chosen)
+
+1. Link the GitHub repo in Netlify. `netlify.toml` already defines:
+   - `command = "npm run build"`
+   - `publish = "dist"`
+   - SPA fallback (`/* → /index.html 200`)
+   - Cache headers and basic security headers
+2. Under **Site settings → Environment variables**, add:
+   - `VITE_SUPABASE_URL`
+   - `VITE_SUPABASE_ANON_KEY`
+3. Trigger a deploy. Netlify will build with those values inlined.
+
+GitHub repository secrets (used by the daily sync workflow) are scoped to GitHub Actions runners. They are **not** automatically forwarded to Netlify; any `VITE_*` value Netlify needs at build time must also be saved in Netlify's environment variables panel.
+
+### Option B - Manual `dist/` upload (drag-and-drop) (chosen)
+
+1. Ensure the local `.env` contains the two frontend `VITE_*` variables.
+2. Run `npm run build`. Vite inlines the values into the bundle.
+3. Drag the resulting `dist/` folder into Netlify's deploy UI.
+4. Netlify picks up `public/_redirects` (already copied into `dist/`) for SPA routing.
+
+The Supabase anon key is published in the bundle by design - Row-Level Security policies are what protect data, not key secrecy. The map provider (OpenStreetMap via Leaflet) requires no API key at all.
+
 ## Troubleshooting
 
 - "Missing VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY": ensure frontend env vars are set.
 - Empty hangouts/memories/recommendations with setup errors: look at schema snapshots in `docs/db/` and verify RLS policies.
-- Map not rendering: confirm `VITE_GOOGLE_MAPS_API_KEY` and API enablement.
+- Map tiles not rendering: confirm the browser has network access to `tile.openstreetmap.org`; corporate proxies sometimes block it.
+- Direct page refresh (e.g. `/profile`) returns 404 on Netlify: confirm `public/_redirects` (or `netlify.toml`'s redirect rule) is in place.
 - Sync/intelligence scripts failing: verify Python env and service-role credentials.

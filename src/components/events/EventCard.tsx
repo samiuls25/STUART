@@ -5,6 +5,11 @@ import type { Event } from "../../data/events.ts";
 import { saveEvent, unsaveEvent, getSavedEventIds } from "../../lib/SavedEvents";
 import { useAuth } from "../../lib/AuthContext";
 import { toast } from "../../hooks/use-toast";
+import {
+  recordRecommendationFeedback,
+  getLocalFeedbackForEvent,
+  type RecommendationFeedbackType,
+} from "../../lib/recommendationFeedback";
 
 interface EventCardProps {
   event: Event;
@@ -13,6 +18,8 @@ interface EventCardProps {
   onHover: (id: string | null) => void;
   onClick: (event: Event) => void;
   index: number;
+  /** Quick thumbs row - intended for trending/recommended rows only on Map list. */
+  showQuickFeedback?: boolean;
 }
 
 const EventCard = ({
@@ -22,9 +29,17 @@ const EventCard = ({
   onHover,
   onClick,
   index,
+  showQuickFeedback = false,
 }: EventCardProps) => {
   const { user } = useAuth();
   const [isSaved, setIsSaved] = useState(false);
+  const [submittedFeedback, setSubmittedFeedback] = useState<RecommendationFeedbackType | null>(
+    () => getLocalFeedbackForEvent(event.id),
+  );
+
+  useEffect(() => {
+    setSubmittedFeedback(getLocalFeedbackForEvent(event.id));
+  }, [event.id]);
 
   useEffect(() => {
     if (user && event.isSaveable !== false) {
@@ -35,6 +50,25 @@ const EventCard = ({
       setIsSaved(false);
     }
   }, [user, event.id, event.isSaveable]);
+
+  const handleFeedback = async (
+    e: React.MouseEvent,
+    feedback: RecommendationFeedbackType,
+  ) => {
+    e.stopPropagation();
+    if (submittedFeedback) return;
+
+    setSubmittedFeedback(feedback);
+    await recordRecommendationFeedback(event.id, feedback);
+
+    toast({
+      title: "Thanks for the feedback",
+      description:
+        feedback === "more"
+          ? "We'll prioritize similar events in your recommendations."
+          : "We'll downrank similar events for you.",
+    });
+  };
 
   const handleSaveToggle = async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -138,7 +172,7 @@ const EventCard = ({
             <span className={`genre-tag ${isSelected ? "active" : ""}`}>
               {event.genre}
             </span>
-            {event.distance && (
+            {typeof event.distance === "number" && event.distance > 0 && (
               <span className="flex items-center gap-1 text-xs text-muted-foreground">
                 <Navigation className="w-3 h-3" />
                 {event.distance} mi
@@ -161,7 +195,7 @@ const EventCard = ({
               <Clock className="w-3.5 h-3.5" />
               <span>{event.time}</span>
             </div>
-            {event.travelTime && (
+            {typeof event.travelTime === "number" && event.travelTime > 0 && (
               <span className="text-xs text-accent-foreground bg-accent/30 px-1.5 py-0.5 rounded">
                 ~{event.travelTime} min
               </span>
@@ -176,18 +210,14 @@ const EventCard = ({
 
           {/* Price + Recommendation */}
           <div className="flex items-center gap-3 mt-2">
-            {event.price && (
+            {event.priceLevel === "free" ? (
+              <p className="text-sm font-semibold text-green-500">Free</p>
+            ) : event.price ? (
               <p className="text-primary font-semibold text-sm flex items-center gap-1">
-                {event.priceLevel === "free" ? (
-                  <span className="text-green-500">Free</span>
-                ) : (
-                  <>
-                    <DollarSign className="w-3 h-3" />
-                    {event.price}
-                  </>
-                )}
+                <DollarSign className="w-3 h-3" />
+                {event.price}
               </p>
-            )}
+            ) : null}
             {event.isRecommended && (
               <span className="text-[10px] text-primary bg-primary/10 px-2 py-0.5 rounded-full font-medium">
                 ★ Recommended
@@ -197,23 +227,46 @@ const EventCard = ({
         </div>
       </div>
       
-      {/* Quick Feedback (shown on hover) */}
-      <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-end gap-2 px-3 pb-2 text-xs text-muted-foreground">
-        <button
-          onClick={(e) => e.stopPropagation()}
-          className="flex items-center gap-1 px-2 py-1 rounded-full hover:bg-green-500/10 hover:text-green-500 transition-colors"
-        >
-          <ThumbsUp className="w-3 h-3" />
-          More like this
-        </button>
-        <button
-          onClick={(e) => e.stopPropagation()}
-          className="flex items-center gap-1 px-2 py-1 rounded-full hover:bg-destructive/10 hover:text-destructive transition-colors"
-        >
-          <ThumbsDown className="w-3 h-3" />
-          Not interested
-        </button>
+      {showQuickFeedback && (
+      <div
+        className={`${
+          submittedFeedback ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+        } transition-opacity flex items-center justify-end gap-2 px-3 pb-2 text-xs text-muted-foreground`}
+      >
+        {submittedFeedback ? (
+          <span className="flex items-center gap-1.5 px-2 py-1 text-xs italic text-muted-foreground">
+            {submittedFeedback === "more" ? (
+              <>
+                <ThumbsUp className="w-3 h-3 text-green-500" />
+                You liked this — we'll find more
+              </>
+            ) : (
+              <>
+                <ThumbsDown className="w-3 h-3 text-destructive" />
+                Got it — we'll downrank similar events
+              </>
+            )}
+          </span>
+        ) : (
+          <>
+            <button
+              onClick={(e) => handleFeedback(e, "more")}
+              className="flex items-center gap-1 px-2 py-1 rounded-full hover:bg-green-500/10 hover:text-green-500 transition-colors"
+            >
+              <ThumbsUp className="w-3 h-3" />
+              More like this
+            </button>
+            <button
+              onClick={(e) => handleFeedback(e, "not-interested")}
+              className="flex items-center gap-1 px-2 py-1 rounded-full hover:bg-destructive/10 hover:text-destructive transition-colors"
+            >
+              <ThumbsDown className="w-3 h-3" />
+              Not interested
+            </button>
+          </>
+        )}
       </div>
+      )}
     </motion.div>
   );
 };

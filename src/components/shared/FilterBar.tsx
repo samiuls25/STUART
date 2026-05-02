@@ -1,19 +1,19 @@
 import React, { useMemo } from "react";
 import { motion } from "framer-motion";
 import { ChevronDown, Filter, RefreshCw, MapPin, Clock, DollarSign } from "lucide-react";
-import { segments, genres, priceLevels, timeFilters, distanceOptions } from "../../data/events";
+import { segments, genres, priceLevels, timeFilters, distanceRadiusMilesOptions } from "../../data/events";
 
 interface FilterBarProps {
   selectedSegment: string;
   selectedGenre: string;
   selectedPrice?: string;
   selectedTime?: string;
-  selectedDistance?: number;
+  selectedDistance?: number | null;
   onSegmentChange: (segment: string) => void;
   onGenreChange: (genre: string) => void;
   onPriceChange?: (price: string) => void;
   onTimeChange?: (time: string) => void;
-  onDistanceChange?: (distance: number) => void;
+  onDistanceChange?: (distance: number | null) => void;
   onSearchArea: () => void;
   eventCount: number;
   showAdvancedFilters?: boolean;
@@ -84,7 +84,7 @@ const FilterBar = ({
   selectedGenre,
   selectedPrice = "All",
   selectedTime = "All",
-  selectedDistance = 5,
+  selectedDistance = null,
   onSegmentChange,
   onGenreChange,
   onPriceChange,
@@ -195,12 +195,16 @@ const FilterBar = ({
         <div className="relative">
           <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <select
-            value={selectedDistance}
-            onChange={(e) => onDistanceChange(Number(e.target.value))}
+            value={selectedDistance === null || selectedDistance === undefined ? "" : String(selectedDistance)}
+            onChange={(e) => {
+              const raw = e.target.value;
+              onDistanceChange(raw === "" ? null : Number(raw));
+            }}
             className="appearance-none bg-secondary text-secondary-foreground pl-9 pr-10 py-2 rounded-lg text-sm font-medium cursor-pointer hover:bg-secondary/80 transition-colors border border-border focus:outline-none focus:ring-2 focus:ring-primary/50"
           >
-            {distanceOptions.map((distance) => (
-              <option key={distance} value={distance}>
+            <option value="">Any distance</option>
+            {distanceRadiusMilesOptions.map((distance) => (
+              <option key={distance} value={String(distance)}>
                 Within {distance} mi
               </option>
             ))}

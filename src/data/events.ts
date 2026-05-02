@@ -358,7 +358,8 @@ export interface Event {
   
   export const timeFilters = ["All", "Now", "Tonight", "This Weekend", "This Week"];
   
-  export const distanceOptions = [1, 2, 3, 5, 10, 25];
+  /** Numeric radius presets for the distance dropdown ("Any distance" is `null`, handled in FilterBar). */
+  export const distanceRadiusMilesOptions = [1, 2, 3, 5, 10, 25, 50, 100] as const;
   
   export const moods = [
     { id: "adventurous", label: "Adventurous", icon: "🚀", description: "Unique, immersive experiences" },

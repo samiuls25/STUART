@@ -291,6 +291,39 @@
     border: none;
   }
 
+  /* Marker-cluster bubble. Replaces the default Leaflet.markercluster green
+     blob with a primary-colored disc that matches our pin styling. */
+  .stuart-cluster-wrapper {
+    background: transparent !important;
+    border: none !important;
+  }
+
+  .stuart-cluster-bubble {
+    @apply font-heading font-semibold text-primary-foreground text-center;
+    background: hsl(var(--primary));
+    border: 2px solid hsl(var(--primary-glow));
+    border-radius: 9999px;
+    box-shadow: 0 0 24px hsl(var(--primary) / 0.45);
+    transition: transform 200ms ease;
+  }
+
+  .stuart-cluster-wrapper:hover .stuart-cluster-bubble {
+    transform: scale(1.08);
+  }
+
+  .marker-cluster-small,
+  .marker-cluster-medium,
+  .marker-cluster-large {
+    background-color: transparent !important;
+  }
+
+  .marker-cluster-small div,
+  .marker-cluster-medium div,
+  .marker-cluster-large div {
+    background-color: transparent !important;
+    color: inherit !important;
+  }
+
   .leaflet-tooltip.stuart-map-tooltip {
     @apply bg-card text-foreground border border-border rounded-lg p-3;
     box-shadow: var(--shadow-elevated);

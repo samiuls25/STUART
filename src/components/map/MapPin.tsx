@@ -65,28 +65,33 @@ const MapPin = ({ event, isActive, isHovered, onSelect, onHover }: MapPinProps) 
     <Marker
       position={position}
       icon={icon}
+      zIndexOffset={isActive ? 1000 : isHovered ? 500 : 0}
       eventHandlers={{
         click: () => onSelect(event),
         mouseover: () => onHover(event.id),
         mouseout: () => onHover(null),
       }}
     >
-      <Tooltip
-        direction="top"
-        offset={[0, -16]}
-        opacity={1}
-        className="stuart-map-tooltip"
-      >
-        <div className="min-w-[180px]">
-          <p className="font-heading font-semibold text-sm text-foreground truncate max-w-[220px]">
-            {event.name}
-          </p>
-          <p className="text-xs text-muted-foreground mt-1">{event.venue}</p>
-          <p className="text-xs text-primary font-medium mt-1">
-            {event.date} • {event.time}
-          </p>
-        </div>
-      </Tooltip>
+      {(isHovered || isActive) && (
+        <Tooltip
+          permanent
+          interactive={false}
+          direction="top"
+          offset={[0, -16]}
+          opacity={1}
+          className="stuart-map-tooltip"
+        >
+          <div className="min-w-[180px]">
+            <p className="font-heading font-semibold text-sm text-foreground truncate max-w-[220px]">
+              {event.name}
+            </p>
+            <p className="text-xs text-muted-foreground mt-1">{event.venue}</p>
+            <p className="text-xs text-primary font-medium mt-1">
+              {event.date} • {event.time}
+            </p>
+          </div>
+        </Tooltip>
+      )}
     </Marker>
   );
 };
