@@ -64,6 +64,42 @@
   },
   {
     "schemaname": "public",
+    "tablename": "event_recommendation_feedback",
+    "policyname": "Users can delete own feedback",
+    "cmd": "DELETE",
+    "roles": "{authenticated}",
+    "qual": "(user_id = auth.uid())",
+    "with_check": null
+  },
+  {
+    "schemaname": "public",
+    "tablename": "event_recommendation_feedback",
+    "policyname": "Users can insert own feedback",
+    "cmd": "INSERT",
+    "roles": "{authenticated}",
+    "qual": null,
+    "with_check": "(user_id = auth.uid())"
+  },
+  {
+    "schemaname": "public",
+    "tablename": "event_recommendation_feedback",
+    "policyname": "Users can update own feedback",
+    "cmd": "UPDATE",
+    "roles": "{authenticated}",
+    "qual": "(user_id = auth.uid())",
+    "with_check": "(user_id = auth.uid())"
+  },
+  {
+    "schemaname": "public",
+    "tablename": "event_recommendation_feedback",
+    "policyname": "Users can view own feedback",
+    "cmd": "SELECT",
+    "roles": "{authenticated}",
+    "qual": "(user_id = auth.uid())",
+    "with_check": null
+  },
+  {
+    "schemaname": "public",
     "tablename": "event_views",
     "policyname": "Users can delete own event views",
     "cmd": "DELETE",
@@ -87,6 +123,15 @@
     "cmd": "SELECT",
     "roles": "{authenticated}",
     "qual": "(user_id = auth.uid())",
+    "with_check": null
+  },
+  {
+    "schemaname": "public",
+    "tablename": "events",
+    "policyname": "Anyone can view events",
+    "cmd": "SELECT",
+    "roles": "{anon,authenticated}",
+    "qual": "true",
     "with_check": null
   },
   {
@@ -492,6 +537,15 @@
     "cmd": "SELECT",
     "roles": "{public}",
     "qual": "(auth.uid() = user_id)",
+    "with_check": null
+  },
+  {
+    "schemaname": "public",
+    "tablename": "user_event_recommendations",
+    "policyname": "Users can delete own recommendations",
+    "cmd": "DELETE",
+    "roles": "{authenticated}",
+    "qual": "(user_id = auth.uid())",
     "with_check": null
   },
   {
