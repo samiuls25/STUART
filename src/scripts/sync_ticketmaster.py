@@ -25,7 +25,21 @@ DEFAULT_EVENT_DURATION_HOURS = 3
 EVENT_DELETE_CHUNK_SIZE = 200
 PAST_EVENT_RETENTION_DAYS = int(os.getenv("EVENT_PAST_RETENTION_DAYS", "2"))
 TICKETMASTER_DEFAULT_WINDOW_DAYS = int(os.getenv("TICKETMASTER_WINDOW_DAYS", "45"))
-TICKETMASTER_DEFAULT_MAX_PAGES = int(os.getenv("TICKETMASTER_MAX_PAGES", "6"))
+TICKETMASTER_DEFAULT_MAX_PAGES = int(os.getenv("TICKETMASTER_MAX_PAGES", "15"))
+TICKETMASTER_DEFAULT_PAGE_SIZE = int(os.getenv("TICKETMASTER_PAGE_SIZE", "100"))
+
+# Approximate NYC borough centers (lat, lon, radius miles). Zones overlap; events dedupe by Ticketmaster id.
+TICKETMASTER_NYC_GEO_ZONES = [
+    ("Manhattan", 40.7831, -73.9712, 9),
+    ("Brooklyn", 40.6782, -73.9442, 11),
+    ("Queens", 40.7282, -73.7949, 12),
+    ("Bronx", 40.8448, -73.8648, 11),
+    ("Staten Island", 40.5795, -74.1502, 9),
+]
+
+DISCOVERY_EVENTS_URL = "https://app.ticketmaster.com/discovery/v2/events.json"
+# Discovery applies a ~1000-event ceiling per query; higher page indices return HTTP 400.
+TICKETMASTER_DISCOVERY_MAX_EVENTS_PER_QUERY = 1000
 
 
 def normalize_label(value: str | None):
@@ -101,29 +115,52 @@ def _to_tm_iso(dt: datetime):
     return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def fetch_ticketmaster_events(city="New York", size=50, max_pages=TICKETMASTER_DEFAULT_MAX_PAGES, window_days=TICKETMASTER_DEFAULT_WINDOW_DAYS):
+def _event_discovery_sort_key(event: dict):
+    start = event.get("dates", {}).get("start", {}) or {}
+    return (start.get("localDate") or "", start.get("localTime") or "")
+
+
+def paginated_discovery_fetch(
+    extra_params: dict,
+    *,
+    size: int,
+    max_pages: int,
+    window_days: int,
+) -> list:
+    """
+    Shared Ticketmaster Discovery events pagination.
+    `extra_params` typically includes either `city` or geo (`latlong`, `radius`, `unit`).
+
+    Ticketmaster caps each search at roughly 1000 events; requesting pages beyond
+    that ceiling yields HTTP 400 — we clamp page count automatically.
+    """
     now_utc = datetime.utcnow()
     end_utc = now_utc + timedelta(days=window_days)
-
-    url = "https://app.ticketmaster.com/discovery/v2/events.json"
     collected = []
 
-    for page in range(max_pages):
+    safe_size = max(1, min(size, 200))
+    max_pages_allowed = max(1, TICKETMASTER_DISCOVERY_MAX_EVENTS_PER_QUERY // safe_size)
+    effective_pages = min(max_pages, max_pages_allowed)
+
+    for page in range(effective_pages):
         params = {
             "apikey": TM_API_KEY,
-            "city": city,
-            "size": size,
+            "size": safe_size,
             "page": page,
             "sort": "date,asc",
             "startDateTime": _to_tm_iso(now_utc),
             "endDateTime": _to_tm_iso(end_utc),
+            **extra_params,
         }
 
-        response = requests.get(url, params=params)
+        response = requests.get(DISCOVERY_EVENTS_URL, params=params, timeout=60)
         response.raise_for_status()
         data = response.json()
 
         page_events = data.get("_embedded", {}).get("events", [])
+        if not page_events:
+            break
+
         collected.extend(page_events)
 
         page_info = data.get("page", {})
@@ -132,6 +169,53 @@ def fetch_ticketmaster_events(city="New York", size=50, max_pages=TICKETMASTER_D
             break
 
     return collected
+
+
+def fetch_ticketmaster_events(
+    city="New York",
+    size=TICKETMASTER_DEFAULT_PAGE_SIZE,
+    max_pages=TICKETMASTER_DEFAULT_MAX_PAGES,
+    window_days=TICKETMASTER_DEFAULT_WINDOW_DAYS,
+):
+    return paginated_discovery_fetch({"city": city}, size=size, max_pages=max_pages, window_days=window_days)
+
+
+def fetch_ticketmaster_events_nyc_multi_geo(
+    *,
+    size: int,
+    max_pages: int,
+    window_days: int,
+) -> list:
+    """
+    Query several NYC-area geo circles so outer boroughs are not drowned out by a single
+    `city=New York` ascending-date page budget. Merge by Ticketmaster event id.
+    """
+    merged: dict[str, dict] = {}
+    insertion_order: list[str] = []
+
+    for label, lat, lon, radius_mi in TICKETMASTER_NYC_GEO_ZONES:
+        print(f"Ticketmaster geo fetch: {label} ({lat}, {lon}) r={radius_mi}mi …")
+        chunk = paginated_discovery_fetch(
+            {
+                "latlong": f"{lat},{lon}",
+                "radius": str(radius_mi),
+                "unit": "miles",
+            },
+            size=size,
+            max_pages=max_pages,
+            window_days=window_days,
+        )
+        print(f"  … raw rows this zone: {len(chunk)}")
+        for ev in chunk:
+            eid = ev.get("id")
+            if eid and eid not in merged:
+                merged[eid] = ev
+                insertion_order.append(eid)
+
+    combined = [merged[eid] for eid in insertion_order]
+    combined.sort(key=_event_discovery_sort_key)
+    print(f"Ticketmaster merged unique events (multi-geo): {len(combined)}")
+    return combined
 
 
 def parse_local_time(local_time: str | None):
@@ -321,9 +405,30 @@ def prune_events_catalog(dry_run: bool = False):
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Sync and prune Ticketmaster events")
-    parser.add_argument("--size", type=int, default=50, help="Ticketmaster page size for sync")
-    parser.add_argument("--max-pages", type=int, default=TICKETMASTER_DEFAULT_MAX_PAGES, help="Maximum Ticketmaster pages to fetch per run")
-    parser.add_argument("--window-days", type=int, default=TICKETMASTER_DEFAULT_WINDOW_DAYS, help="Future date window (in days) to include from Ticketmaster")
+    parser.add_argument(
+        "--size",
+        type=int,
+        default=TICKETMASTER_DEFAULT_PAGE_SIZE,
+        help="Ticketmaster page size per request (Discovery API typically allows up to 200)",
+    )
+    parser.add_argument(
+        "--max-pages",
+        type=int,
+        default=TICKETMASTER_DEFAULT_MAX_PAGES,
+        help="Max pages per geo zone (multi-geo) or total pages (legacy); capped at ~1000/size by Ticketmaster",
+    )
+    parser.add_argument(
+        "--window-days",
+        type=int,
+        default=TICKETMASTER_DEFAULT_WINDOW_DAYS,
+        help="Future date window (in days) to include from Ticketmaster",
+    )
+    parser.add_argument(
+        "--legacy-city-only",
+        action="store_true",
+        help="Use a single city=New York query instead of multi-borough geo merges (easier debugging)",
+    )
+    parser.add_argument("--city", type=str, default="New York", help="City filter when --legacy-city-only is set")
     parser.add_argument("--prune-only", action="store_true", help="Skip fetch/sync and only run prune")
     parser.add_argument("--skip-prune", action="store_true", help="Skip prune step after sync")
     parser.add_argument("--dry-run-prune", action="store_true", help="Run prune in dry-run mode")
@@ -391,7 +496,21 @@ if __name__ == "__main__":
         raise SystemExit(0)
 
     print("Fetching events from Ticketmaster...")
-    events = fetch_ticketmaster_events(size=args.size, max_pages=args.max_pages, window_days=args.window_days)
+    if args.legacy_city_only:
+        print(f"Mode: legacy city query ({args.city})")
+        events = fetch_ticketmaster_events(
+            city=args.city,
+            size=args.size,
+            max_pages=args.max_pages,
+            window_days=args.window_days,
+        )
+    else:
+        print("Mode: multi-borough geo (merged, deduped by event id)")
+        events = fetch_ticketmaster_events_nyc_multi_geo(
+            size=args.size,
+            max_pages=args.max_pages,
+            window_days=args.window_days,
+        )
     print(f"Found {len(events)} events")
     sync_to_supabase(events)
 
