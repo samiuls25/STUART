@@ -180,8 +180,8 @@ export async function sendFriendRequest(friendEmail: string): Promise<boolean> {
   // Trim email
   const normalizedEmail = friendEmail.trim();
 
-  console.log("Current user:", user.email);
-  console.log("Searching for friend:", normalizedEmail);
+  // console.log("Current user:", user.email);
+  // console.log("Searching for friend:", normalizedEmail);
 
   // Check if trying to add yourself
   if (normalizedEmail.toLowerCase() === user.email?.toLowerCase()) {
@@ -196,8 +196,8 @@ export async function sendFriendRequest(friendEmail: string): Promise<boolean> {
     .ilike("email", normalizedEmail) // Use ilike for case-insensitive
     .maybeSingle();
 
-  console.log("Friend profile search result:", friendProfile);
-  console.log("Profile error:", profileError);
+  // console.log("Friend profile search result:", friendProfile);
+  // console.log("Profile error:", profileError);
 
   if (profileError) {
     console.error("Error finding friend:", profileError);
