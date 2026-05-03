@@ -40,7 +40,7 @@ const Navbar = () => {
         className="fixed top-0 left-0 right-0 z-50 bg-card/95 backdrop-blur-xl border-b border-border"
       >
         <div className="max-w-7xl mx-auto px-4 sm:px-6">
-          <div className="flex items-center justify-between h-[72px] gap-2">
+          <div className="flex items-center justify-between h-[72px] gap-2 min-w-0">
             {/* Logo */}
             <Link to="/" className="flex items-center gap-2 sm:gap-3 group shrink-0 min-w-0">
               <div className="w-10 h-10 rounded-xl bg-primary flex items-center justify-center shadow-lg shadow-primary/20 group-hover:shadow-primary/30 transition-shadow shrink-0">
@@ -51,8 +51,8 @@ const Navbar = () => {
               </span>
             </Link>
 
-            {/* Center Navigation - desktop */}
-            <div className="hidden md:flex flex-1 justify-center items-center gap-1 min-w-0">
+            {/* Center Navigation — only at xl; lg (1024px) still overflows with email + icons */}
+            <div className="hidden xl:flex flex-1 justify-center items-center gap-1 min-w-0">
               {navItems.map((item) => {
                 const isActive = location.pathname === item.path;
                 return (
@@ -69,14 +69,14 @@ const Navbar = () => {
             </div>
 
             {/* Right Actions */}
-            <div className="flex items-center justify-end gap-1 sm:gap-2 md:gap-3 shrink-0">
+            <div className="flex items-center justify-end gap-1 sm:gap-2 xl:gap-3 shrink-0">
               <ThemeToggle />
 
               {!user && (
                 <button
                   type="button"
                   onClick={() => setShowAuth(true)}
-                  className="md:hidden btn-primary px-3 py-2 text-xs font-medium whitespace-nowrap shrink-0"
+                  className="xl:hidden btn-primary px-3 py-2 text-xs font-medium whitespace-nowrap shrink-0"
                 >
                   Sign In
                 </button>
@@ -99,7 +99,7 @@ const Navbar = () => {
               {user && (
                 <Link
                   to="/settings"
-                  className="hidden md:flex p-2 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors shrink-0"
+                  className="hidden xl:flex p-2 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors shrink-0"
                 >
                   <Settings className="w-5 h-5" />
                 </Link>
@@ -110,7 +110,7 @@ const Navbar = () => {
                   <button
                     type="button"
                     aria-label="Open navigation menu"
-                    className="md:hidden p-2 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors shrink-0"
+                    className="xl:hidden p-2 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors shrink-0"
                   >
                     <Menu className="w-5 h-5" />
                   </button>
@@ -142,7 +142,7 @@ const Navbar = () => {
                       <Link
                         to="/settings"
                         onClick={() => setMobileNavOpen(false)}
-                        className="flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium text-foreground hover:bg-muted md:hidden"
+                        className="flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium text-foreground hover:bg-muted xl:hidden"
                       >
                         <Settings className="w-5 h-5 shrink-0" />
                         Settings
@@ -184,8 +184,8 @@ const Navbar = () => {
               </Sheet>
 
               {user ? (
-                <div className="hidden md:flex items-center gap-3">
-                  <span className="text-sm text-muted-foreground max-w-[140px] lg:max-w-[200px] truncate block" title={user.email}>
+                <div className="hidden xl:flex items-center gap-3 min-w-0 shrink-0">
+                  <span className="text-sm text-muted-foreground max-w-[160px] 2xl:max-w-[240px] truncate block" title={user.email}>
                     {user.email}
                   </span>
                   <button
@@ -200,7 +200,7 @@ const Navbar = () => {
                 <button
                   type="button"
                   onClick={() => setShowAuth(true)}
-                  className="hidden md:inline-flex btn-primary px-4 py-2 text-sm whitespace-nowrap"
+                  className="hidden xl:inline-flex btn-primary px-4 py-2 text-sm whitespace-nowrap"
                 >
                   Sign In
                 </button>

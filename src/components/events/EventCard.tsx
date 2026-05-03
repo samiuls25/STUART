@@ -158,25 +158,30 @@ const EventCard = ({
 
         {/* Content */}
         <div className="flex-1 min-w-0 py-1">
-          {/* Genre Tag + Distance */}
-          <div className="flex items-center gap-2 mb-2">
-            {event.sourceLabel && (
-              <span className="text-[10px] font-medium px-2 py-0.5 rounded-full border border-border text-muted-foreground">
-                {event.sourceLabel}
+          {/* Tags + genre (flex/wrap) + distance on its own column so narrow split panes don't clip mi */}
+          <div className="flex items-start justify-between gap-2 mb-2 min-w-0">
+            <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+              {event.sourceLabel && (
+                <span className="text-[10px] font-medium px-2 py-0.5 rounded-full border border-border text-muted-foreground">
+                  {event.sourceLabel}
+                </span>
+              )}
+              {event.source === "hangout" && event.isJoinedByCurrentUser && (
+                <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-green-500/15 text-green-700">
+                  Joined
+                </span>
+              )}
+              <span
+                className={`genre-tag min-w-0 max-w-[11rem] shrink truncate sm:max-w-[14rem] ${isSelected ? "active" : ""}`}
+                title={event.genre}
+              >
+                {event.genre}
               </span>
-            )}
-            {event.source === "hangout" && event.isJoinedByCurrentUser && (
-              <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-green-500/15 text-green-700">
-                Joined
-              </span>
-            )}
-            <span className={`genre-tag ${isSelected ? "active" : ""}`}>
-              {event.genre}
-            </span>
+            </div>
             {typeof event.distance === "number" && event.distance > 0 && (
-              <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                <Navigation className="w-3 h-3" />
-                {formatDistanceMiles(event.distance)} mi
+              <span className="flex shrink-0 items-center gap-1 whitespace-nowrap pt-0.5 text-xs text-muted-foreground">
+                <Navigation className="w-3 h-3 shrink-0" aria-hidden />
+                <span>{formatDistanceMiles(event.distance)} mi</span>
               </span>
             )}
           </div>

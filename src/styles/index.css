@@ -238,7 +238,11 @@
   .card-event {
     @apply bg-card rounded-xl overflow-hidden border border-border;
     @apply hover:border-primary/30 hover:bg-card-hover;
-    @apply transition-all duration-300 cursor-pointer;
+    @apply cursor-pointer;
+    /* Avoid transition-all: animating bg/border on theme toggle feels ~300ms behind the navbar. */
+    transition:
+      box-shadow 0.3s ease,
+      border-color 0.2s ease;
     box-shadow: var(--shadow-card);
   }
 

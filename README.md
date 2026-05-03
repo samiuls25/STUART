@@ -1,18 +1,20 @@
 # STUART
 
-STUART is a social event discovery and planning app for New York City.
-It combines live event data, custom event data, context-aware recommendations, friend graph features, group invites, public and private hangouts, memories, badges, and notifications into one React + Supabase product.
+STUART is a **full-stack social planner for New York City** on **React + Supabase**. **Live Ticketmaster ingestion**-multi-borough discovery queries plus **scheduled GitHub Actions**-feeds Postgres; **offline Python jobs** recompute trending, personalization, and time-window flags, and **in-app recommendation feedback** nudges those scores over time.
+
+What ships in the browser is deliberately **big**: paired **Explore and Map** experiences (fuzzy search, segment/genre/price/time/distance filters, **Leaflet** clustering and geolocation, dark/light theme), **Open-Meteo** weather-informed copy on Explore, **public and private hangouts** with **availability heatmaps** and **best-slot** scoring for organizers, reusable **groups** and **friend invites**, **multi-photo memories** with reordering and storage hygiene, **badges persisted in Supabase**, **realtime** notification delivery, granular **privacy** toggles and **settings**, and responsive navigation-including a **theme toggle before sign-in** so first impressions aren’t gated on auth.
 
 ## What STUART Does
 
-STUART helps users:
+Users can:
 
-- Discover events with search, filters, context-aware recommendations, and trending signals.
-- Plan hangouts with friends or groups with smart planning and flexible options. 
-- Join public hangouts from the Explore and Map surfaces.
-- Save events and turn past events and hangouts into memories.
-- Track social progress through badges.
-- Manage profile privacy and notification preferences.
+- **Discover** NYC events from live ingestion-fuzzy search, segment/genre/price/time/distance filters, map + list views with geolocation, trending and personalized picks, and weather-informed copy on Explore.
+- **Plan together** with reusable **groups**, friend-aware invites, fixed-time or **heatmap-based** scheduling, and ranked **best-time** suggestions organizers can apply.
+- **Join the city** via **public hangouts** surfaced on Explore and Map, or keep things **private** when needed.
+- **Save and relive** favorites, then promote past hangs and saved events into **memories** with rich media and attendee lists.
+- **Stay in the loop** with a **realtime notification** feed and navbar awareness, driven by Supabase channels.
+- **Grow a profile** with **badges** (computed signals, stored in Supabase), avatars, bios, and **visibility controls** (friends-only memories, badges, upcoming hangs, and more in Settings).
+- **Use it anywhere**—responsive navigation (including a mobile sheet), accessible map/list split, and a **theme toggle** that works even before sign-in.
 
 ## Core Feature Inventory
 
@@ -203,8 +205,8 @@ Note: legacy `/groups` and `/groups/:id` routes now redirect to `/hangouts`.
 
 ### Navigation and theme
 
-- **Desktop:** primary routes (Explore, Map, Hangouts, Friends, Saved, Profile) in the top bar.
-- **Below `md`:** routes live in a **right-hand sheet** (hamburger); notifications bell stays on the bar; **Settings** is duplicated into the sheet on small screens.
+- **Wide desktop (`xl+`, 1280px):** primary routes (Explore, Map, Hangouts, Friends, Saved, Profile) in the **top bar**.
+- **Below `xl` (1280px):** routes live in a **right-hand sheet** (hamburger), including **lg** laptop widths and split DevTools—**1024px (`lg`) alone is not wide enough** for the full link row + account controls without overlap.
 - **Dark / light mode** is toggled from the **navbar** (works **without signing in**) via `src/lib/themePreference.ts` (`localStorage` key `theme`). Bootstrap runs in `src/app/main.tsx`.
 
 ### Settings
