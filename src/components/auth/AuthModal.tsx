@@ -13,9 +13,17 @@ interface AuthModalProps {
 const AuthModal = ({ isOpen, onClose }: AuthModalProps) => {
   const [mode, setMode] = useState<"signin" | "signup">("signin");
   const [email, setEmail] = useState("");
+  const [confirmEmail, setConfirmEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [name, setName] = useState("");
   const [loading, setLoading] = useState(false);
+
+  const switchMode = () => {
+    setMode(mode === "signin" ? "signup" : "signin");
+    setConfirmEmail("");
+    setConfirmPassword("");
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -23,22 +31,56 @@ const AuthModal = ({ isOpen, onClose }: AuthModalProps) => {
 
     try {
       if (mode === "signup") {
-        const { error } = await supabase.auth.signUp({
-          email,
+        const normalized = email.trim().toLowerCase();
+        const normalizedConfirm = confirmEmail.trim().toLowerCase();
+        if (normalized !== normalizedConfirm) {
+          toast({
+            title: "Emails don't match",
+            description: "Re-enter your email the same way in both fields.",
+            variant: "destructive",
+          });
+          return;
+        }
+        if (password !== confirmPassword) {
+          toast({
+            title: "Passwords don't match",
+            description: "Make sure both password fields are identical.",
+            variant: "destructive",
+          });
+          return;
+        }
+        if (password.length < 6) {
+          toast({
+            title: "Password too short",
+            description: "Use at least 6 characters.",
+            variant: "destructive",
+          });
+          return;
+        }
+
+        const { data, error } = await supabase.auth.signUp({
+          email: normalized,
           password,
           options: {
             data: { name },
           },
         });
         if (error) throw error;
-        toast({
-          title: "Success!",
-          description: "Check your email to confirm your account.",
-        });
+        if (data.session) {
+          toast({
+            title: "Welcome!",
+            description: "Your account is ready — you're signed in.",
+          });
+        } else {
+          toast({
+            title: "Success!",
+            description: "Check your email to confirm your account.",
+          });
+        }
         onClose();
       } else {
         const { error } = await supabase.auth.signInWithPassword({
-          email,
+          email: email.trim().toLowerCase(),
           password,
         });
         if (error) throw error;
@@ -119,10 +161,29 @@ const AuthModal = ({ isOpen, onClose }: AuthModalProps) => {
                         onChange={(e) => setEmail(e.target.value)}
                         placeholder="you@example.com"
                         className="pl-10"
+                        autoComplete="email"
                         required
                       />
                     </div>
                   </div>
+
+                  {mode === "signup" && (
+                    <div>
+                      <label className="block text-sm font-medium mb-2">Confirm email</label>
+                      <div className="relative">
+                        <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+                        <Input
+                          type="email"
+                          value={confirmEmail}
+                          onChange={(e) => setConfirmEmail(e.target.value)}
+                          placeholder="Re-enter email"
+                          className="pl-10"
+                          autoComplete="email"
+                          required
+                        />
+                      </div>
+                    </div>
+                  )}
 
                   <div>
                     <label className="block text-sm font-medium mb-2">Password</label>
@@ -134,10 +195,31 @@ const AuthModal = ({ isOpen, onClose }: AuthModalProps) => {
                         onChange={(e) => setPassword(e.target.value)}
                         placeholder="••••••••"
                         className="pl-10"
+                        autoComplete={mode === "signin" ? "current-password" : "new-password"}
                         required
+                        minLength={mode === "signup" ? 6 : undefined}
                       />
                     </div>
                   </div>
+
+                  {mode === "signup" && (
+                    <div>
+                      <label className="block text-sm font-medium mb-2">Confirm password</label>
+                      <div className="relative">
+                        <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+                        <Input
+                          type="password"
+                          value={confirmPassword}
+                          onChange={(e) => setConfirmPassword(e.target.value)}
+                          placeholder="••••••••"
+                          className="pl-10"
+                          autoComplete="new-password"
+                          required
+                          minLength={6}
+                        />
+                      </div>
+                    </div>
+                  )}
 
                   <button
                     type="submit"
@@ -150,7 +232,7 @@ const AuthModal = ({ isOpen, onClose }: AuthModalProps) => {
 
                 <div className="mt-4 text-center">
                   <button
-                    onClick={() => setMode(mode === "signin" ? "signup" : "signin")}
+                    onClick={() => switchMode()}
                     className="text-sm text-primary hover:underline"
                   >
                     {mode === "signin"

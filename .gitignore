@@ -29,3 +29,5 @@ stuart/
 # Local notes
 notes_history.md
 notes_history*.md
+# Local Netlify folder
+.netlify
