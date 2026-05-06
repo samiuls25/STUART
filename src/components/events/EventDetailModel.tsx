@@ -685,7 +685,10 @@ const EventDetailModal = ({
           </div>
 
           <Dialog open={showSuggestModal} onOpenChange={setShowSuggestModal}>
-            <DialogContent className="max-w-xl max-h-[85vh] overflow-y-auto">
+            <DialogContent
+              overlayClassName="z-[1600]"
+              className="z-[1610] max-w-xl max-h-[85vh] overflow-y-auto"
+            >
               <DialogHeader>
                 <DialogTitle>Suggest This Event</DialogTitle>
                 <DialogDescription>
@@ -818,6 +821,7 @@ const EventDetailModal = ({
           </Dialog>
 
           <CreateGroupModal
+            stackAboveParentModal
             isOpen={showCreateGroupModal}
             onClose={() => setShowCreateGroupModal(false)}
             onSaved={(group) => {

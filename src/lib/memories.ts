@@ -483,43 +483,81 @@ async function mapMemoryRowsWithRelations(memoryRows: MemoryRow[]): Promise<Memo
 
 async function fetchSharedMemoryRowsForUser(
   currentUserId: string,
-  ownerUserId?: string
+  otherUserId?: string,
 ): Promise<MemoryRow[]> {
-  const { data: attendeeRows, error: attendeeError } = await supabase
-    .from("memory_attendees")
-    .select("memory_id,is_owner")
-    .eq("user_id", currentUserId);
+  if (!otherUserId) {
+    const { data: attendeeRows, error: attendeeError } = await supabase
+      .from("memory_attendees")
+      .select("memory_id,is_owner")
+      .eq("user_id", currentUserId);
 
-  if (attendeeError) {
-    if (isMissingTableError(attendeeError)) {
+    if (attendeeError) {
+      if (isMissingTableError(attendeeError)) {
+        return [];
+      }
+      throw attendeeError;
+    }
+
+    const sharedMemoryIds = [
+      ...new Set(
+        (((attendeeRows as MemoryAttendeeMembershipRow[] | null) || [])
+          .filter((row) => !row.is_owner)
+          .map((row) => row.memory_id)),
+      ),
+    ];
+
+    if (sharedMemoryIds.length === 0) {
       return [];
     }
-    throw attendeeError;
+
+    const { data: memoryRows, error: memoryError } = await supabase
+      .from("memories")
+      .select("id,user_id,title,description,image_url,event_id,hangout_id,location,memory_date,created_at")
+      .in("id", sharedMemoryIds)
+      .neq("user_id", currentUserId)
+      .order("memory_date", { ascending: false })
+      .order("created_at", { ascending: false });
+
+    if (memoryError) {
+      throw memoryError;
+    }
+
+    return (memoryRows as MemoryRow[] | null) || [];
   }
 
-  const sharedMemoryIds = [
+  const [{ data: mine, error: mineError }, { data: theirs, error: theirsError }] = await Promise.all([
+    supabase.from("memory_attendees").select("memory_id").eq("user_id", currentUserId),
+    supabase.from("memory_attendees").select("memory_id").eq("user_id", otherUserId),
+  ]);
+
+  if (mineError) {
+    if (isMissingTableError(mineError)) return [];
+    throw mineError;
+  }
+  if (theirsError) {
+    if (isMissingTableError(theirsError)) return [];
+    throw theirsError;
+  }
+
+  const mineIds = new Set(
+    ((mine ?? []) as Array<{ memory_id: string }>).map((row) => row.memory_id),
+  );
+  const sharedIds = [
     ...new Set(
-      (((attendeeRows as MemoryAttendeeMembershipRow[] | null) || [])
-        .filter((row) => !row.is_owner)
-        .map((row) => row.memory_id))
+      ((theirs ?? []) as Array<{ memory_id: string }>)
+        .map((row) => row.memory_id)
+        .filter((id) => mineIds.has(id)),
     ),
   ];
 
-  if (sharedMemoryIds.length === 0) {
+  if (sharedIds.length === 0) {
     return [];
   }
 
-  let query = supabase
+  const { data: memoryRows, error: memoryError } = await supabase
     .from("memories")
     .select("id,user_id,title,description,image_url,event_id,hangout_id,location,memory_date,created_at")
-    .in("id", sharedMemoryIds)
-    .neq("user_id", currentUserId);
-
-  if (ownerUserId) {
-    query = query.eq("user_id", ownerUserId);
-  }
-
-  const { data: memoryRows, error: memoryError } = await query
+    .in("id", sharedIds)
     .order("memory_date", { ascending: false })
     .order("created_at", { ascending: false });
 
