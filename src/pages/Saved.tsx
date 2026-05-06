@@ -192,7 +192,7 @@ const Saved = () => {
           )}
         </div>
       </main>
-      <EventDetailModal event={detailEvent} onClose={() => setDetailEvent(null)} />
+      <EventDetailModal event={detailEvent} analyticsSurface="saved" onClose={() => setDetailEvent(null)} />
       <CreateMemoryModal
         isOpen={creatingMemory}
         onClose={() => {

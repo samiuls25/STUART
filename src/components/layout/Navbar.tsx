@@ -1,5 +1,5 @@
 import React from "react"
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { User, Heart, Users, Compass, Map, Calendar, Settings, Bell, Menu } from "lucide-react";
 import { motion } from "framer-motion";
@@ -7,6 +7,7 @@ import AuthModal from "../auth/AuthModal.tsx";
 import { useAuth } from "../../lib/AuthContext";
 import { useNotificationCount } from "../../hooks/use-notifications";
 import ThemeToggle from "./ThemeToggle.tsx";
+import { trackAnalytics } from "../../lib/analytics";
 import {
   Sheet,
   SheetContent,
@@ -28,8 +29,23 @@ const Navbar = () => {
   const [showAuth, setShowAuth] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const { user, signOut } = useAuth();
-  const { unreadCount } = useNotificationCount();
+  const { unreadCount, loading: unreadLoading } = useNotificationCount();
+  const unreadBannerTrackedRef = useRef(false);
   const location = useLocation();
+
+  useEffect(() => {
+    if (!user) {
+      unreadBannerTrackedRef.current = false;
+      return;
+    }
+    if (unreadLoading || unreadCount <= 0) return;
+    if (unreadBannerTrackedRef.current) return;
+    unreadBannerTrackedRef.current = true;
+    trackAnalytics("notifications_unread_snapshot", {
+      unread_bucket: unreadCount <= 5 ? "1_5" : "6_plus",
+      surface: "navbar_badge",
+    });
+  }, [user, unreadLoading, unreadCount]);
 
   return (
     <>

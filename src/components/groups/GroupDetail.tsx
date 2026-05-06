@@ -215,7 +215,7 @@ const GroupDetail = () => {
         </div>
       </main>
 
-      <EventDetailModal event={detailEvent} onClose={() => setDetailEvent(null)} />
+      <EventDetailModal event={detailEvent} analyticsSurface="groups" onClose={() => setDetailEvent(null)} />
     </div>
   );
 };

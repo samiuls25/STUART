@@ -34,8 +34,10 @@ import {
   getLocalFeedbackForEvent,
   type RecommendationFeedbackType,
 } from "../../lib/recommendationFeedback";
+import { trackAnalytics } from "../../lib/analytics";
 
 const pad2 = (value: number) => String(value).padStart(2, "0");
+export type AnalyticsSurface = "explore" | "map" | "saved" | "groups";
 
 const toDateInputValue = (date: Date) => {
   return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
@@ -93,9 +95,16 @@ interface EventDetailModalProps {
   event: Event | null;
   onClose: () => void;
   initialSuggestOpen?: boolean;
+  /** Where the modal was opened from (for analytics only). */
+  analyticsSurface?: AnalyticsSurface;
 }
 
-const EventDetailModal = ({ event, onClose, initialSuggestOpen = false }: EventDetailModalProps) => {
+const EventDetailModal = ({
+  event,
+  onClose,
+  initialSuggestOpen = false,
+  analyticsSurface = "explore",
+}: EventDetailModalProps) => {
   const { user } = useAuth();
   const [isSaved, setIsSaved] = useState(false);
   const [hangoutMembershipState, setHangoutMembershipState] = useState<"checking" | "joined" | "not-joined">("not-joined");
@@ -136,11 +145,25 @@ const EventDetailModal = ({ event, onClose, initialSuggestOpen = false }: EventD
     }
   }, [event]);
 
+  useEffect(() => {
+    if (!event) return;
+    trackAnalytics("event_detail_open", {
+      event_id: event.id,
+      surface: analyticsSurface,
+      source: event.source ?? "unknown",
+    });
+  }, [event?.id, analyticsSurface]);
+
   const handleRecommendationFeedback = async (feedbackId: string) => {
     if (!event) return;
     const typed = feedbackId as RecommendationFeedbackType;
     setSubmittedFeedback(typed);
     await recordRecommendationFeedback(event.id, typed);
+    trackAnalytics("reco_feedback", {
+      feedback: typed,
+      event_id: event.id,
+      surface: analyticsSurface,
+    });
     toast({
       title: "Thanks for the feedback",
       description: "STUART will use this to tune your recommendations.",
@@ -329,7 +352,7 @@ const EventDetailModal = ({ event, onClose, initialSuggestOpen = false }: EventD
 
       await createHangout({
         title: hangoutTitle,
-        description: `Event plan based on \"${event.name}\".${ticketLine}`,
+        description: `Event plan based on "${event.name}".${ticketLine}`,
         activityType: mapEventToHangoutType(event),
         isPublic: false,
         proposedTimeRange: {
@@ -619,7 +642,18 @@ const EventDetailModal = ({ event, onClose, initialSuggestOpen = false }: EventD
                     </button>
                   )}
                   {event.ticketUrl ? (
-                    <a href={event.ticketUrl} target="_blank" rel="noopener noreferrer" className="btn-primary flex items-center gap-2">
+                    <a
+                      href={event.ticketUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="btn-primary flex items-center gap-2"
+                      onClick={() =>
+                        trackAnalytics("ticket_outbound_click", {
+                          event_id: event.id,
+                          surface: analyticsSurface,
+                        })
+                      }
+                    >
                       Get Tickets <ExternalLink className="w-4 h-4" />
                     </a>
                   ) : isHangoutEvent ? (

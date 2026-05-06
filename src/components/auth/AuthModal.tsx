@@ -1,9 +1,10 @@
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, Mail, Lock, User } from "lucide-react";
 import { Input } from "../ui/input";
 import { supabase } from "../../lib/supabase";
 import { toast } from "../../hooks/use-toast";
+import { trackAnalytics } from "../../lib/analytics";
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -11,6 +12,7 @@ interface AuthModalProps {
 }
 
 const AuthModal = ({ isOpen, onClose }: AuthModalProps) => {
+  const prevOpenRef = useRef(false);
   const [mode, setMode] = useState<"signin" | "signup">("signin");
   const [email, setEmail] = useState("");
   const [confirmEmail, setConfirmEmail] = useState("");
@@ -18,6 +20,13 @@ const AuthModal = ({ isOpen, onClose }: AuthModalProps) => {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [name, setName] = useState("");
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (isOpen && !prevOpenRef.current) {
+      trackAnalytics("auth_modal_open", { mode });
+    }
+    prevOpenRef.current = isOpen;
+  }, [isOpen, mode]);
 
   const switchMode = () => {
     setMode(mode === "signin" ? "signup" : "signin");
@@ -66,6 +75,9 @@ const AuthModal = ({ isOpen, onClose }: AuthModalProps) => {
           },
         });
         if (error) throw error;
+        trackAnalytics("signup_submit_success", {
+          immediate_session: Boolean(data.session),
+        });
         if (data.session) {
           toast({
             title: "Welcome!",
@@ -90,10 +102,15 @@ const AuthModal = ({ isOpen, onClose }: AuthModalProps) => {
         });
         onClose();
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      trackAnalytics("signin_submit_error", {
+        auth_mode: mode,
+        message: message.slice(0, 120),
+      });
       toast({
         title: "Error",
-        description: error.message,
+        description: message,
         variant: "destructive",
       });
     } finally {

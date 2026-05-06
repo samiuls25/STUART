@@ -35,6 +35,7 @@ import {
   withComputedDistance,
   matchesEventMood,
 } from "../lib/eventFilters";
+import { trackAnalytics } from "../lib/analytics";
 
 const searchPlaceholders = [
   "free concerts this weekend",
@@ -103,6 +104,28 @@ const Explore = () => {
     setPageInput("1");
   }, [
     searchQuery,
+    selectedSegment,
+    selectedGenre,
+    selectedPrice,
+    selectedTime,
+    selectedDistance,
+    selectedMood,
+  ]);
+
+  useEffect(() => {
+    const handle = window.setTimeout(() => {
+      trackAnalytics("filter_snapshot", {
+        surface: "explore",
+        segment: selectedSegment,
+        genre: selectedGenre,
+        price: selectedPrice,
+        time: selectedTime,
+        distance: selectedDistance,
+        mood: selectedMood,
+      });
+    }, 650);
+    return () => window.clearTimeout(handle);
+  }, [
     selectedSegment,
     selectedGenre,
     selectedPrice,
@@ -298,6 +321,15 @@ const Explore = () => {
   useEffect(() => {
     setPageInput(String(safePage));
   }, [safePage]);
+
+  useEffect(() => {
+    if (loading) return;
+    trackAnalytics("explore_pagination", {
+      page: safePage,
+      total_pages: totalPages,
+      beyond_first: safePage > 1,
+    });
+  }, [loading, safePage, totalPages]);
 
   const goToPrevPage = () => {
     setCurrentPage((prev) => Math.max(1, prev - 1));
@@ -570,6 +602,7 @@ const Explore = () => {
 
       <EventDetailModal
         event={detailEvent}
+        analyticsSurface="explore"
         initialSuggestOpen={detailOpenSuggest}
         onClose={() => {
           setDetailEvent(null);

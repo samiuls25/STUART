@@ -1,4 +1,5 @@
 import { supabase } from "./supabase";
+import { trackAnalytics } from "./analytics";
 
 export interface MemoryPhoto {
   id: string;
@@ -94,6 +95,14 @@ const DEFAULT_WARNING_RATIO = 0.8;
 
 const missingTableCodes = new Set(["42P01", "PGRST205"]);
 const duplicateValueCodes = new Set(["23505"]);
+
+function bucketPhotoUploadBatchSize(count: number): string {
+  if (count <= 0) return "0";
+  if (count === 1) return "1";
+  if (count <= 4) return "2_4";
+  if (count <= 8) return "5_8";
+  return "9_plus";
+}
 
 const isMissingTableError = (error: unknown) => {
   if (!error || typeof error !== "object") return false;
@@ -780,6 +789,10 @@ export async function createMemoryWithPhotos(
 ): Promise<{ id: string; uploadedPhotos: number }> {
   const created = await createMemory(input);
   const uploaded = await uploadPhotosToMemory(created.id, files);
+
+  trackAnalytics("memory_created", {
+    photo_upload_batch_size_bucket: bucketPhotoUploadBatchSize(uploaded.length),
+  });
 
   return {
     id: created.id,
