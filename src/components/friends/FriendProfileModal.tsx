@@ -180,10 +180,13 @@ const FriendProfileModal = ({ friend, isOpen, onClose, onRemove }: FriendProfile
                       <span
                         key={badge.id}
                         className="inline-flex items-center gap-2 rounded-full border border-border bg-muted/40 px-3 py-1.5 text-xs font-medium text-foreground"
-                        title={`${badge.name} • Level ${badge.level}`}
+                        title={`${badge.name} · Level ${badge.level}`}
                       >
                         <span>{badge.icon}</span>
-                        <span>{badge.name}</span>
+                        <span className="truncate max-w-[140px]">{badge.name}</span>
+                        <span className="text-[10px] text-muted-foreground shrink-0 tabular-nums">
+                          L{badge.level}
+                        </span>
                       </span>
                     ))}
                   </div>

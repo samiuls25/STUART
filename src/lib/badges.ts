@@ -1,4 +1,4 @@
-import { badgeDefinitions, type Badge } from "../data/badges";
+import { badgeDefinitions, type Badge, type BadgeContribution } from "../data/badges";
 import { type Hangout } from "../data/friends";
 import { fetchHangoutsForCurrentUser } from "./hangouts";
 import { supabase } from "./supabase";
@@ -22,7 +22,113 @@ type BadgeId =
   | "social-butterfly"
   | "culture-vulture"
   | "early-bird"
-  | "group-guru";
+  | "group-guru"
+  | "memory-archivist"
+  | "memory-circle"
+  | "friend-circle"
+  | "invite-all-star"
+  | "saved-spotlight";
+
+type ContributionBuildContext = {
+  eventNightCount: number;
+  hangoutNightCount: number;
+  uniqueNeighborhoodCount: number;
+  hangoutSunlitCount: number;
+  uniqueActivityTypeCount: number;
+  publicHangoutCount: number;
+  uniqueSocialConnections: number;
+  eventCultureCount: number;
+  creativeHangoutCount: number;
+  hangoutEarlyCount: number;
+  eventEarlyCount: number;
+  hostedGroupHangoutCount: number;
+  memoryCreated: number;
+  memoryParticipated: number;
+  friendsCount: number;
+  invitedHangoutCount: number;
+  savedEventCount: number;
+};
+
+const BADGE_CONTRIBUTOR_HINTS: Record<string, string> = {
+  "night-pulse":
+    "Evening and late-night signals from events you save or view, plus hangouts you attended that started after dark.",
+  "urban-explorer":
+    "Each distinct neighborhood or venue label from saved/viewed events and hangouts you joined counts toward exploration.",
+  "sunlit-lounger": "Outdoor hangouts you attended that landed in daytime hours.",
+  "whimsical-wanderer":
+    "Trying different hangout activity types and joining public hangouts both increase this badge.",
+  "social-butterfly":
+    "Distinct friends you plan with—hosts plus everyone with a positive RSVP on shared hangouts.",
+  "culture-vulture": "Arts-flavored events you engaged with plus creative hangouts you attended.",
+  "early-bird": "Morning-window events you engaged with plus early-start hangouts.",
+  "group-guru": "Hangouts you hosted that included at least two other people (group size three or more).",
+  "memory-archivist": "Total memories you created in STUART.",
+  "memory-circle": "Any memory you own or appear on as an attendee.",
+  "friend-circle": "Accepted friendships where you sent or accepted the connection.",
+  "invite-all-star": "Hangouts someone else started where you are participating.",
+  "saved-spotlight": "Events saved to your list—great for planning ahead.",
+};
+
+function contributionsForBadge(id: string, ctx: ContributionBuildContext): BadgeContribution[] {
+  switch (id) {
+    case "night-pulse":
+      return [
+        { label: "Evening events (saved or viewed)", value: ctx.eventNightCount },
+        { label: "Night hangouts attended", value: ctx.hangoutNightCount },
+      ];
+    case "urban-explorer":
+      return [{ label: "Distinct neighborhoods / venues tracked", value: ctx.uniqueNeighborhoodCount }];
+    case "sunlit-lounger":
+      return [{ label: "Daytime outdoor hangouts", value: ctx.hangoutSunlitCount }];
+    case "whimsical-wanderer":
+      return [
+        { label: "Different hangout vibes tried", value: ctx.uniqueActivityTypeCount },
+        { label: "Public hangouts joined", value: ctx.publicHangoutCount },
+      ];
+    case "social-butterfly":
+      return [{ label: "Friends connected through hangouts", value: ctx.uniqueSocialConnections }];
+    case "culture-vulture":
+      return [
+        { label: "Culture-rich events engaged", value: ctx.eventCultureCount },
+        { label: "Creative hangouts attended", value: ctx.creativeHangoutCount },
+      ];
+    case "early-bird":
+      return [
+        { label: "Morning-hour events engaged", value: ctx.eventEarlyCount },
+        { label: "Early hangouts attended", value: ctx.hangoutEarlyCount },
+      ];
+    case "group-guru":
+      return [{ label: "Group hangouts you hosted (3+ people)", value: ctx.hostedGroupHangoutCount }];
+    case "memory-archivist":
+      return [{ label: "Memories you created", value: ctx.memoryCreated }];
+    case "memory-circle":
+      return [{ label: "Memories you own or appear in", value: ctx.memoryParticipated }];
+    case "friend-circle":
+      return [{ label: "Accepted friends", value: ctx.friendsCount }];
+    case "invite-all-star":
+      return [{ label: "Hangouts you joined (not the host)", value: ctx.invitedHangoutCount }];
+    case "saved-spotlight":
+      return [{ label: "Saved events", value: ctx.savedEventCount }];
+    default:
+      return [];
+  }
+}
+
+const LEVEL_TARGETS: Record<BadgeId, number[]> = {
+  "night-pulse": [2, 5, 10, 18, 30],
+  "urban-explorer": [3, 6, 10, 16, 24],
+  "sunlit-lounger": [2, 5, 9, 15, 24],
+  "whimsical-wanderer": [2, 5, 9, 14, 20],
+  "social-butterfly": [3, 6, 10, 15, 22],
+  "culture-vulture": [2, 5, 9, 14, 20],
+  "early-bird": [2, 5, 10, 16, 24],
+  "group-guru": [1, 3, 6, 10, 15],
+  "memory-archivist": [1, 3, 6, 12, 20],
+  "memory-circle": [2, 5, 10, 18, 30],
+  "friend-circle": [2, 5, 10, 18, 30],
+  "invite-all-star": [2, 5, 10, 18, 28],
+  "saved-spotlight": [5, 12, 24, 45, 75],
+};
 
 type EventDetail = {
   id: string;
@@ -81,17 +187,6 @@ type BadgeCatalogRow = {
   sort_order?: number | null;
 };
 
-const LEVEL_TARGETS: Record<BadgeId, number[]> = {
-  "night-pulse": [2, 5, 10, 18, 30],
-  "urban-explorer": [3, 6, 10, 16, 24],
-  "sunlit-lounger": [2, 5, 9, 15, 24],
-  "whimsical-wanderer": [2, 5, 9, 14, 20],
-  "social-butterfly": [3, 6, 10, 15, 22],
-  "culture-vulture": [2, 5, 9, 14, 20],
-  "early-bird": [2, 5, 10, 16, 24],
-  "group-guru": [1, 3, 6, 10, 15],
-};
-
 const normalizeBadgeCategory = (value: string | null | undefined): BadgeCategory => {
   if (value === "social" || value === "explorer" || value === "vibe" || value === "special") {
     return value;
@@ -123,6 +218,8 @@ const getFallbackDefinitions = (): BadgeDefinitionRuntime[] => {
 };
 
 const fetchBadgeCatalogDefinitions = async (): Promise<BadgeDefinitionRuntime[]> => {
+  const fallback = getFallbackDefinitions();
+
   const { data, error } = await supabase
     .from("badge_catalog")
     .select("id,name,icon,description,category,max_level,is_active,sort_order")
@@ -130,11 +227,53 @@ const fetchBadgeCatalogDefinitions = async (): Promise<BadgeDefinitionRuntime[]>
     .order("sort_order", { ascending: true });
 
   if (error || !data || data.length === 0) {
-    return getFallbackDefinitions();
+    return fallback;
   }
 
-  return (data as BadgeCatalogRow[]).map(toRuntimeDefinition);
+  const fromCatalog = (data as BadgeCatalogRow[]).map(toRuntimeDefinition);
+  const catalogIds = new Set(fromCatalog.map((row) => row.id));
+  const extras = fallback.filter((definition) => !catalogIds.has(definition.id));
+
+  return [...fromCatalog, ...extras];
 };
+
+async function fetchMemoryBadgeCounts(userId: string): Promise<{ created: number; participated: number }> {
+  try {
+    const [{ count: createdHead }, ownedResult, attendeeResult] = await Promise.all([
+      supabase.from("memories").select("id", { count: "exact", head: true }).eq("user_id", userId),
+      supabase.from("memories").select("id").eq("user_id", userId),
+      supabase.from("memory_attendees").select("memory_id").eq("user_id", userId),
+    ]);
+
+    const created = typeof createdHead === "number" ? createdHead : 0;
+    const ids = new Set<string>();
+    (ownedResult.data ?? []).forEach((row: { id: string }) => {
+      if (row.id) ids.add(row.id);
+    });
+    (attendeeResult.data ?? []).forEach((row: { memory_id: string }) => {
+      if (row.memory_id) ids.add(row.memory_id);
+    });
+
+    return { created, participated: ids.size };
+  } catch {
+    return { created: 0, participated: 0 };
+  }
+}
+
+async function fetchAcceptedFriendsCountForBadges(userId: string): Promise<number> {
+  try {
+    const { count, error } = await supabase
+      .from("friendships")
+      .select("friend_id", { count: "exact", head: true })
+      .eq("user_id", userId)
+      .eq("status", "accepted");
+
+    if (error || count == null) return 0;
+    return count;
+  } catch {
+    return 0;
+  }
+}
 
 const POSITIVE_RESPONSE_STATUSES = new Set(["yes", "maybe", "pending-availability"]);
 
@@ -381,6 +520,8 @@ const mapPersistedRowsToBadges = (
       progress,
       unlocked,
       unlockedAt: unlocked ? formatEarnedAt(row?.earned_at || undefined) : undefined,
+      contributions: fallback.contributions,
+      contributorHint: fallback.contributorHint,
     };
   });
 };
@@ -446,15 +587,20 @@ export async function getUserBadges(userId: string): Promise<Badge[]> {
       level: 0,
       progress: 0,
       unlocked: false,
+      contributorHint: BADGE_CONTRIBUTOR_HINTS[definition.id],
+      contributions: [],
     }));
   }
 
-  const [hangouts, savedEvents, viewedEvents, persistedRows] = await Promise.all([
-    fetchHangoutsForCurrentUser(),
-    fetchSavedEvents(userId),
-    fetchViewedEvents(userId),
-    fetchPersistedBadgeRows(userId),
-  ]);
+  const [hangouts, savedEvents, viewedEvents, persistedRows, memoryBadgeCounts, friendsCount] =
+    await Promise.all([
+      fetchHangoutsForCurrentUser(),
+      fetchSavedEvents(userId),
+      fetchViewedEvents(userId),
+      fetchPersistedBadgeRows(userId),
+      fetchMemoryBadgeCounts(userId),
+      fetchAcceptedFriendsCountForBadges(userId),
+    ]);
 
   const participatingHangouts = hangouts.filter((hangout) => isParticipatingInHangout(hangout, userId));
 
@@ -538,7 +684,29 @@ export async function getUserBadges(userId: string): Promise<Badge[]> {
 
   const creativeHangoutCount = attendedHangouts.filter((hangout) => hangout.activityType === "creative").length;
 
-  const counters: Record<BadgeId, number> = {
+  const invitedHangoutCount = participatingHangouts.filter((hangout) => hangout.createdBy !== userId).length;
+
+  const contributionContext: ContributionBuildContext = {
+    eventNightCount,
+    hangoutNightCount,
+    uniqueNeighborhoodCount: uniqueNeighborhoods.size,
+    hangoutSunlitCount,
+    uniqueActivityTypeCount: uniqueActivityTypes.size,
+    publicHangoutCount,
+    uniqueSocialConnections: uniqueSocialConnections.size,
+    eventCultureCount,
+    creativeHangoutCount,
+    hangoutEarlyCount,
+    eventEarlyCount,
+    hostedGroupHangoutCount,
+    memoryCreated: memoryBadgeCounts.created,
+    memoryParticipated: memoryBadgeCounts.participated,
+    friendsCount,
+    invitedHangoutCount,
+    savedEventCount: savedEvents.length,
+  };
+
+  const counters: Record<string, number> = {
     "night-pulse": hangoutNightCount + eventNightCount,
     "urban-explorer": uniqueNeighborhoods.size,
     "sunlit-lounger": hangoutSunlitCount,
@@ -547,14 +715,19 @@ export async function getUserBadges(userId: string): Promise<Badge[]> {
     "culture-vulture": eventCultureCount + creativeHangoutCount,
     "early-bird": hangoutEarlyCount + eventEarlyCount,
     "group-guru": hostedGroupHangoutCount,
+    "memory-archivist": memoryBadgeCounts.created,
+    "memory-circle": memoryBadgeCounts.participated,
+    "friend-circle": friendsCount,
+    "invite-all-star": invitedHangoutCount,
+    "saved-spotlight": savedEvents.length,
   };
 
   const persistedByType = new Map<string, PersistedBadgeRow>(persistedRows.map((row) => [row.badge_type, row]));
 
   const computedBadges = runtimeDefinitions.map((definition) => {
-    const badgeId = definition.id as BadgeId;
-    const targetLevels = LEVEL_TARGETS[badgeId] || [1, 3, 6, 10, 15];
-    const computedCount = counters[badgeId] || 0;
+    const badgeKey = definition.id as BadgeId;
+    const targetLevels = LEVEL_TARGETS[badgeKey] ?? [1, 3, 6, 10, 15];
+    const computedCount = counters[definition.id] ?? 0;
     const computed = getLevelAndProgress(computedCount, targetLevels);
 
     const persisted = persistedByType.get(definition.id);
@@ -573,6 +746,10 @@ export async function getUserBadges(userId: string): Promise<Badge[]> {
       progress: finalProgress,
       unlocked: isUnlocked,
       unlockedAt: formatEarnedAt(persisted?.earned_at),
+      contributorHint:
+        BADGE_CONTRIBUTOR_HINTS[definition.id]
+        || "Keep using Explore, Hangouts, Memories, and Friends to grow this badge.",
+      contributions: contributionsForBadge(definition.id, contributionContext),
     };
   });
 
