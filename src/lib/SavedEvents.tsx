@@ -1,4 +1,5 @@
 import { supabase } from "./supabase";
+import { trackAnalytics } from "./analytics";
 
 const SAVED_IDS_CACHE_TTL_MS = 15000;
 
@@ -98,6 +99,8 @@ export async function saveEvent(eventId: string): Promise<boolean> {
     return false;
   }
 
+  trackAnalytics("event_saved", { event_id: eventId });
+
   if (savedIdsCache?.userId === userId && !savedIdsCache.ids.includes(eventId)) {
     savedIdsCache = {
       userId,
@@ -123,6 +126,8 @@ export async function unsaveEvent(eventId: string): Promise<boolean> {
     console.error("Error unsaving event:", error);
     return false;
   }
+
+  trackAnalytics("event_unsaved", { event_id: eventId });
 
   if (savedIdsCache?.userId === userId) {
     savedIdsCache = {

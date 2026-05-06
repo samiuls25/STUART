@@ -7,11 +7,21 @@ export interface BadgeDefinition {
     maxLevel: number;
   }
 
+  /** Live breakdown shown in the badge detail dialog (not persisted). */
+  export interface BadgeContribution {
+    label: string;
+    value: number;
+  }
+
   export interface Badge extends BadgeDefinition {
     level: number;
     progress: number;
     unlocked: boolean;
     unlockedAt?: string;
+    /** How this badge is calculated (short explainer). */
+    contributorHint?: string;
+    /** Counts that feed into this badge right now. */
+    contributions?: BadgeContribution[];
   }
   
   export interface Memory {
@@ -101,6 +111,46 @@ export interface BadgeDefinition {
       icon: "👥",
       description: "Master of coordinating hangouts",
       category: "social",
+      maxLevel: 5,
+    },
+    {
+      id: "memory-archivist",
+      name: "Memory Archivist",
+      icon: "📔",
+      description: "Creating memories from your nights out",
+      category: "special",
+      maxLevel: 5,
+    },
+    {
+      id: "memory-circle",
+      name: "Memory Circle",
+      icon: "📸",
+      description: "Showing up in saved memories (yours and shared)",
+      category: "social",
+      maxLevel: 5,
+    },
+    {
+      id: "friend-circle",
+      name: "Friend Circle",
+      icon: "🤝",
+      description: "Growing your crew on STUART",
+      category: "social",
+      maxLevel: 5,
+    },
+    {
+      id: "invite-all-star",
+      name: "Invite All-Star",
+      icon: "✉️",
+      description: "Joining hangouts other people started",
+      category: "social",
+      maxLevel: 5,
+    },
+    {
+      id: "saved-spotlight",
+      name: "Saved Spotlight",
+      icon: "⭐",
+      description: "Curating events you save for later",
+      category: "explorer",
       maxLevel: 5,
     },
   ];

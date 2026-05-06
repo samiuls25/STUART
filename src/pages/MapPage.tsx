@@ -21,6 +21,7 @@ import {
 } from "../lib/eventFilters";
 import { useUserLocation } from "../hooks/useUserLocation";
 import { toast } from "../hooks/use-toast";
+import { trackAnalytics } from "../lib/analytics";
 
 const MapPage = () => {
   const { user, loading: authLoading } = useAuth();
@@ -111,6 +112,30 @@ const MapPage = () => {
       userLocation,
     ],
   );
+
+  useEffect(() => {
+    const handle = window.setTimeout(() => {
+      trackAnalytics("filter_snapshot", {
+        surface: "map",
+        segment: selectedSegment,
+        genre: selectedGenre,
+        price: selectedPrice,
+        time: selectedTime,
+        distance: selectedDistance,
+      });
+    }, 650);
+    return () => window.clearTimeout(handle);
+  }, [
+    selectedSegment,
+    selectedGenre,
+    selectedPrice,
+    selectedTime,
+    selectedDistance,
+  ]);
+
+  useEffect(() => {
+    trackAnalytics("map_geo_toggle", { using_fallback: locationUsingFallback });
+  }, [locationUsingFallback]);
 
   const filteredEvents = useMemo(() => {
     return browseEvents.filter((event) => {
@@ -271,7 +296,7 @@ const MapPage = () => {
         </div>
       </main>
 
-      <EventDetailModal event={detailEvent} onClose={handleClearSelection} />
+      <EventDetailModal event={detailEvent} analyticsSurface="map" onClose={handleClearSelection} />
     </div>
   );
 };

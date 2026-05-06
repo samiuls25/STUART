@@ -1,9 +1,12 @@
 import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, Trophy, Camera, Calendar, UserMinus } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import { Friend } from "../../lib/friends";
 import MemoryCard from "../profile/MemoryCard";
 import { fetchSharedMemoriesWithUser, type Memory } from "../../lib/memories";
+import { useAuth } from "../../lib/AuthContext";
+import { toast } from "../../hooks/use-toast";
 
 interface FriendProfileModalProps {
   friend: Friend | null;
@@ -13,6 +16,8 @@ interface FriendProfileModalProps {
 }
 
 const FriendProfileModal = ({ friend, isOpen, onClose, onRemove }: FriendProfileModalProps) => {
+  const navigate = useNavigate();
+  const { user } = useAuth();
   const [visibleMemories, setVisibleMemories] = useState<Memory[]>([]);
   const [loadingMemories, setLoadingMemories] = useState(false);
   const friendId = friend?.id;
@@ -56,6 +61,22 @@ const FriendProfileModal = ({ friend, isOpen, onClose, onRemove }: FriendProfile
   }, [isOpen]);
 
   if (!friend) return null;
+
+  const firstName = friend.name.split(" ")[0] || friend.name;
+
+  const goPlanHangoutWithFriend = () => {
+    if (!friend) return;
+    if (!user) {
+      toast({
+        title: "Sign in required",
+        description: "Sign in to plan a hangout.",
+        variant: "destructive",
+      });
+      return;
+    }
+    onClose();
+    navigate("/hangouts", { state: { prefillHangoutFriendIds: [friend.id] } });
+  };
 
   const friendBadges = friend.badgeSummaries ?? [];
 
@@ -130,10 +151,19 @@ const FriendProfileModal = ({ friend, isOpen, onClose, onRemove }: FriendProfile
                     {statusLabels[resolvedStatus]}
                   </p>
 
-                  <div className="flex items-center gap-3 mt-3 text-sm text-muted-foreground">
-                    <span>{friend.mutualFriends} mutual friends</span>
-                    <span>•</span>
-                    <span>{friend.hangoutsTogether} hangouts</span>
+                  <div className="flex items-center gap-3 mt-3 text-sm text-muted-foreground flex-wrap">
+                    {friend.mutualFriends != null && (
+                      <>
+                        <span>{friend.mutualFriends} mutual friends</span>
+                        {friend.hangoutsTogether != null && <span>•</span>}
+                      </>
+                    )}
+                    {friend.hangoutsTogether != null && (
+                      <span>{friend.hangoutsTogether} hangouts together</span>
+                    )}
+                    {friend.mutualFriends == null && friend.hangoutsTogether == null && friend.email && (
+                      <span className="truncate">{friend.email}</span>
+                    )}
                   </div>
                 </div>
               </div>
@@ -150,10 +180,13 @@ const FriendProfileModal = ({ friend, isOpen, onClose, onRemove }: FriendProfile
                       <span
                         key={badge.id}
                         className="inline-flex items-center gap-2 rounded-full border border-border bg-muted/40 px-3 py-1.5 text-xs font-medium text-foreground"
-                        title={`${badge.name} • Level ${badge.level}`}
+                        title={`${badge.name} · Level ${badge.level}`}
                       >
                         <span>{badge.icon}</span>
-                        <span>{badge.name}</span>
+                        <span className="truncate max-w-[140px]">{badge.name}</span>
+                        <span className="text-[10px] text-muted-foreground shrink-0 tabular-nums">
+                          L{badge.level}
+                        </span>
                       </span>
                     ))}
                   </div>
@@ -192,8 +225,12 @@ const FriendProfileModal = ({ friend, isOpen, onClose, onRemove }: FriendProfile
                 </h4>
                 <div className="bg-muted/50 rounded-xl p-4 text-center">
                   <p className="text-sm text-muted-foreground">No upcoming hangouts scheduled</p>
-                  <button className="mt-2 text-sm text-primary hover:underline">
-                    Create a hangout with {friend.name.split(" ")[0]}
+                  <button
+                    type="button"
+                    onClick={goPlanHangoutWithFriend}
+                    className="mt-2 text-sm text-primary hover:underline"
+                  >
+                    Create a hangout with {firstName}
                   </button>
                 </div>
               </div>
@@ -211,7 +248,7 @@ const FriendProfileModal = ({ friend, isOpen, onClose, onRemove }: FriendProfile
                 </button>
               </div>
 
-              <button className="btn-primary px-4 py-2">
+              <button type="button" onClick={goPlanHangoutWithFriend} className="btn-primary px-4 py-2">
                 Invite to Hangout
               </button>
             </div>

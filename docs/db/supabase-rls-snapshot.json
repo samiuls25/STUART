@@ -1,6 +1,24 @@
 [
   {
     "schemaname": "public",
+    "tablename": "analytics_events",
+    "policyname": "analytics_events_insert_anon",
+    "cmd": "INSERT",
+    "roles": "{anon}",
+    "qual": null,
+    "with_check": "(user_id IS NULL)"
+  },
+  {
+    "schemaname": "public",
+    "tablename": "analytics_events",
+    "policyname": "analytics_events_insert_authenticated",
+    "cmd": "INSERT",
+    "roles": "{authenticated}",
+    "qual": null,
+    "with_check": "((auth.uid() IS NOT NULL) AND (user_id = auth.uid()))"
+  },
+  {
+    "schemaname": "public",
     "tablename": "badge_catalog",
     "policyname": "Public can view active badge catalog",
     "cmd": "SELECT",

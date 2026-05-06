@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Search, UserPlus, Check, X, Bell, UserCheck } from "lucide-react";
 import Navbar from "../components/layout/Navbar";
@@ -20,6 +20,7 @@ import {
   AlertDialogFooter,
   AlertDialogTitle,
 } from "../components/ui/alert-dialog";
+import { trackAnalytics } from "../lib/analytics";
 
 const Friends = () => {
   const { user } = useAuth();
@@ -35,6 +36,7 @@ const Friends = () => {
   const [filter, setFilter] = useState<"all" | "online">("all");
   const [friendToRemove, setFriendToRemove] = useState<Friend | null>(null);
   const [removingFriend, setRemovingFriend] = useState(false);
+  const pendingFriendsPageTrackRef = useRef(true);
 
   const refreshFriends = () => {
     return Promise.all([getFriends(), getPendingRequests()]).then(([friendsData, requestsData]) => {
@@ -52,6 +54,28 @@ const Friends = () => {
     refreshFriends()
       .finally(() => setLoading(false));
   }, [user]);
+
+  useEffect(() => {
+    pendingFriendsPageTrackRef.current = true;
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (loading) return;
+
+    if (!pendingFriendsPageTrackRef.current) return;
+    pendingFriendsPageTrackRef.current = false;
+
+    if (!user) {
+      trackAnalytics("friends_page_view", { authenticated: false });
+      return;
+    }
+
+    trackAnalytics("friends_page_view", {
+      authenticated: true,
+      friend_count: friends.length,
+      pending_count: pendingRequests.length,
+    });
+  }, [loading, user, friends.length, pendingRequests.length]);
 
   const handleViewProfile = (friend: Friend) => {
     setSelectedFriend(friend);
@@ -88,6 +112,7 @@ const Friends = () => {
     if (success) {
       await refreshFriends();
       toast({ title: "Friend request accepted!" });
+      trackAnalytics("friend_request_accepted", {});
     } else {
       toast({ title: "Failed to accept request", variant: "destructive" });
     }
@@ -111,6 +136,7 @@ const Friends = () => {
       setFriendEmail("");
       setShowAddFriend(false);
       toast({ title: "Friend request sent!" });
+      trackAnalytics("friend_request_sent", {});
     } else {
       toast({ 
         title: "Couldn't send request", 

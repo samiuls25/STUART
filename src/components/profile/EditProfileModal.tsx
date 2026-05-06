@@ -4,6 +4,7 @@ import { X, Camera } from "lucide-react";
 import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../lib/AuthContext";
 import { toast } from "../../hooks/use-toast";
+import { trackAnalytics } from "../../lib/analytics";
 
 interface EditProfileModalProps {
   isOpen: boolean;
@@ -144,6 +145,10 @@ const EditProfileModal = ({ isOpen, onClose, onSaved }: EditProfileModalProps) =
       });
 
       if (authError) throw authError;
+
+      trackAnalytics("profile_edit_saved", {
+        updated_avatar: Boolean(avatarFile),
+      });
 
       onSaved?.({ name: normalizedName, bio: normalizedBio, avatarUrl });
 

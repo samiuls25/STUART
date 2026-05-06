@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import React from "react";
 import { motion } from "framer-motion";
 import { Plus, Calendar, Clock, Users, ChevronRight, Sparkles, Filter, X, Camera, PencilLine, Trash2 } from "lucide-react";
+import { useLocation, useNavigate } from "react-router-dom";
 import Navbar from "../components/layout/Navbar.tsx";
 import HangoutCard from "../components/hangouts/HangoutCard";
 import CreateHangoutModal from "../components/hangouts/CreateHangoutModal";
@@ -30,6 +31,8 @@ import {
 const Hangouts = () => {
   const { user } = useAuth();
   const { toast } = useToast();
+  const location = useLocation();
+  const navigate = useNavigate();
 
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showAuthModal, setShowAuthModal] = useState(false);
@@ -49,6 +52,7 @@ const Hangouts = () => {
   const [schemaMissing, setSchemaMissing] = useState(false);
   const [showMemoryModal, setShowMemoryModal] = useState(false);
   const [memoryPrefill, setMemoryPrefill] = useState<CreateMemoryInitialValues | null>(null);
+  const [hangoutInvitePrefill, setHangoutInvitePrefill] = useState<string[]>([]);
 
   const today = startOfDay(new Date());
   const currentUserId = user?.id;
@@ -153,6 +157,16 @@ const Hangouts = () => {
 
     loadHangouts();
   }, [user?.id]);
+
+  useEffect(() => {
+    const raw = location.state as { prefillHangoutFriendIds?: string[] } | null | undefined;
+    const ids = raw?.prefillHangoutFriendIds?.filter((id): id is string => typeof id === "string");
+    if (!ids?.length || !user) return;
+
+    setHangoutInvitePrefill(ids);
+    setShowCreateModal(true);
+    navigate(location.pathname, { replace: true, state: {} });
+  }, [location.pathname, location.state, navigate, user]);
 
   useEffect(() => {
     if (!hiddenDeclinedStorageKey) {
@@ -1034,11 +1048,15 @@ const Hangouts = () => {
 
       <CreateHangoutModal
         isOpen={showCreateModal}
-        onClose={() => setShowCreateModal(false)}
+        onClose={() => {
+          setShowCreateModal(false);
+          setHangoutInvitePrefill([]);
+        }}
         onCreate={handleCreate}
         inviteCandidates={inviteCandidates}
         inviteGroups={groupsState}
         onCreateGroupRequest={() => setShowCreateGroupModal(true)}
+        initialSelectedFriendIds={hangoutInvitePrefill}
       />
       <CreateGroupModal
         isOpen={showCreateGroupModal || Boolean(editingGroup)}

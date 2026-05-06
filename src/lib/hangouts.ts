@@ -1,6 +1,7 @@
 import { supabase } from "./supabase";
 import { Hangout, TimeRange } from "../data/friends";
 import { createNotification, createNotificationsBatch } from "./notifications";
+import { trackAnalytics } from "./analytics";
 
 interface HangoutRow {
   id: string;
@@ -83,7 +84,7 @@ const createHangoutInviteNotifications = async (
     recipientUserIds: invitedUserIds,
     type: "hangout_invite",
     title: "New hangout invite",
-    message: `${creatorName} invited you to \"${hangoutTitle}\".`,
+    message: `${creatorName} invited you to "${hangoutTitle}".`,
     entityType: "hangout",
     entityId: hangoutId,
     metadata: {
@@ -110,7 +111,7 @@ const notifyHangoutHostOfResponse = async (args: {
     recipientUserId: args.hostUserId,
     type: "hangout_response",
     title: "Hangout response update",
-    message: `${actorName} ${responseLabel} for \"${args.hangoutTitle}\".`,
+    message: `${actorName} ${responseLabel} for "${args.hangoutTitle}".`,
     entityType: "hangout",
     entityId: args.hangoutId,
     metadata: {
@@ -341,6 +342,16 @@ export async function createHangout(input: CreateHangoutInput): Promise<void> {
   if (!user) throw new Error("You must be signed in to create a hangout.");
 
   const shouldCreatePublicHangout = input.isPublic ?? false;
+  const schedulingMode =
+    (input.creatorAvailability?.length ?? 0) > 0 ? ("heatmap" as const) : ("fixed" as const);
+
+  const emitHangoutCreateSubmitted = (invitePeers: number) => {
+    trackAnalytics("hangout_create_submitted", {
+      public_hangout: shouldCreatePublicHangout,
+      invite_peers: invitePeers,
+      scheduling_mode: schedulingMode,
+    });
+  };
 
   const baseInsertPayload = {
     title: input.title,
@@ -411,6 +422,8 @@ export async function createHangout(input: CreateHangoutInput): Promise<void> {
 
     if (inviteError) throw inviteError;
 
+    emitHangoutCreateSubmitted(uniqueInvites.length);
+
     try {
       await createHangoutInviteNotifications(user, uniqueInvites, fallbackInserted.id, input.title);
     } catch (notificationError) {
@@ -453,6 +466,8 @@ export async function createHangout(input: CreateHangoutInput): Promise<void> {
   const { error: inviteError } = await supabase.from("hangout_invites").insert(inviteRows);
 
   if (inviteError) throw inviteError;
+
+  emitHangoutCreateSubmitted(uniqueInvites.length);
 
   try {
     await createHangoutInviteNotifications(user, uniqueInvites, insertedHangout.id, input.title);
@@ -604,6 +619,10 @@ export async function submitHangoutAvailability(hangoutId: string, availability:
   if (error) throw error;
 
   await syncHangoutStatus(hangoutId);
+
+  trackAnalytics("availability_submitted", {
+    slot_count: availability.length,
+  });
 }
 
 export async function applySuggestedHangoutTime(
@@ -633,6 +652,8 @@ export async function applySuggestedHangoutTime(
 
   if (error) throw error;
 
+  trackAnalytics("best_slot_applied", { hangout_id: hangoutId });
+
   const [hangoutContext, inviteesResult] = await Promise.all([
     fetchHangoutOwnerAndTitle(hangoutId),
     supabase
@@ -659,7 +680,7 @@ export async function applySuggestedHangoutTime(
       recipientUserIds,
       type: "hangout_confirmed",
       title: "Hangout time confirmed",
-      message: `\"${hangoutContext?.title || "Your hangout"}\" is confirmed for ${suggestedTime.date} at ${suggestedTime.startTime}.`,
+      message: `"${hangoutContext?.title || "Your hangout"}" is confirmed for ${suggestedTime.date} at ${suggestedTime.startTime}.`,
       entityType: "hangout",
       entityId: hangoutId,
       metadata: {

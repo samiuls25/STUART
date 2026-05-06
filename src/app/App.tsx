@@ -5,6 +5,7 @@ import { TooltipProvider } from "../components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider } from "../lib/AuthContext";
+import { AnalyticsRouteTracker } from "../components/layout/AnalyticsRouteTracker";
 
 // Route-level code splitting: each page becomes its own JS chunk that the
 // browser only downloads when the user actually visits that route.
@@ -36,6 +37,7 @@ const App = () => (
         <Toaster />
         <Sonner />
         <BrowserRouter>
+          <AnalyticsRouteTracker />
           <Suspense fallback={<RouteFallback />}>
             <Routes>
               <Route path="/" element={<Explore />} />

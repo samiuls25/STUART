@@ -1,5 +1,5 @@
 import React from "react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, Plus, UserPlus, Search, Check, Clock, MapPin, Calendar, Users, Sparkles, AlertCircle } from "lucide-react";
 import { friends, activityTypes, Friend, Hangout, TimeRange } from "../../data/friends";
@@ -16,6 +16,8 @@ interface CreateHangoutModalProps {
   inviteCandidates?: Friend[];
   inviteGroups?: UserGroup[];
   onCreateGroupRequest?: () => void;
+  /** When opening from Friends profile etc., pre-select these friend user IDs on invite step. */
+  initialSelectedFriendIds?: string[];
 }
 
 const CreateHangoutModal = ({
@@ -25,6 +27,7 @@ const CreateHangoutModal = ({
   inviteCandidates,
   inviteGroups = [],
   onCreateGroupRequest,
+  initialSelectedFriendIds,
 }: CreateHangoutModalProps) => {
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [title, setTitle] = useState("");
@@ -77,6 +80,11 @@ const CreateHangoutModal = ({
       !f.isBlocked &&
       f.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
+
+  useEffect(() => {
+    if (!isOpen || !initialSelectedFriendIds?.length) return;
+    setManualSelectedFriends((prev) => [...new Set([...initialSelectedFriendIds, ...prev])]);
+  }, [isOpen, initialSelectedFriendIds]);
 
   const toggleFriend = (id: string) => {
     setManualSelectedFriends((prev) =>

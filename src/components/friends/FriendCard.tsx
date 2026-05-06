@@ -54,10 +54,15 @@ const FriendCard = ({ friend, onViewProfile, onRemove, compact = false }: Friend
         </div>
         <div className="flex-1 min-w-0">
           <p className="font-medium text-foreground truncate">{friend.name}</p>
-          <div className="flex gap-1">
+          <div className="flex gap-1 flex-wrap">
             {friendBadges.map((badge) => (
-              <span key={badge.id} className="text-xs" title={badge.name}>
-                {badge.icon}
+              <span
+                key={badge.id}
+                className="inline-flex items-center gap-0.5 text-xs"
+                title={`${badge.name} · Level ${badge.level}`}
+              >
+                <span>{badge.icon}</span>
+                <span className="text-[9px] text-muted-foreground leading-none">{badge.level}</span>
               </span>
             ))}
           </div>
@@ -105,10 +110,11 @@ const FriendCard = ({ friend, onViewProfile, onRemove, compact = false }: Friend
           {friendBadges.map((badge) => (
             <span
               key={badge.id}
-              className="text-sm"
-              title={badge.name}
+              className="inline-flex items-center gap-0.5 text-sm"
+              title={`${badge.name} · Level ${badge.level}`}
             >
-              {badge.icon}
+              <span>{badge.icon}</span>
+              <span className="text-[10px] text-muted-foreground leading-none">{badge.level}</span>
             </span>
           ))}
         </div>

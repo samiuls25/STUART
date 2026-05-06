@@ -1,6 +1,7 @@
 import React, { useCallback, useState } from "react";
 import { Moon, Sun } from "lucide-react";
 import { getDocumentTheme, setTheme } from "../../lib/themePreference";
+import { trackAnalytics } from "../../lib/analytics";
 
 const ThemeToggle = () => {
   const [isDark, setIsDark] = useState(() => getDocumentTheme() === "dark");
@@ -8,7 +9,9 @@ const ThemeToggle = () => {
   const handleToggle = useCallback(() => {
     const next = !isDark;
     setIsDark(next);
-    setTheme(next ? "dark" : "light");
+    const preference = next ? "dark" : "light";
+    setTheme(preference);
+    trackAnalytics("theme_toggle", { theme: preference });
   }, [isDark]);
 
   return (

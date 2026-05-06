@@ -15,6 +15,7 @@ import {
 import Navbar from "../components/layout/Navbar";
 import AuthModal from "../components/auth/AuthModal";
 import { useAuth } from "../lib/AuthContext";
+import { trackAnalytics } from "../lib/analytics";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -67,7 +68,12 @@ const Settings = () => {
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
 
-  const { user, signOut } = useAuth();
+  const { user, signOut, loading: authLoading } = useAuth();
+
+  useEffect(() => {
+    if (authLoading) return;
+    trackAnalytics("settings_page_view", { authenticated: Boolean(user) });
+  }, [authLoading, user]);
 
   // Initialize profile fields from user data
   useEffect(() => {

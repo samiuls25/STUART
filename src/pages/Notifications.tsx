@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { Link } from "react-router-dom";
 import {
@@ -16,6 +16,7 @@ import Navbar from "../components/layout/Navbar";
 import AuthModal from "../components/auth/AuthModal";
 import { useAuth } from "../lib/AuthContext";
 import { useNotificationsFeed } from "../hooks/use-notifications";
+import { trackAnalytics } from "../lib/analytics";
 import type { AppNotification } from "../lib/notifications";
 
 type NotificationMeta = {
@@ -56,6 +57,24 @@ const Notifications = () => {
     removeNotification,
     clearAllNotifications,
   } = useNotificationsFeed(100);
+
+  const inboxVisitTrackedRef = useRef(false);
+
+  useEffect(() => {
+    inboxVisitTrackedRef.current = false;
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (authLoading || loading) return;
+    if (!user) return;
+    if (inboxVisitTrackedRef.current) return;
+    inboxVisitTrackedRef.current = true;
+    trackAnalytics("notifications_page_view", {
+      feed_size_bucket:
+        notifications.length === 0 ? "0" : notifications.length <= 10 ? "1_10" : "11_plus",
+      unread_bucket: unreadCount === 0 ? "0" : unreadCount <= 5 ? "1_5" : "6_plus",
+    });
+  }, [authLoading, loading, user, notifications.length, unreadCount]);
 
   if (authLoading || loading) {
     return (

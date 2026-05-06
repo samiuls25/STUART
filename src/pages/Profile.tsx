@@ -23,6 +23,7 @@ import { useAuth } from "../lib/AuthContext";
 import { getFriends } from "../lib/friends";
 import { getSavedEventIds } from "../lib/SavedEvents";
 import { getUserBadges } from "../lib/badges";
+import { trackAnalytics } from "../lib/analytics";
 import {
   fetchMemoriesForCurrentUser,
   memoryMonitoringConfig,
@@ -194,6 +195,16 @@ const Profile = () => {
 
   const showUsageWarning =
     memoryAtOrOverSoftCap || photoAtOrOverSoftCap || memoryNearSoftCap || photoNearSoftCap;
+
+  useEffect(() => {
+    if (!user || loading) return;
+    if (activeTab !== "badges") return;
+    if (loadingBadges) return;
+    trackAnalytics("profile_badges_view", {
+      unlocked_count: badges.filter((b: { unlocked?: boolean }) => b.unlocked).length,
+      total_badges: badges.length,
+    });
+  }, [loading, user, activeTab, loadingBadges, badges]);
 
   // Now handle early returns AFTER all hooks
   if (loading) {

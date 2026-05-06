@@ -24,6 +24,8 @@ interface CreateGroupModalProps {
   onDelete?: (group: UserGroup) => Promise<void> | void;
   initialGroup?: UserGroup | null;
   defaultMemberIds?: string[];
+  /** Lift above parent overlays (e.g. event detail modal at z-[1500]). */
+  stackAboveParentModal?: boolean;
 }
 
 const CreateGroupModal = ({
@@ -33,6 +35,7 @@ const CreateGroupModal = ({
   onDelete,
   initialGroup,
   defaultMemberIds,
+  stackAboveParentModal = false,
 }: CreateGroupModalProps) => {
   const { toast } = useToast();
   const [name, setName] = useState("");
@@ -162,7 +165,10 @@ const CreateGroupModal = ({
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-w-xl max-h-[85vh] overflow-y-auto">
+      <DialogContent
+        overlayClassName={stackAboveParentModal ? "z-[1620]" : undefined}
+        className={`max-w-xl max-h-[85vh] overflow-y-auto ${stackAboveParentModal ? "z-[1630]" : ""}`}
+      >
         <DialogHeader>
           <DialogTitle>{isEditMode ? "Edit Group" : "Create Group"}</DialogTitle>
           <DialogDescription>

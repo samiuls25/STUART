@@ -480,6 +480,83 @@ const MemoryCard = ({ memory, compact = false, displayMode = "default", allowDel
                     </div>
                   )}
 
+                  <div className="mb-6">
+                    <h3 className="text-sm font-medium text-foreground mb-3 flex items-center gap-2">
+                      <Users className="w-4 h-4" />
+                      Who was there ({memory.attendees.length})
+                    </h3>
+                    <div className="flex flex-wrap gap-2">
+                      {memory.attendees.length > 0 ? (
+                        memory.attendees.map((attendee, index) => (
+                          <div
+                            key={attendee.id}
+                            className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-muted"
+                          >
+                            <div className="w-6 h-6 rounded-full bg-primary/20 flex items-center justify-center">
+                              {attendee.avatar ? (
+                                <img
+                                  src={attendee.avatar}
+                                  alt={attendee.name}
+                                  className="w-full h-full rounded-full object-cover"
+                                />
+                              ) : (
+                                <span className="text-xs font-medium text-primary">
+                                  {attendee.name.charAt(0)}
+                                </span>
+                              )}
+                            </div>
+                            <span className="text-sm text-foreground">{attendee.name}</span>
+                            {editable && index > 0 && (
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveAttendee(attendee.id)}
+                                disabled={attendeeActionId === attendee.id}
+                                className="rounded-full p-1 text-muted-foreground hover:text-foreground hover:bg-background transition-colors"
+                              >
+                                <X className="w-3 h-3" />
+                              </button>
+                            )}
+                          </div>
+                        ))
+                      ) : (
+                        <div className="px-3 py-1.5 rounded-full bg-muted text-sm text-muted-foreground">
+                          Just you
+                        </div>
+                      )}
+                    </div>
+
+                    {editable && (
+                      <div className="mt-3 flex flex-col sm:flex-row gap-2">
+                        <select
+                          value={selectedFriendId}
+                          onChange={(e) => setSelectedFriendId(e.target.value)}
+                          className="h-10 rounded-md border border-input bg-background px-3 text-sm text-foreground sm:flex-1"
+                          disabled={loadingFriends || addableFriends.length === 0}
+                        >
+                          {addableFriends.length === 0 ? (
+                            <option value="">No more friends to add</option>
+                          ) : (
+                            addableFriends.map((friend) => (
+                              <option key={friend.id} value={friend.id}>
+                                {friend.name}
+                              </option>
+                            ))
+                          )}
+                        </select>
+
+                        <button
+                          type="button"
+                          onClick={handleAddAttendee}
+                          disabled={isAddingAttendee || !selectedFriendId || addableFriends.length === 0}
+                          className="h-10 px-3 rounded-md bg-primary text-primary-foreground text-sm font-medium disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-1.5"
+                        >
+                          <Plus className="w-4 h-4" />
+                          Add friend
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
                   <div>
                     <h3 className="text-sm font-medium text-foreground mb-3 flex items-center gap-2">
                       <Camera className="w-4 h-4" />
