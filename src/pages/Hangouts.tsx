@@ -60,6 +60,10 @@ const Hangouts = () => {
     ? `stuart:hiddenDeclinedHangouts:${currentUserId}`
     : null;
 
+  const hangoutScheduleDay = (h: Hangout) => parseISO(h.confirmedTime?.date || h.proposedTimeRange.date);
+  /** Calendar date strictly before local today → treat as past for listing (any RSVP status). */
+  const isHangoutScheduledBeforeToday = (h: Hangout) => isBefore(hangoutScheduleDay(h), today);
+
   const loadHangouts = async () => {
     setLoadingHangouts(true);
 
@@ -246,6 +250,7 @@ const Hangouts = () => {
       !!currentUserId &&
       h.createdBy !== currentUserId &&
       h.responses.find((r) => r.friendId === currentUserId)?.status === "invited" &&
+      !isHangoutScheduledBeforeToday(h) &&
       isInDateRange(h)
   );
 
@@ -256,6 +261,7 @@ const Hangouts = () => {
       (!!currentUserId &&
         (h.createdBy === currentUserId ||
           h.responses.find((r) => r.friendId === currentUserId)?.status !== "invited")) &&
+      !isHangoutScheduledBeforeToday(h) &&
       isInDateRange(h)
   );
 
@@ -270,10 +276,8 @@ const Hangouts = () => {
   const pastHangouts = hangoutsState.filter(
     (h) =>
       !isDeclinedPublicHangout(h) &&
-      (h.status === "completed" ||
-        (h.status === "confirmed" &&
-          isBefore(parseISO(h.confirmedTime?.date || h.proposedTimeRange.date), today))) &&
-      isInDateRange(h)
+      isInDateRange(h) &&
+      (h.status === "completed" || isHangoutScheduledBeforeToday(h))
   );
 
   const handleHideDeclinedHangout = (hangoutId: string) => {

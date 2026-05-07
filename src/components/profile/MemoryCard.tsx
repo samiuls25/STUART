@@ -1,7 +1,7 @@
 import React from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { MapPin, Clock, Users, Camera, X, ChevronLeft, ChevronRight, Plus, Trash2 } from "lucide-react";
+import { MapPin, Clock, Users, Camera, X, ChevronLeft, ChevronRight, Plus, Trash2, ExternalLink } from "lucide-react";
 import type { Friend } from "../../lib/friends";
 import { getFriends } from "../../lib/friends";
 import {
@@ -9,12 +9,15 @@ import {
   deleteMemory,
   deleteMemoryPhoto,
   memoryUploadConfig,
+  normalizeAlbumUrlForMemory,
   removeMemoryAttendee,
   reorderMemoryPhotos,
+  updateMemoryAlbumUrl,
   uploadPhotosToMemory,
   type Memory,
 } from "../../lib/memories";
 import { useToast } from "../../hooks/use-toast";
+import { Input } from "../ui/input";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -34,6 +37,23 @@ interface MemoryCardProps {
   onMemoryUpdated?: () => void | Promise<void>;
 }
 
+function MemoryAlbumLinkRow({ href }: { href: string }) {
+  return (
+    <div className="mb-6">
+      <a
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="inline-flex items-center gap-2 text-sm font-medium text-primary hover:underline"
+      >
+        <ExternalLink className="w-4 h-4 shrink-0" />
+        Open full album
+      </a>
+      <p className="mt-1 text-xs text-muted-foreground">Opens in a new tab.</p>
+    </div>
+  );
+}
+
 const MemoryCard = ({ memory, compact = false, displayMode = "default", allowDelete = true, editable = true, onMemoryUpdated }: MemoryCardProps) => {
   const { toast } = useToast();
   const [isExpanded, setIsExpanded] = useState(false);
@@ -50,6 +70,8 @@ const MemoryCard = ({ memory, compact = false, displayMode = "default", allowDel
   const [showDeletePhotoConfirm, setShowDeletePhotoConfirm] = useState(false);
   const [pendingDeletePhotoId, setPendingDeletePhotoId] = useState<string | null>(null);
   const [isUploadingPhotos, setIsUploadingPhotos] = useState(false);
+  const [albumDraft, setAlbumDraft] = useState("");
+  const [savingAlbum, setSavingAlbum] = useState(false);
   const galleryUploadInputRef = useRef<HTMLInputElement | null>(null);
   const defaultUploadInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -128,6 +150,11 @@ const MemoryCard = ({ memory, compact = false, displayMode = "default", allowDel
       mounted = false;
     };
   }, [editable, isExpanded]);
+
+  useEffect(() => {
+    if (!isExpanded || !editable) return;
+    setAlbumDraft(memory.albumUrl ?? "");
+  }, [isExpanded, editable, memory.id, memory.albumUrl]);
 
   useEffect(() => {
     if (addableFriends.length === 0) {
@@ -336,6 +363,108 @@ const MemoryCard = ({ memory, compact = false, displayMode = "default", allowDel
     }
   };
 
+  const handleSaveAlbumLink = async () => {
+    if (!editable) return;
+    const trimmed = albumDraft.trim();
+    if (trimmed && !normalizeAlbumUrlForMemory(trimmed)) {
+      toast({
+        title: "Invalid album link",
+        description: "Use an https:// or http:// URL under 2048 characters.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setSavingAlbum(true);
+    try {
+      await updateMemoryAlbumUrl(memory.id, albumDraft);
+      toast({
+        title: "Album link saved",
+        description: trimmed ? "Your gallery link is updated." : "Link removed from this memory.",
+      });
+      await onMemoryUpdated?.();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to save album link.";
+      toast({
+        title: "Could not save link",
+        description: message,
+        variant: "destructive",
+      });
+    } finally {
+      setSavingAlbum(false);
+    }
+  };
+
+  const handleClearAlbumLink = async () => {
+    if (!editable) return;
+    setSavingAlbum(true);
+    try {
+      await updateMemoryAlbumUrl(memory.id, "");
+      setAlbumDraft("");
+      toast({
+        title: "Album link removed",
+        description: "You can add a new link anytime.",
+      });
+      await onMemoryUpdated?.();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to remove album link.";
+      toast({
+        title: "Could not remove link",
+        description: message,
+        variant: "destructive",
+      });
+    } finally {
+      setSavingAlbum(false);
+    }
+  };
+
+  const renderAlbumLinkSection = () => {
+    if (editable) {
+      return (
+        <div className="mb-6 space-y-2 rounded-xl border border-border bg-muted/20 p-4">
+          <label className="text-sm font-medium text-foreground">Album link (optional)</label>
+          <Input
+            type="url"
+            inputMode="url"
+            value={albumDraft}
+            onChange={(e) => setAlbumDraft(e.target.value)}
+            placeholder="https://photos.google.com/..."
+            maxLength={2048}
+            autoComplete="off"
+          />
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => void handleSaveAlbumLink()}
+              disabled={savingAlbum}
+              className="inline-flex h-9 items-center justify-center rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:opacity-95 disabled:opacity-50"
+            >
+              {savingAlbum ? "Saving..." : "Save link"}
+            </button>
+            {memory.albumUrl ? (
+              <button
+                type="button"
+                onClick={() => void handleClearAlbumLink()}
+                disabled={savingAlbum}
+                className="inline-flex h-9 items-center justify-center rounded-md border border-border bg-background px-3 text-sm font-medium text-foreground hover:bg-muted disabled:opacity-50"
+              >
+                Clear link
+              </button>
+            ) : null}
+          </div>
+          <p className="text-xs text-muted-foreground">
+          Share a Google Photos / Drive / other gallery link if you have more pictures than the in-app limit. Use Save after editing.
+          </p>
+          {memory.albumUrl ? <MemoryAlbumLinkRow href={memory.albumUrl} /> : null}
+        </div>
+      );
+    }
+    if (memory.albumUrl) {
+      return <MemoryAlbumLinkRow href={memory.albumUrl} />;
+    }
+    return null;
+  };
+
   const nextPhoto = (e: React.MouseEvent) => {
     e.stopPropagation();
     setCurrentPhotoIndex((prev) => (prev + 1) % galleryPhotos.length);
@@ -465,6 +594,8 @@ const MemoryCard = ({ memory, compact = false, displayMode = "default", allowDel
                       {memory.date} at {memory.time}
                     </span>
                   </div>
+
+                  {renderAlbumLinkSection()}
 
                   {allowDelete && editable && (
                     <div className="mb-6 rounded-xl border border-destructive/20 bg-destructive/5 p-3">
@@ -865,6 +996,8 @@ const MemoryCard = ({ memory, compact = false, displayMode = "default", allowDel
                     {memory.date} at {memory.time}
                   </span>
                 </div>
+
+                {renderAlbumLinkSection()}
 
                 {allowDelete && editable && (
                   <div className="mb-6 rounded-xl border border-destructive/20 bg-destructive/5 p-3">
