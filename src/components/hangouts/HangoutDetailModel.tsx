@@ -1,14 +1,32 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, MapPin, Clock, Calendar, Users, Check, HelpCircle, Sparkles, MessageCircle, Trash2 } from "lucide-react";
-import { Hangout, TimeRange, getFriendById, getActivityType } from "../../data/friends";
+import {
+  X,
+  MapPin,
+  Clock,
+  Calendar,
+  Users,
+  Check,
+  HelpCircle,
+  Sparkles,
+  MessageCircle,
+  Trash2,
+  Link2,
+  Pencil,
+} from "lucide-react";
+import { Hangout, TimeRange, getFriendById, getActivityType, activityTypes } from "../../data/friends";
 import { format, parseISO, isBefore, startOfDay } from "date-fns";
 import AvailabilityHeatmap from "../availability/AvailabilityHeatmap";
 import ConfirmDeleteHangoutDialog from "./ConfirmDeleteHangoutDialog";
 import { scoreAvailabilitySlots } from "../../lib/hangoutFinalization";
+import { useToast } from "../../hooks/use-toast";
+import { updateHangoutDetails } from "../../lib/hangouts";
+import { Input } from "../ui/input";
+import { Textarea } from "../ui/textarea";
+import { Switch } from "../ui/switch";
 
 interface HangoutDetailModalProps {
-  hangout: Hangout | null;
+  hangout: Hangout;
   isOpen: boolean;
   onClose: () => void;
   onRespond?: (hangout: Hangout, response: "yes" | "no" | "maybe") => void;
@@ -19,6 +37,8 @@ interface HangoutDetailModalProps {
   ) => Promise<void> | void;
   onDeleteHangout?: (hangout: Hangout) => void;
   onCreateMemory?: (hangout: Hangout) => void;
+  /** Refresh list + merge selected hangout (e.g. after creator edits details). */
+  onHangoutUpdated?: () => void | Promise<void>;
   initialShowAvailability?: boolean;
   currentUserId?: string;
 }
@@ -32,16 +52,29 @@ const HangoutDetailModal = ({
   onApplySuggestedTime,
   onDeleteHangout,
   onCreateMemory,
+  onHangoutUpdated,
   initialShowAvailability,
   currentUserId,
 }: HangoutDetailModalProps) => {
-  if (!hangout) return null;
+  const { toast } = useToast();
 
   const [showAvailabilityEditor, setShowAvailabilityEditor] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [applyingSuggestedTime, setApplyingSuggestedTime] = useState(false);
   const [selectedSuggestedSlotKey, setSelectedSuggestedSlotKey] = useState<string | null>(null);
   const [availabilitySlots, setAvailabilitySlots] = useState<Record<string, number>>({});
+
+  const [isEditingHangout, setIsEditingHangout] = useState(false);
+  const [savingHangoutEdit, setSavingHangoutEdit] = useState(false);
+  const [editTitle, setEditTitle] = useState("");
+  const [editDescription, setEditDescription] = useState("");
+  const [editActivityType, setEditActivityType] = useState<Hangout["activityType"]>("chill");
+  const [editDate, setEditDate] = useState("");
+  const [editStartTime, setEditStartTime] = useState("");
+  const [editEndTime, setEditEndTime] = useState("");
+  const [editLocationName, setEditLocationName] = useState("");
+  const [editLocationAddress, setEditLocationAddress] = useState("");
+  const [editLocationFlexible, setEditLocationFlexible] = useState(true);
 
   const viewerId = currentUserId || "current-user";
 
@@ -122,6 +155,24 @@ const HangoutDetailModal = ({
     setShowAvailabilityEditor(!!initialShowAvailability);
   }, [hangout.id, initialShowAvailability]);
 
+  useEffect(() => {
+    setIsEditingHangout(false);
+  }, [hangout.id]);
+
+  const populateEditFormFromHangout = () => {
+    const tr = hangout.confirmedTime || hangout.proposedTimeRange;
+    const normalizeTime = (t: string) => (t && t.length >= 5 ? t.slice(0, 5) : t || "");
+    setEditTitle(hangout.title);
+    setEditDescription(hangout.description ?? "");
+    setEditActivityType(hangout.activityType);
+    setEditDate(tr.date);
+    setEditStartTime(normalizeTime(tr.startTime));
+    setEditEndTime(normalizeTime(tr.endTime));
+    setEditLocationName(hangout.location?.name ?? "");
+    setEditLocationAddress(hangout.location?.address ?? "");
+    setEditLocationFlexible(hangout.location?.isFlexible ?? true);
+  };
+
   const friendAvailabilityForEditor = useMemo(() => {
     const map: Record<string, string[]> = {};
     hangout.responses
@@ -172,6 +223,70 @@ const HangoutDetailModal = ({
       }))
     );
   }, [hangout.responses]);
+
+  const handleCopyHangoutLink = async () => {
+    const url = `${typeof window !== "undefined" ? window.location.origin : ""}/hangouts?hangout=${hangout.id}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      toast({
+        title: "Hangout link copied",
+        description: "Opens Hangouts for someone signed in who already has access to this hangout.",
+      });
+    } catch {
+      toast({ title: "Couldn't copy", description: url, variant: "destructive" });
+    }
+  };
+
+  const handleSaveHangoutEdit = async () => {
+    if (!editTitle.trim()) {
+      toast({
+        title: "Title required",
+        description: "Add a title for this hangout.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (!editDate || !editStartTime || !editEndTime) {
+      toast({
+        title: "Date and time required",
+        description: "Choose a date, start time, and end time.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setSavingHangoutEdit(true);
+    try {
+      await updateHangoutDetails(hangout.id, {
+        title: editTitle.trim(),
+        description: editDescription,
+        activityType: editActivityType,
+        proposedTimeRange: {
+          date: editDate,
+          startTime: editStartTime,
+          endTime: editEndTime,
+        },
+        locationName: editLocationName,
+        locationAddress: editLocationAddress,
+        isFlexibleLocation: editLocationFlexible,
+      });
+      toast({
+        title: "Hangout updated",
+        description: "Your changes were saved.",
+      });
+      setIsEditingHangout(false);
+      await onHangoutUpdated?.();
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : "Could not save changes.";
+      toast({
+        title: "Could not update hangout",
+        description: msg,
+        variant: "destructive",
+      });
+    } finally {
+      setSavingHangoutEdit(false);
+    }
+  };
 
   const bestAvailabilitySuggestion = rankedAvailabilitySuggestions[0] || null;
   const selectedAvailabilitySuggestion = selectedSuggestedSlotKey
@@ -294,49 +409,200 @@ const HangoutDetailModal = ({
 
             {/* Content */}
             <div className="flex-1 overflow-y-auto p-6 space-y-6">
-              {/* Description */}
-              {hangout.description && (
-                <p className="text-sm text-muted-foreground">{hangout.description}</p>
+              {isCreator && (
+                <div className="flex flex-wrap justify-end gap-2">
+                  {!isEditingHangout ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        populateEditFormFromHangout();
+                        setIsEditingHangout(true);
+                      }}
+                      className="inline-flex items-center gap-2 rounded-lg border border-border bg-background px-3 py-2 text-sm font-medium text-foreground hover:bg-muted transition-colors"
+                    >
+                      <Pencil className="w-4 h-4" />
+                      Edit details
+                    </button>
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        disabled={savingHangoutEdit}
+                        onClick={() => {
+                          populateEditFormFromHangout();
+                          setIsEditingHangout(false);
+                        }}
+                        className="inline-flex items-center rounded-lg border border-border bg-background px-3 py-2 text-sm font-medium text-foreground hover:bg-muted disabled:opacity-50"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        disabled={savingHangoutEdit}
+                        onClick={() => void handleSaveHangoutEdit()}
+                        className="inline-flex items-center rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-95 disabled:opacity-50"
+                      >
+                        {savingHangoutEdit ? "Saving…" : "Save changes"}
+                      </button>
+                    </>
+                  )}
+                </div>
               )}
 
-              {/* Details */}
-              <div className="space-y-3">
-                <div className="flex items-center gap-3 text-sm">
-                  <Calendar className="w-4 h-4 text-primary flex-shrink-0" />
-                  <span className="text-foreground font-medium">
-                    {format(new Date(timeRange.date), "EEEE, MMMM d, yyyy")}
-                  </span>
-                </div>
-                <div className="flex items-center gap-3 text-sm">
-                  <Clock className="w-4 h-4 text-primary flex-shrink-0" />
-                  <span className="text-foreground">
-                    {timeRange.startTime} – {timeRange.endTime}
-                  </span>
-                </div>
-                {hangout.location && (
-                  <div className="flex items-center gap-3 text-sm">
-                    <MapPin className="w-4 h-4 text-primary flex-shrink-0" />
-                    <span className="text-foreground">
-                      {hangout.location.name}
-                      {hangout.location.address && ` • ${hangout.location.address}`}
-                      {hangout.location.isFlexible && (
-                        <span className="text-xs ml-1 text-primary">(flexible)</span>
-                      )}
-                    </span>
+              {isEditingHangout ? (
+                <div className="rounded-xl border border-border bg-muted/10 p-4 space-y-4">
+                  <div className="space-y-2">
+                    <label htmlFor="hangout-edit-title" className="text-xs font-medium text-muted-foreground">
+                      Title
+                    </label>
+                    <Input
+                      id="hangout-edit-title"
+                      value={editTitle}
+                      onChange={(e) => setEditTitle(e.target.value)}
+                      placeholder="Hangout title"
+                      maxLength={200}
+                    />
                   </div>
-                )}
-                <div className="flex items-center gap-3 text-sm">
-                  <Users className="w-4 h-4 text-primary flex-shrink-0" />
-                  <span className="text-foreground">
-                    {isCreator ? "Created by you" : `Created by ${creator?.name || "Unknown"}`}
-                  </span>
-                </div>
-                {confirmationAuditStamp && (
-                  <div className="flex items-center gap-3 text-sm">
-                    <Check className="w-4 h-4 text-green-600 flex-shrink-0" />
-                    <span className="text-foreground">{confirmationAuditStamp}</span>
+                  <div className="space-y-2">
+                    <label htmlFor="hangout-edit-desc" className="text-xs font-medium text-muted-foreground">
+                      Description (optional)
+                    </label>
+                    <Textarea
+                      id="hangout-edit-desc"
+                      value={editDescription}
+                      onChange={(e) => setEditDescription(e.target.value)}
+                      placeholder="What's the plan?"
+                      rows={3}
+                      maxLength={2000}
+                      className="resize-none"
+                    />
                   </div>
-                )}
+                  <div className="space-y-2">
+                    <label htmlFor="hangout-edit-activity" className="text-xs font-medium text-muted-foreground">
+                      Activity (updates the icon)
+                    </label>
+                    <select
+                      id="hangout-edit-activity"
+                      value={editActivityType}
+                      onChange={(e) => setEditActivityType(e.target.value as Hangout["activityType"])}
+                      className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm text-foreground"
+                    >
+                      {activityTypes.map((opt) => (
+                        <option key={opt.id} value={opt.id}>
+                          {opt.icon} {opt.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div className="space-y-2 sm:col-span-1">
+                      <label htmlFor="hangout-edit-date" className="text-xs font-medium text-muted-foreground">
+                        Date
+                      </label>
+                      <Input id="hangout-edit-date" type="date" value={editDate} onChange={(e) => setEditDate(e.target.value)} />
+                    </div>
+                    <div className="space-y-2">
+                      <label htmlFor="hangout-edit-start" className="text-xs font-medium text-muted-foreground">
+                        Start
+                      </label>
+                      <Input id="hangout-edit-start" type="time" value={editStartTime} onChange={(e) => setEditStartTime(e.target.value)} />
+                    </div>
+                    <div className="space-y-2">
+                      <label htmlFor="hangout-edit-end" className="text-xs font-medium text-muted-foreground">
+                        End
+                      </label>
+                      <Input id="hangout-edit-end" type="time" value={editEndTime} onChange={(e) => setEditEndTime(e.target.value)} />
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <label htmlFor="hangout-edit-loc" className="text-xs font-medium text-muted-foreground">
+                      Location (optional)
+                    </label>
+                    <Input
+                      id="hangout-edit-loc"
+                      value={editLocationName}
+                      onChange={(e) => setEditLocationName(e.target.value)}
+                      placeholder="Place name"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label htmlFor="hangout-edit-loc-addr" className="text-xs font-medium text-muted-foreground">
+                      Address (optional)
+                    </label>
+                    <Input
+                      id="hangout-edit-loc-addr"
+                      value={editLocationAddress}
+                      onChange={(e) => setEditLocationAddress(e.target.value)}
+                      placeholder="Street or maps hint"
+                    />
+                  </div>
+                  <div className="flex items-center justify-between gap-3 rounded-lg border border-border/70 px-3 py-2">
+                    <span className="text-sm text-foreground">Flexible location</span>
+                    <Switch checked={editLocationFlexible} onCheckedChange={setEditLocationFlexible} />
+                  </div>
+                  <p className="text-xs text-muted-foreground leading-relaxed">
+                    Updating date/time adjusts both the proposed schedule and confirmed times when this hangout is confirmed (invitees may want a heads-up in chat).
+                  </p>
+                </div>
+              ) : (
+                <>
+                  {hangout.description && <p className="text-sm text-muted-foreground">{hangout.description}</p>}
+                  {/* Details */}
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-3 text-sm">
+                      <Calendar className="w-4 h-4 text-primary flex-shrink-0" />
+                      <span className="text-foreground font-medium">
+                        {format(new Date(timeRange.date), "EEEE, MMMM d, yyyy")}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-3 text-sm">
+                      <Clock className="w-4 h-4 text-primary flex-shrink-0" />
+                      <span className="text-foreground">
+                        {timeRange.startTime} – {timeRange.endTime}
+                      </span>
+                    </div>
+                    {hangout.location && (
+                      <div className="flex items-center gap-3 text-sm">
+                        <MapPin className="w-4 h-4 text-primary flex-shrink-0" />
+                        <span className="text-foreground">
+                          {hangout.location.name}
+                          {hangout.location.address && ` • ${hangout.location.address}`}
+                          {hangout.location.isFlexible && (
+                            <span className="text-xs ml-1 text-primary">(flexible)</span>
+                          )}
+                        </span>
+                      </div>
+                    )}
+                    <div className="flex items-center gap-3 text-sm">
+                      <Users className="w-4 h-4 text-primary flex-shrink-0" />
+                      <span className="text-foreground">
+                        {isCreator ? "Created by you" : `Created by ${creator?.name || "Unknown"}`}
+                      </span>
+                    </div>
+                    {confirmationAuditStamp && (
+                      <div className="flex items-center gap-3 text-sm">
+                        <Check className="w-4 h-4 text-green-600 flex-shrink-0" />
+                        <span className="text-foreground">{confirmationAuditStamp}</span>
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
+
+              <div className="rounded-xl border border-border/70 bg-muted/15 px-4 py-4">
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                  <p className="text-xs text-muted-foreground leading-relaxed max-w-md">
+                    Copy a link that opens this hangout in the Hangouts page. Recipients must be signed in and already invited or included.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => void handleCopyHangoutLink()}
+                    className="inline-flex shrink-0 items-center justify-center gap-2 rounded-lg border border-border bg-background px-4 py-2.5 text-sm font-medium text-foreground shadow-sm hover:bg-muted transition-colors"
+                  >
+                    <Link2 className="w-4 h-4" />
+                    Copy link
+                  </button>
+                </div>
               </div>
 
                 {canCreateMemory && (
@@ -429,7 +695,7 @@ const HangoutDetailModal = ({
                 </div>
               )}
 
-              {isCreator && bestAvailabilitySuggestion && (
+              {isCreator && bestAvailabilitySuggestion && !isEditingHangout && (
                 <div className="rounded-xl border border-primary/20 bg-primary/5 p-4">
                   <h4 className="font-heading font-semibold text-foreground mb-1">Suggested Best Time</h4>
                   <p className="text-sm text-primary font-medium">

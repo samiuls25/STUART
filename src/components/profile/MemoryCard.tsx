@@ -1,7 +1,19 @@
 import React from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { MapPin, Clock, Users, Camera, X, ChevronLeft, ChevronRight, Plus, Trash2, ExternalLink } from "lucide-react";
+import {
+  MapPin,
+  Clock,
+  Users,
+  Camera,
+  X,
+  ChevronLeft,
+  ChevronRight,
+  Plus,
+  Trash2,
+  ExternalLink,
+  Link2,
+} from "lucide-react";
 import type { Friend } from "../../lib/friends";
 import { getFriends } from "../../lib/friends";
 import {
@@ -34,6 +46,10 @@ interface MemoryCardProps {
   displayMode?: "default" | "gallery";
   allowDelete?: boolean;
   editable?: boolean;
+  /** When set to this memory's id, opens the expanded view once (e.g. `/profile?memory=…`). */
+  deepLinkMemoryId?: string | null;
+  /** When this memory opens from `/profile?memory=…`, parent clears the query param so the modal does not reopen on remount. */
+  onDeepLinkConsumed?: () => void;
   onMemoryUpdated?: () => void | Promise<void>;
 }
 
@@ -54,7 +70,16 @@ function MemoryAlbumLinkRow({ href }: { href: string }) {
   );
 }
 
-const MemoryCard = ({ memory, compact = false, displayMode = "default", allowDelete = true, editable = true, onMemoryUpdated }: MemoryCardProps) => {
+const MemoryCard = ({
+  memory,
+  compact = false,
+  displayMode = "default",
+  allowDelete = true,
+  editable = true,
+  deepLinkMemoryId = null,
+  onDeepLinkConsumed,
+  onMemoryUpdated,
+}: MemoryCardProps) => {
   const { toast } = useToast();
   const [isExpanded, setIsExpanded] = useState(false);
   const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
@@ -74,6 +99,7 @@ const MemoryCard = ({ memory, compact = false, displayMode = "default", allowDel
   const [savingAlbum, setSavingAlbum] = useState(false);
   const galleryUploadInputRef = useRef<HTMLInputElement | null>(null);
   const defaultUploadInputRef = useRef<HTMLInputElement | null>(null);
+  const deepLinkExpandedRef = useRef(false);
 
   const galleryPhotos = useMemo(
     () =>
@@ -155,6 +181,13 @@ const MemoryCard = ({ memory, compact = false, displayMode = "default", allowDel
     if (!isExpanded || !editable) return;
     setAlbumDraft(memory.albumUrl ?? "");
   }, [isExpanded, editable, memory.id, memory.albumUrl]);
+
+  useEffect(() => {
+    if (!deepLinkMemoryId || deepLinkMemoryId !== memory.id || deepLinkExpandedRef.current) return;
+    deepLinkExpandedRef.current = true;
+    setIsExpanded(true);
+    onDeepLinkConsumed?.();
+  }, [deepLinkMemoryId, memory.id, onDeepLinkConsumed]);
 
   useEffect(() => {
     if (addableFriends.length === 0) {
@@ -465,6 +498,56 @@ const MemoryCard = ({ memory, compact = false, displayMode = "default", allowDel
     return null;
   };
 
+  const handleCopyMemoryDeepLink = async () => {
+    const url = `${typeof window !== "undefined" ? window.location.origin : ""}/profile?memory=${memory.id}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      toast({
+        title: "Link copied",
+        description: "Opens your Profile to this memory when someone is signed in and can see it.",
+      });
+    } catch {
+      toast({
+        title: "Couldn't copy",
+        description: url,
+        variant: "destructive",
+      });
+    }
+  };
+
+  const renderShareDeepLinkBlock = () => (
+    <div className="mb-8 rounded-xl border border-border/70 bg-muted/15 px-4 py-4">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <p className="text-xs text-muted-foreground leading-relaxed max-w-md">
+          Copy a link that jumps to this memory on your profile. Recipients must be signed in and already able to see this memory.
+        </p>
+        <button
+          type="button"
+          onClick={() => void handleCopyMemoryDeepLink()}
+          className="inline-flex shrink-0 items-center justify-center gap-2 rounded-lg border border-border bg-background px-4 py-2.5 text-sm font-medium text-foreground shadow-sm hover:bg-muted transition-colors"
+        >
+          <Link2 className="w-4 h-4" />
+          Copy link
+        </button>
+      </div>
+    </div>
+  );
+
+  const renderDeleteMemoryBlock = () =>
+    allowDelete && editable ? (
+      <div className="mb-8 rounded-xl border border-destructive/25 bg-destructive/5 p-4">
+        <button
+          type="button"
+          onClick={handleDeleteMemory}
+          disabled={isDeletingMemory}
+          className="inline-flex items-center gap-2 text-sm font-medium text-destructive hover:opacity-90 disabled:opacity-60"
+        >
+          <Trash2 className="w-4 h-4" />
+          {isDeletingMemory ? "Deleting memory..." : "Delete memory"}
+        </button>
+      </div>
+    ) : null;
+
   const nextPhoto = (e: React.MouseEvent) => {
     e.stopPropagation();
     setCurrentPhotoIndex((prev) => (prev + 1) % galleryPhotos.length);
@@ -595,23 +678,12 @@ const MemoryCard = ({ memory, compact = false, displayMode = "default", allowDel
                     </span>
                   </div>
 
+                  {renderShareDeepLinkBlock()}
+                  {renderDeleteMemoryBlock()}
+
                   {renderAlbumLinkSection()}
 
-                  {allowDelete && editable && (
-                    <div className="mb-6 rounded-xl border border-destructive/20 bg-destructive/5 p-3">
-                      <button
-                        type="button"
-                        onClick={handleDeleteMemory}
-                        disabled={isDeletingMemory}
-                        className="inline-flex items-center gap-2 text-sm text-destructive hover:opacity-90 disabled:opacity-60"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                        {isDeletingMemory ? "Deleting memory..." : "Delete memory"}
-                      </button>
-                    </div>
-                  )}
-
-                  <div className="mb-6">
+                  <div className="mb-8">
                     <h3 className="text-sm font-medium text-foreground mb-3 flex items-center gap-2">
                       <Users className="w-4 h-4" />
                       Who was there ({memory.attendees.length})
@@ -688,17 +760,17 @@ const MemoryCard = ({ memory, compact = false, displayMode = "default", allowDel
                     )}
                   </div>
 
-                  <div>
-                    <h3 className="text-sm font-medium text-foreground mb-3 flex items-center gap-2">
+                  <div className="rounded-xl border border-border/80 bg-muted/10 p-4 sm:p-5">
+                    <h3 className="text-sm font-medium text-foreground mb-4 flex items-center gap-2">
                       <Camera className="w-4 h-4" />
                       Shared Photos ({galleryPhotos.length})
                     </h3>
-                    <div className="grid grid-cols-4 gap-2">
+                    <div className="grid grid-cols-4 gap-3">
                       {galleryPhotos.map((photo, index) => (
                         <button
                           key={photo.id}
                           onClick={() => setCurrentPhotoIndex(index)}
-                          className={`relative aspect-square rounded-lg overflow-hidden ${index === currentPhotoIndex ? "ring-2 ring-primary" : ""}`}
+                          className={`relative aspect-square rounded-lg overflow-hidden ${index === currentPhotoIndex ? "ring-2 ring-primary ring-offset-2 ring-offset-card" : ""}`}
                         >
                           <img
                             src={photo.url}
@@ -710,13 +782,13 @@ const MemoryCard = ({ memory, compact = false, displayMode = "default", allowDel
                     </div>
 
                     {editable && (
-                      <div className="mt-3 space-y-2">
-                        <div className="flex flex-wrap gap-2">
+                      <div className="mt-6 pt-5 border-t border-border/70 space-y-5">
+                        <div className="flex flex-wrap items-center gap-3">
                           <button
                             type="button"
                             onClick={() => galleryUploadInputRef.current?.click()}
                             disabled={isUploadingPhotos || remainingPhotoSlots <= 0}
-                            className="inline-flex items-center gap-1.5 rounded-md bg-primary/10 px-3 py-1.5 text-sm font-medium text-primary hover:bg-primary/20 disabled:opacity-50 disabled:cursor-not-allowed"
+                            className="inline-flex items-center gap-2 rounded-lg bg-primary/10 px-4 py-2 text-sm font-medium text-primary hover:bg-primary/20 disabled:opacity-50 disabled:cursor-not-allowed"
                           >
                             <Plus className="w-4 h-4" />
                             {isUploadingPhotos ? "Uploading..." : "Add Photos"}
@@ -732,7 +804,7 @@ const MemoryCard = ({ memory, compact = false, displayMode = "default", allowDel
                               event.currentTarget.value = "";
                             }}
                           />
-                          <span className="text-xs text-muted-foreground self-center">
+                          <span className="text-xs text-muted-foreground">
                             {Math.max(remainingPhotoSlots, 0)} slot{remainingPhotoSlots === 1 ? "" : "s"} left
                           </span>
                         </div>
@@ -742,7 +814,7 @@ const MemoryCard = ({ memory, compact = false, displayMode = "default", allowDel
                             type="button"
                             onClick={() => handleReorderSelectedPhoto("left")}
                             disabled={!canReorderPhotos || isReorderingPhotos || currentPhotoIndex === 0}
-                            className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-3 py-1.5 text-sm font-medium text-foreground hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed"
+                            className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-2 text-sm font-medium text-foreground hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed"
                           >
                             <ChevronLeft className="w-4 h-4" />
                             Move Left
@@ -751,7 +823,7 @@ const MemoryCard = ({ memory, compact = false, displayMode = "default", allowDel
                             type="button"
                             onClick={() => handleReorderSelectedPhoto("right")}
                             disabled={!canReorderPhotos || isReorderingPhotos || currentPhotoIndex >= galleryPhotos.length - 1}
-                            className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-3 py-1.5 text-sm font-medium text-foreground hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed"
+                            className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-2 text-sm font-medium text-foreground hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed"
                           >
                             Move Right
                             <ChevronRight className="w-4 h-4" />
@@ -760,7 +832,7 @@ const MemoryCard = ({ memory, compact = false, displayMode = "default", allowDel
                             type="button"
                             onClick={handleDeleteSelectedPhoto}
                             disabled={!currentSelectedPhoto || deletingPhotoId === currentSelectedPhoto?.id}
-                            className="inline-flex items-center gap-1.5 rounded-md border border-destructive/40 bg-destructive/5 px-3 py-1.5 text-sm font-medium text-destructive hover:bg-destructive/10 disabled:opacity-50 disabled:cursor-not-allowed"
+                            className="inline-flex items-center gap-1.5 rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm font-medium text-destructive hover:bg-destructive/10 disabled:opacity-50 disabled:cursor-not-allowed"
                           >
                             <Trash2 className="w-4 h-4" />
                             {deletingPhotoId === currentSelectedPhoto?.id ? "Deleting..." : "Delete Selected"}
@@ -770,7 +842,7 @@ const MemoryCard = ({ memory, compact = false, displayMode = "default", allowDel
                     )}
 
                     {editable && !canReorderPhotos && galleryContainsSynthetic && (
-                      <p className="mt-2 text-xs text-muted-foreground">
+                      <p className="mt-4 text-xs text-muted-foreground">
                         Reordering is available for multi-photo memories saved in memory_photos.
                       </p>
                     )}
@@ -784,12 +856,14 @@ const MemoryCard = ({ memory, compact = false, displayMode = "default", allowDel
         <AlertDialog open={showDeleteMemoryConfirm} onOpenChange={setShowDeleteMemoryConfirm}>
           <AlertDialogContent className="max-w-md rounded-2xl">
             <AlertDialogTitle className="text-destructive">Delete Memory?</AlertDialogTitle>
-            <AlertDialogDescription className="space-y-3">
-              <p>This memory and all uploaded photos will be permanently removed.</p>
-              <div className="rounded-xl border border-destructive/30 bg-destructive/10 p-3">
-                <p className="text-sm text-foreground">
-                  <strong>{memory.eventName}</strong>
-                </p>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3 text-sm text-muted-foreground">
+                <p>This memory and all uploaded photos will be permanently removed.</p>
+                <div className="rounded-xl border border-destructive/30 bg-destructive/10 p-3">
+                  <p className="text-sm text-foreground">
+                    <strong>{memory.eventName}</strong>
+                  </p>
+                </div>
               </div>
             </AlertDialogDescription>
             <AlertDialogFooter>
@@ -817,12 +891,14 @@ const MemoryCard = ({ memory, compact = false, displayMode = "default", allowDel
         >
           <AlertDialogContent className="max-w-md rounded-2xl">
             <AlertDialogTitle className="text-destructive">Delete Selected Photo?</AlertDialogTitle>
-            <AlertDialogDescription className="space-y-3">
-              <p>This photo will be removed from the memory.</p>
-              <div className="rounded-xl border border-destructive/30 bg-destructive/10 p-3">
-                <p className="text-sm text-foreground">
-                  {pendingDeletePhoto ? `Photo by ${pendingDeletePhoto.uploadedBy}` : "Selected photo"}
-                </p>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3 text-sm text-muted-foreground">
+                <p>This photo will be removed from the memory.</p>
+                <div className="rounded-xl border border-destructive/30 bg-destructive/10 p-3">
+                  <p className="text-sm text-foreground">
+                    {pendingDeletePhoto ? `Photo by ${pendingDeletePhoto.uploadedBy}` : "Selected photo"}
+                  </p>
+                </div>
               </div>
             </AlertDialogDescription>
             <AlertDialogFooter>
@@ -997,24 +1073,13 @@ const MemoryCard = ({ memory, compact = false, displayMode = "default", allowDel
                   </span>
                 </div>
 
+                {renderShareDeepLinkBlock()}
+                {renderDeleteMemoryBlock()}
+
                 {renderAlbumLinkSection()}
 
-                {allowDelete && editable && (
-                  <div className="mb-6 rounded-xl border border-destructive/20 bg-destructive/5 p-3">
-                    <button
-                      type="button"
-                      onClick={handleDeleteMemory}
-                      disabled={isDeletingMemory}
-                      className="inline-flex items-center gap-2 text-sm text-destructive hover:opacity-90 disabled:opacity-60"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                      {isDeletingMemory ? "Deleting memory..." : "Delete memory"}
-                    </button>
-                  </div>
-                )}
-
                 {/* Attendees Section */}
-                <div className="mb-6">
+                <div className="mb-8">
                   <h3 className="text-sm font-medium text-foreground mb-3 flex items-center gap-2">
                     <Users className="w-4 h-4" />
                     Who was there ({memory.attendees.length})
@@ -1092,17 +1157,17 @@ const MemoryCard = ({ memory, compact = false, displayMode = "default", allowDel
                 </div>
 
                 {/* Photo Thumbnails */}
-                <div>
-                  <h3 className="text-sm font-medium text-foreground mb-3 flex items-center gap-2">
+                <div className="rounded-xl border border-border/80 bg-muted/10 p-4 sm:p-5">
+                  <h3 className="text-sm font-medium text-foreground mb-4 flex items-center gap-2">
                     <Camera className="w-4 h-4" />
                     Shared Photos ({galleryPhotos.length})
                   </h3>
-                  <div className="grid grid-cols-4 gap-2">
+                  <div className="grid grid-cols-4 gap-3">
                     {galleryPhotos.map((photo, index) => (
                       <button
                         key={photo.id}
                         onClick={() => setCurrentPhotoIndex(index)}
-                        className={`relative aspect-square rounded-lg overflow-hidden ${index === currentPhotoIndex ? "ring-2 ring-primary" : ""}`}
+                        className={`relative aspect-square rounded-lg overflow-hidden ${index === currentPhotoIndex ? "ring-2 ring-primary ring-offset-2 ring-offset-card" : ""}`}
                       >
                         <img
                           src={photo.url}
@@ -1114,13 +1179,13 @@ const MemoryCard = ({ memory, compact = false, displayMode = "default", allowDel
                   </div>
 
                   {editable && (
-                    <div className="mt-3 space-y-2">
-                      <div className="flex flex-wrap gap-2">
+                    <div className="mt-6 pt-5 border-t border-border/70 space-y-5">
+                      <div className="flex flex-wrap items-center gap-3">
                         <button
                           type="button"
                           onClick={() => defaultUploadInputRef.current?.click()}
                           disabled={isUploadingPhotos || remainingPhotoSlots <= 0}
-                          className="inline-flex items-center gap-1.5 rounded-md bg-primary/10 px-3 py-1.5 text-sm font-medium text-primary hover:bg-primary/20 disabled:opacity-50 disabled:cursor-not-allowed"
+                          className="inline-flex items-center gap-2 rounded-lg bg-primary/10 px-4 py-2 text-sm font-medium text-primary hover:bg-primary/20 disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                           <Plus className="w-4 h-4" />
                           {isUploadingPhotos ? "Uploading..." : "Add Photos"}
@@ -1136,7 +1201,7 @@ const MemoryCard = ({ memory, compact = false, displayMode = "default", allowDel
                             event.currentTarget.value = "";
                           }}
                         />
-                        <span className="text-xs text-muted-foreground self-center">
+                        <span className="text-xs text-muted-foreground">
                           {Math.max(remainingPhotoSlots, 0)} slot{remainingPhotoSlots === 1 ? "" : "s"} left
                         </span>
                       </div>
@@ -1146,7 +1211,7 @@ const MemoryCard = ({ memory, compact = false, displayMode = "default", allowDel
                           type="button"
                           onClick={() => handleReorderSelectedPhoto("left")}
                           disabled={!canReorderPhotos || isReorderingPhotos || currentPhotoIndex === 0}
-                          className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-3 py-1.5 text-sm font-medium text-foreground hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed"
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-2 text-sm font-medium text-foreground hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                           <ChevronLeft className="w-4 h-4" />
                           Move Left
@@ -1155,7 +1220,7 @@ const MemoryCard = ({ memory, compact = false, displayMode = "default", allowDel
                           type="button"
                           onClick={() => handleReorderSelectedPhoto("right")}
                           disabled={!canReorderPhotos || isReorderingPhotos || currentPhotoIndex >= galleryPhotos.length - 1}
-                          className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-3 py-1.5 text-sm font-medium text-foreground hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed"
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-2 text-sm font-medium text-foreground hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                           Move Right
                           <ChevronRight className="w-4 h-4" />
@@ -1164,7 +1229,7 @@ const MemoryCard = ({ memory, compact = false, displayMode = "default", allowDel
                           type="button"
                           onClick={handleDeleteSelectedPhoto}
                           disabled={!currentSelectedPhoto || deletingPhotoId === currentSelectedPhoto?.id}
-                          className="inline-flex items-center gap-1.5 rounded-md border border-destructive/40 bg-destructive/5 px-3 py-1.5 text-sm font-medium text-destructive hover:bg-destructive/10 disabled:opacity-50 disabled:cursor-not-allowed"
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm font-medium text-destructive hover:bg-destructive/10 disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                           <Trash2 className="w-4 h-4" />
                           {deletingPhotoId === currentSelectedPhoto?.id ? "Deleting..." : "Delete Selected"}
@@ -1174,7 +1239,7 @@ const MemoryCard = ({ memory, compact = false, displayMode = "default", allowDel
                   )}
 
                   {editable && !canReorderPhotos && galleryContainsSynthetic && (
-                    <p className="mt-2 text-xs text-muted-foreground">
+                    <p className="mt-4 text-xs text-muted-foreground">
                       Reordering is available for multi-photo memories saved in memory_photos.
                     </p>
                   )}

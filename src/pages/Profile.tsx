@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import React from "react";
 import { motion } from "framer-motion";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import {
   User,
   LogOut,
@@ -53,6 +53,24 @@ const Profile = () => {
   
   const { user, loading, signOut } = useAuth();
 
+  const [searchParams, setSearchParams] = useSearchParams();
+  const deepLinkMemoryId = useMemo(() => {
+    const raw = searchParams.get("memory")?.trim();
+    if (!raw || !/^[0-9a-f-]{36}$/i.test(raw)) return null;
+    return raw;
+  }, [searchParams]);
+
+  const clearMemoryDeepLink = useCallback(() => {
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete("memory");
+        return next;
+      },
+      { replace: true },
+    );
+  }, [setSearchParams]);
+
   const refreshMemories = useCallback(async () => {
     if (!user) {
       setMemoriesState([]);
@@ -70,6 +88,12 @@ const Profile = () => {
       setLoadingMemories(false);
     }
   }, [user]);
+
+  useEffect(() => {
+    if (!user || !deepLinkMemoryId || loadingMemories) return;
+    if (!memoriesState.some((m) => m.id === deepLinkMemoryId)) return;
+    setActiveTab("memories");
+  }, [user, deepLinkMemoryId, loadingMemories, memoriesState]);
 
   // Fetch bio from user metadata or profiles table
   useEffect(() => {
@@ -430,7 +454,13 @@ const Profile = () => {
                       <div className="col-span-1 md:col-span-2 py-6 text-center text-sm text-muted-foreground">Loading memories…</div>
                     ) : memoriesState.length > 0 ? (
                       memoriesState.slice(0, 2).map((memory) => (
-                        <MemoryCard key={memory.id} memory={memory} onMemoryUpdated={refreshMemories} />
+                        <MemoryCard
+                          key={memory.id}
+                          memory={memory}
+                          deepLinkMemoryId={deepLinkMemoryId}
+                          onDeepLinkConsumed={clearMemoryDeepLink}
+                          onMemoryUpdated={refreshMemories}
+                        />
                       ))
                     ) : (
                       <div className="col-span-1 md:col-span-2 py-6 text-center text-sm text-muted-foreground">
@@ -576,7 +606,12 @@ const Profile = () => {
                                 animate={{ opacity: 1, y: 0 }}
                                 transition={{ delay: (groupIndex * 0.04) + (index * 0.04) }}
                               >
-                                <MemoryCard memory={memory} onMemoryUpdated={refreshMemories} />
+                                <MemoryCard
+                                  memory={memory}
+                                  deepLinkMemoryId={deepLinkMemoryId}
+                                  onDeepLinkConsumed={clearMemoryDeepLink}
+                                  onMemoryUpdated={refreshMemories}
+                                />
                               </motion.div>
                             ))}
                           </div>
@@ -596,6 +631,8 @@ const Profile = () => {
                           <MemoryCard
                             memory={memory}
                             displayMode="gallery"
+                            deepLinkMemoryId={deepLinkMemoryId}
+                            onDeepLinkConsumed={clearMemoryDeepLink}
                             onMemoryUpdated={refreshMemories}
                           />
                         </motion.div>

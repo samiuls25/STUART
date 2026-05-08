@@ -711,6 +711,61 @@ export async function deleteHangout(hangoutId: string): Promise<void> {
   if (error) throw error;
 }
 
+/** Creator-only updates (RLS-enforced). Keeps `confirmed_*` in sync via `syncHangoutStatus` when applicable. */
+export interface UpdateHangoutDetailsInput {
+  title: string;
+  description: string;
+  activityType: Hangout["activityType"];
+  proposedTimeRange: {
+    date: string;
+    startTime: string;
+    endTime: string;
+  };
+  locationName: string;
+  locationAddress: string;
+  isFlexibleLocation: boolean;
+}
+
+export async function updateHangoutDetails(hangoutId: string, input: UpdateHangoutDetailsInput): Promise<void> {
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) throw new Error("You must be signed in to update a hangout.");
+
+  const title = input.title.trim();
+  if (!title) throw new Error("Title is required.");
+
+  const description = input.description.trim();
+  const locName = input.locationName.trim();
+
+  const payload: Record<string, unknown> = {
+    title,
+    description: description ? description : null,
+    activity_type: input.activityType,
+    proposed_date: input.proposedTimeRange.date,
+    proposed_start_time: input.proposedTimeRange.startTime,
+    proposed_end_time: input.proposedTimeRange.endTime,
+    updated_at: new Date().toISOString(),
+  };
+
+  if (locName) {
+    payload.location_name = locName;
+    payload.location_address = input.locationAddress.trim() || null;
+    payload.is_flexible_location = input.isFlexibleLocation;
+  } else {
+    payload.location_name = null;
+    payload.location_address = null;
+    payload.is_flexible_location = true;
+  }
+
+  const { error } = await supabase.from("hangouts").update(payload).eq("id", hangoutId).eq("created_by", user.id);
+
+  if (error) throw error;
+
+  await syncHangoutStatus(hangoutId);
+}
+
 async function syncHangoutStatus(hangoutId: string): Promise<void> {
   let hangoutRow: HangoutStatusSyncRow;
   let isPublicHangout = false;

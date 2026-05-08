@@ -1,8 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import React from "react";
 import { motion } from "framer-motion";
 import { Plus, Calendar, Clock, Users, ChevronRight, Sparkles, Filter, X, Camera, PencilLine, Trash2 } from "lucide-react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import Navbar from "../components/layout/Navbar.tsx";
 import HangoutCard from "../components/hangouts/HangoutCard";
 import CreateHangoutModal from "../components/hangouts/CreateHangoutModal";
@@ -33,6 +33,13 @@ const Hangouts = () => {
   const { toast } = useToast();
   const location = useLocation();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const hangoutDeepLinkId = useMemo(() => {
+    const raw = searchParams.get("hangout")?.trim();
+    if (!raw || !/^[0-9a-f-]{36}$/i.test(raw)) return null;
+    return raw;
+  }, [searchParams]);
+  const hangoutDeepLinkConsumedRef = useRef<string | null>(null);
 
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showAuthModal, setShowAuthModal] = useState(false);
@@ -279,6 +286,43 @@ const Hangouts = () => {
       isInDateRange(h) &&
       (h.status === "completed" || isHangoutScheduledBeforeToday(h))
   );
+
+  useEffect(() => {
+    hangoutDeepLinkConsumedRef.current = null;
+  }, [hangoutDeepLinkId]);
+
+  useEffect(() => {
+    if (!user || !hangoutDeepLinkId || loadingHangouts) return;
+    if (hangoutDeepLinkConsumedRef.current === hangoutDeepLinkId) return;
+
+    const found = hangoutsState.find((h) => h.id === hangoutDeepLinkId);
+
+    const stripParam = () => {
+      hangoutDeepLinkConsumedRef.current = hangoutDeepLinkId;
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          next.delete("hangout");
+          return next;
+        },
+        { replace: true },
+      );
+    };
+
+    if (!found) {
+      stripParam();
+      toast({
+        title: "Hangout unavailable",
+        description: "Sign in with an account that was invited, or check that it still exists.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    stripParam();
+    setSelectedHangout(found);
+    setOpenAvailabilityEditor(false);
+  }, [user, hangoutDeepLinkId, hangoutsState, loadingHangouts, setSearchParams, toast]);
 
   const handleHideDeclinedHangout = (hangoutId: string) => {
     if (!hiddenDeclinedStorageKey) return;
@@ -1080,21 +1124,25 @@ const Hangouts = () => {
           setShowCreateGroupModal(false);
         }}
       />
-      <HangoutDetailModal
-        hangout={selectedHangout}
-        isOpen={!!selectedHangout}
-        onClose={() => {
-          setSelectedHangout(null);
-          setOpenAvailabilityEditor(false);
-        }}
-        onRespond={handleRespond}
-        onSubmitAvailability={handleSubmitAvailability}
-        onApplySuggestedTime={handleApplySuggestedTime}
-        onDeleteHangout={handleDeleteHangout}
-        onCreateMemory={handleCreateMemoryFromHangout}
-        initialShowAvailability={openAvailabilityEditor}
-        currentUserId={currentUserId}
-      />
+      {selectedHangout ? (
+        <HangoutDetailModal
+          key={selectedHangout.id}
+          hangout={selectedHangout}
+          isOpen={!!selectedHangout}
+          onClose={() => {
+            setSelectedHangout(null);
+            setOpenAvailabilityEditor(false);
+          }}
+          onRespond={handleRespond}
+          onSubmitAvailability={handleSubmitAvailability}
+          onApplySuggestedTime={handleApplySuggestedTime}
+          onDeleteHangout={handleDeleteHangout}
+          onCreateMemory={handleCreateMemoryFromHangout}
+          onHangoutUpdated={loadHangouts}
+          initialShowAvailability={openAvailabilityEditor}
+          currentUserId={currentUserId}
+        />
+      ) : null}
       <CreateMemoryModal
         isOpen={showMemoryModal}
         onClose={closeMemoryModal}
