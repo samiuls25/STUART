@@ -17,6 +17,7 @@ import { addMemoryAttendee, createMemoryWithPhotos, memoryUploadConfig, normaliz
 import { fetchGroupsForCurrentUser, groupMemberIds, type UserGroup } from "../../lib/groups";
 import { getFriends, type Friend } from "../../lib/friends";
 import { useAuth } from "../../lib/AuthContext";
+import { trackAnalytics } from "../../lib/analytics";
 
 export interface CreateMemoryInitialValues {
   title?: string;
@@ -225,9 +226,17 @@ const CreateMemoryModal = ({ isOpen, onClose, onCreated, initialValues }: Create
       }
 
       if (prefillAttendeeIds.length > 0) {
-        await Promise.allSettled(
-          prefillAttendeeIds.map((memberId) => addMemoryAttendee(result.id, memberId))
+        const settled = await Promise.allSettled(
+          prefillAttendeeIds.map((memberId) => addMemoryAttendee(result.id, memberId)),
         );
+        const peersAdded = settled.filter((row) => row.status === "fulfilled").length;
+        if (peersAdded > 0) {
+          trackAnalytics("memory_attendees_added", {
+            memory_id: result.id,
+            peers_added: peersAdded,
+            source: attendeePrefillMode === "groups" ? "create_modal_groups" : "create_modal_friends",
+          });
+        }
       }
 
       toast({

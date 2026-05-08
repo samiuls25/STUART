@@ -29,6 +29,7 @@ import {
   type Memory,
 } from "../../lib/memories";
 import { useToast } from "../../hooks/use-toast";
+import { trackAnalytics } from "../../lib/analytics";
 import { Input } from "../ui/input";
 import {
   AlertDialog,
@@ -207,6 +208,11 @@ const MemoryCard = ({
     setIsAddingAttendee(true);
     try {
       await addMemoryAttendee(memory.id, selectedFriendId);
+      trackAnalytics("memory_attendees_added", {
+        memory_id: memory.id,
+        peers_added: 1,
+        source: "memory_card",
+      });
       toast({
         title: "Attendee added",
         description: "Friend added to this memory.",
@@ -229,6 +235,7 @@ const MemoryCard = ({
     setAttendeeActionId(attendeeId);
     try {
       await removeMemoryAttendee(memory.id, attendeeId);
+      trackAnalytics("memory_attendee_removed", { memory_id: memory.id });
       toast({
         title: "Attendee removed",
         description: "Friend removed from this memory.",
@@ -502,6 +509,7 @@ const MemoryCard = ({
     const url = `${typeof window !== "undefined" ? window.location.origin : ""}/profile?memory=${memory.id}`;
     try {
       await navigator.clipboard.writeText(url);
+      trackAnalytics("memory_share_link_copied", { memory_id: memory.id });
       toast({
         title: "Link copied",
         description: "Opens your Profile to this memory when someone is signed in and can see it.",

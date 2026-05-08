@@ -24,6 +24,7 @@ import ConfirmDeleteHangoutDialog from "./ConfirmDeleteHangoutDialog";
 import { scoreAvailabilitySlots } from "../../lib/hangoutFinalization";
 import { useToast } from "../../hooks/use-toast";
 import { inviteFriendsToHangout, removeHangoutInvitee, updateHangoutDetails } from "../../lib/hangouts";
+import { trackAnalytics } from "../../lib/analytics";
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -290,6 +291,11 @@ const HangoutDetailModal = ({
     const url = `${typeof window !== "undefined" ? window.location.origin : ""}/hangouts?hangout=${hangout.id}`;
     try {
       await navigator.clipboard.writeText(url);
+      trackAnalytics("hangout_share_link_copied", {
+        hangout_id: hangout.id,
+        is_public: Boolean(hangout.isPublic),
+        hangout_status: hangout.status,
+      });
       toast({
         title: "Hangout link copied",
         description: "Opens Hangouts for someone signed in who already has access to this hangout.",

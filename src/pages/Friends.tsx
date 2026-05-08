@@ -159,7 +159,7 @@ const Friends = () => {
     if (success) {
       await refreshFriends();
       toast({ title: "Friend request accepted!" });
-      trackAnalytics("friend_request_accepted", {});
+      trackAnalytics("friend_request_accepted", { surface: "friends_requests_tab" });
     } else {
       toast({ title: "Failed to accept request", variant: "destructive" });
     }
@@ -183,7 +183,7 @@ const Friends = () => {
       setFriendEmail("");
       setShowAddFriend(false);
       toast({ title: "Friend request sent!" });
-      trackAnalytics("friend_request_sent", {});
+      trackAnalytics("friend_request_sent", { surface: "email_lookup" });
     } else {
       toast({ 
         title: "Couldn't send request", 
@@ -209,7 +209,10 @@ const Friends = () => {
     if (!inviteLinkToken) return;
     const url = inviteUrlForToken(inviteLinkToken);
     const copied = await tryCopyInviteUrl(inviteLinkToken);
-    if (copied) toast({ title: "Copied invite link" });
+    if (copied) {
+      trackAnalytics("friend_invite_link_copied", {});
+      toast({ title: "Copied invite link" });
+    }
     else
       toast({
         title: "Could not copy automatically",
@@ -223,6 +226,7 @@ const Friends = () => {
     try {
       const token = await rotateFriendInviteLink();
       setInviteLinkToken(token);
+      trackAnalytics("friend_invite_link_rotated", {});
       const copied = await tryCopyInviteUrl(token);
       if (copied) {
         toast({

@@ -809,6 +809,8 @@ export async function updateHangoutDetails(hangoutId: string, input: UpdateHango
 
   await syncHangoutStatus(hangoutId);
 
+  trackAnalytics("hangout_details_saved", { hangout_id: hangoutId });
+
   try {
     await notifyHangoutParticipantsAfterDetailsEdit({
       editorUserId: user.id,
@@ -896,6 +898,11 @@ export async function inviteFriendsToHangout(
 
   await syncHangoutStatus(hangoutId);
 
+  trackAnalytics("hangout_invite_more_sent", {
+    hangout_id: hangoutId,
+    peers_added: toInvite.length,
+  });
+
   return { invitedCount: toInvite.length };
 }
 
@@ -932,6 +939,8 @@ export async function removeHangoutInvitee(hangoutId: string, friendId: string):
   if (error) throw error;
 
   await syncHangoutStatus(hangoutId);
+
+  trackAnalytics("hangout_invitee_removed", { hangout_id: hangoutId });
 }
 
 async function syncHangoutStatus(hangoutId: string): Promise<void> {

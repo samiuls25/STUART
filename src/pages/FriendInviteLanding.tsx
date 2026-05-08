@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { Loader2, UserPlus } from "lucide-react";
 
@@ -20,6 +20,7 @@ import {
   sendFriendRequestByUserId,
   type ResolvedFriendInvite,
 } from "../lib/friends";
+import { trackAnalytics } from "../lib/analytics";
 
 const FriendInviteLanding = () => {
   const { token } = useParams<{ token: string }>();
@@ -32,6 +33,19 @@ const FriendInviteLanding = () => {
   const [showAuth, setShowAuth] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [sending, setSending] = useState(false);
+
+  const trackedValidLandingRef = useRef(false);
+
+  useEffect(() => {
+    trackedValidLandingRef.current = false;
+  }, [token]);
+
+  useEffect(() => {
+    if (loading || issuer === undefined) return;
+    if (!issuer?.issuerId || trackedValidLandingRef.current) return;
+    trackedValidLandingRef.current = true;
+    trackAnalytics("friend_invite_landing_valid", {});
+  }, [loading, issuer]);
 
   useEffect(() => {
     let cancelled = false;
@@ -74,6 +88,7 @@ const FriendInviteLanding = () => {
           const result = await sendFriendRequestByUserId(issuerId);
 
           if (result.ok && result.outcome === "already_friends") {
+            trackAnalytics("friend_invite_link_response", { outcome: "already_friends" });
             toast({
               title: "Already friends",
               description: "You're connected with this person already.",
@@ -83,6 +98,7 @@ const FriendInviteLanding = () => {
           }
 
           if (result.ok && result.outcome === "sent") {
+            trackAnalytics("friend_request_sent", { surface: "invite_link_landing" });
             toast({
               title: "Friend request sent",
               description: "They'll see your request in STUART.",
@@ -92,6 +108,7 @@ const FriendInviteLanding = () => {
           }
 
           if (!result.ok && result.outcome === "self") {
+            trackAnalytics("friend_invite_link_response", { outcome: "self" });
             toast({
               title: "This is your link",
               description: "Share it with others — you can't add yourself.",
@@ -101,6 +118,7 @@ const FriendInviteLanding = () => {
           }
 
           if (!result.ok && result.outcome === "pending_outbound") {
+            trackAnalytics("friend_invite_link_response", { outcome: "pending_outbound" });
             toast({
               title: "Request already pending",
               description: "You already sent them a friend request.",
@@ -110,6 +128,7 @@ const FriendInviteLanding = () => {
           }
 
           if (!result.ok && result.outcome === "pending_inbound") {
+            trackAnalytics("friend_invite_link_response", { outcome: "pending_inbound" });
             toast({
               title: "They already invited you",
               description: "Open Friends → Requests to accept.",

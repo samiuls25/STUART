@@ -81,8 +81,13 @@ This section reflects the current codebase behavior.
   - no
   - availability submission
 - Organizer tools:
+  - **edit hangout details** (title, description, activity icon, proposed schedule, location); invitees can receive **`hangout_updated`** inbox notifications when they keep **event reminders** enabled (requires `notifications.type` to allow `hangout_updated`)
+  - **copy Hangouts deep link** (`/hangouts?hangout=<id>`) for people already on the hangout.
+  - **invite additional friends** after creation (accepted friendships only; usual invite notifications).
+  - **remove invitees** from the detail modal (cannot strip the last invitee without adding someone else or deleting the hangout).
   - apply suggested best time
   - delete hangout
+- Detail modal scrolls to the top when entering **edit** mode so the form is not missed mid-scroll.
 - Sectioned hangout feed:
   - Suggested
   - Pending
@@ -121,6 +126,7 @@ Note: legacy `/groups` and `/groups/:id` routes now redirect to `/hangouts`.
 ### Friends
 
 - Send friend requests by email lookup.
+- **Shareable invite link** (`/invite/friend/:token`): mint, copy, or revoke from Friends; recipients hit a landing page and confirm after sign-in (analytics: link rotation/copy, valid landing views, request **`surface`**).
 - Incoming request handling:
   - accept
   - reject
@@ -170,7 +176,7 @@ Note: legacy `/groups` and `/groups/:id` routes now redirect to `/hangouts`.
   - optional event/hangout linkage
 - Multi-photo upload with client-side compression.
 - Memory attendees:
-  - add attendee
+  - add attendee (including **prefill from groups or friends** when creating a memory)
   - remove attendee (owner protected)
 - Photo management:
   - upload
@@ -178,6 +184,7 @@ Note: legacy `/groups` and `/groups/:id` routes now redirect to `/hangouts`.
   - reorder left/right
   - hero image updates based on order
 - Memory deletion with storage cleanup.
+- **Share link:** expanded memory cards can copy a **profile deep link** (`/profile?memory=<id>`) for people who are signed in and already allowed to see the memory; analytics record **`memory_share_link_copied`** ( **`memory_id`** only).
 - Schema fallback behavior if `memory_photos` is unavailable.
 
 ### Notifications
@@ -190,8 +197,8 @@ Note: legacy `/groups` and `/groups/:id` routes now redirect to `/hangouts`.
   - mark all read
   - delete single
   - clear all
-- Type routing support (friends/hangouts links).
-- Preference-aware creation (honors recipient settings).
+- Type routing support (friends/hangouts links), including **`hangout_updated`** (opens Hangouts when tapped).
+- Preference-aware creation (honors recipient settings; **`hangout_updated`** respects **event reminders** alongside confirmations/reminders).
 
 ### Map
 
