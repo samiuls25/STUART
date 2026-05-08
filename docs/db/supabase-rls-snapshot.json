@@ -154,6 +154,24 @@
   },
   {
     "schemaname": "public",
+    "tablename": "friend_invite_links",
+    "policyname": "friend_invite_links_insert_own",
+    "cmd": "INSERT",
+    "roles": "{authenticated}",
+    "qual": null,
+    "with_check": "((auth.uid() = user_id) AND (user_id IS NOT NULL))"
+  },
+  {
+    "schemaname": "public",
+    "tablename": "friend_invite_links",
+    "policyname": "friend_invite_links_select_own",
+    "cmd": "SELECT",
+    "roles": "{authenticated}",
+    "qual": "(auth.uid() = user_id)",
+    "with_check": null
+  },
+  {
+    "schemaname": "public",
     "tablename": "friendships",
     "policyname": "Cannot create friendships with blocked users",
     "cmd": "INSERT",
