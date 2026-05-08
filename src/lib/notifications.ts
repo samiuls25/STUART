@@ -7,6 +7,7 @@ export type NotificationType =
   | "hangout_response"
   | "hangout_confirmed"
   | "hangout_reminder"
+  | "hangout_updated"
   | "friend_activity";
 
 export interface AppNotification {
@@ -105,7 +106,7 @@ const toPreferenceKey = (
 ): keyof NotificationPreferences | null => {
   if (type === "friend_request" || type === "friend_request_accepted") return "friendRequests";
   if (type === "hangout_invite") return "hangoutInvites";
-  if (type === "hangout_confirmed" || type === "hangout_reminder") return "eventReminders";
+  if (type === "hangout_confirmed" || type === "hangout_reminder" || type === "hangout_updated") return "eventReminders";
   if (type === "friend_activity") return "friendActivity";
   return null;
 };

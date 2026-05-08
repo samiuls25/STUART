@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   X,
@@ -13,14 +13,26 @@ import {
   Trash2,
   Link2,
   Pencil,
+  UserPlus,
+  UserMinus,
+  Search,
 } from "lucide-react";
-import { Hangout, TimeRange, getFriendById, getActivityType, activityTypes } from "../../data/friends";
+import { Hangout, Friend, TimeRange, getFriendById, getActivityType, activityTypes } from "../../data/friends";
 import { format, parseISO, isBefore, startOfDay } from "date-fns";
 import AvailabilityHeatmap from "../availability/AvailabilityHeatmap";
 import ConfirmDeleteHangoutDialog from "./ConfirmDeleteHangoutDialog";
 import { scoreAvailabilitySlots } from "../../lib/hangoutFinalization";
 import { useToast } from "../../hooks/use-toast";
-import { updateHangoutDetails } from "../../lib/hangouts";
+import { inviteFriendsToHangout, removeHangoutInvitee, updateHangoutDetails } from "../../lib/hangouts";
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogTitle,
+} from "../ui/alert-dialog";
+import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Textarea } from "../ui/textarea";
 import { Switch } from "../ui/switch";
@@ -41,6 +53,8 @@ interface HangoutDetailModalProps {
   onHangoutUpdated?: () => void | Promise<void>;
   initialShowAvailability?: boolean;
   currentUserId?: string;
+  /** Accepted friends directory (same source as create flow); used for late invites by the creator. */
+  inviteCandidates?: Friend[];
 }
 
 const HangoutDetailModal = ({
@@ -55,6 +69,7 @@ const HangoutDetailModal = ({
   onHangoutUpdated,
   initialShowAvailability,
   currentUserId,
+  inviteCandidates,
 }: HangoutDetailModalProps) => {
   const { toast } = useToast();
 
@@ -76,6 +91,15 @@ const HangoutDetailModal = ({
   const [editLocationAddress, setEditLocationAddress] = useState("");
   const [editLocationFlexible, setEditLocationFlexible] = useState(true);
 
+  const [inviteMoreSearch, setInviteMoreSearch] = useState("");
+  const [inviteMoreSelected, setInviteMoreSelected] = useState<string[]>([]);
+  const [inviteMoreSending, setInviteMoreSending] = useState(false);
+
+  const [inviteRemovalTarget, setInviteRemovalTarget] = useState<{ friendId: string; name: string } | null>(null);
+  const [removingInvitee, setRemovingInvitee] = useState(false);
+
+  const contentScrollRef = useRef<HTMLDivElement>(null);
+
   const viewerId = currentUserId || "current-user";
 
   const activityType = getActivityType(hangout.activityType);
@@ -86,6 +110,8 @@ const HangoutDetailModal = ({
     ? hangout.responses.filter((response) => response.status !== "no")
     : hangout.responses;
   const isCreator = hangout.createdBy === viewerId;
+  const canManageInviteRoster =
+    isCreator && hangout.status !== "completed" && hangout.status !== "cancelled";
   const timeRange = hangout.confirmedTime || hangout.proposedTimeRange;
   const canRespond = !!currentUserResponse;
   const canShareAvailability = !!currentUserResponse && currentUserResponse.status !== "no";
@@ -158,6 +184,42 @@ const HangoutDetailModal = ({
   useEffect(() => {
     setIsEditingHangout(false);
   }, [hangout.id]);
+
+  useEffect(() => {
+    setInviteMoreSearch("");
+    setInviteMoreSelected([]);
+    setInviteRemovalTarget(null);
+  }, [hangout.id]);
+
+  useEffect(() => {
+    if (!isEditingHangout) return;
+    contentScrollRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+  }, [isEditingHangout]);
+
+  const canInviteMoreFriends =
+    canManageInviteRoster
+    && (inviteCandidates?.length ?? 0) > 0;
+
+  const alreadyInvitedIds = useMemo(() => {
+    const ids = new Set<string>();
+    ids.add(hangout.createdBy);
+    hangout.responses.forEach((r) => ids.add(r.friendId));
+    return ids;
+  }, [hangout.createdBy, hangout.responses]);
+
+  const additionalInviteFriends = useMemo(() => {
+    if (!inviteCandidates?.length) return [];
+    const q = inviteMoreSearch.trim().toLowerCase();
+    return inviteCandidates.filter((f) => {
+      if (!f.id || f.id === viewerId) return false;
+      if (f.isBlocked) return false;
+      if (alreadyInvitedIds.has(f.id)) return false;
+      if (!q) return true;
+      const name = (f.name || "").toLowerCase();
+      const email = (f.email || "").toLowerCase();
+      return name.includes(q) || email.includes(q);
+    });
+  }, [inviteCandidates, inviteMoreSearch, viewerId, alreadyInvitedIds]);
 
   const populateEditFormFromHangout = () => {
     const tr = hangout.confirmedTime || hangout.proposedTimeRange;
@@ -288,6 +350,60 @@ const HangoutDetailModal = ({
     }
   };
 
+  const toggleInviteMoreFriend = (friendId: string) => {
+    setInviteMoreSelected((prev) =>
+      prev.includes(friendId) ? prev.filter((id) => id !== friendId) : [...prev, friendId]
+    );
+  };
+
+  const handleSendMoreInvites = async () => {
+    if (inviteMoreSelected.length === 0) return;
+    setInviteMoreSending(true);
+    try {
+      const { invitedCount } = await inviteFriendsToHangout(hangout.id, {
+        friendIds: inviteMoreSelected,
+      });
+      if (invitedCount === 0) {
+        toast({
+          title: "No new invites",
+          description: "Those people may already be invited or aren't mutual friends.",
+        });
+        return;
+      }
+      toast({
+        title: "Invites sent",
+        description:
+          invitedCount === 1 ? "1 friend was invited." : `${invitedCount} friends were invited.`,
+      });
+      setInviteMoreSelected([]);
+      await onHangoutUpdated?.();
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : "Could not send invites.";
+      toast({ title: "Could not invite", description: msg, variant: "destructive" });
+    } finally {
+      setInviteMoreSending(false);
+    }
+  };
+
+  const handleConfirmRemoveInvitee = async () => {
+    if (!inviteRemovalTarget) return;
+    setRemovingInvitee(true);
+    try {
+      await removeHangoutInvitee(hangout.id, inviteRemovalTarget.friendId);
+      toast({
+        title: "Invite removed",
+        description: `${inviteRemovalTarget.name} is no longer on this hangout.`,
+      });
+      setInviteRemovalTarget(null);
+      await onHangoutUpdated?.();
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : "Could not remove invite.";
+      toast({ title: "Couldn't remove", description: msg, variant: "destructive" });
+    } finally {
+      setRemovingInvitee(false);
+    }
+  };
+
   const bestAvailabilitySuggestion = rankedAvailabilitySuggestions[0] || null;
   const selectedAvailabilitySuggestion = selectedSuggestedSlotKey
     ? rankedAvailabilitySuggestions.find((slot) => slot.key === selectedSuggestedSlotKey) || bestAvailabilitySuggestion
@@ -387,41 +503,32 @@ const HangoutDetailModal = ({
             className="w-full max-w-lg max-h-[85vh] bg-card rounded-2xl shadow-2xl flex flex-col overflow-hidden pointer-events-auto"
           >
             {/* Header */}
-            <div className="flex items-center justify-between p-6 border-b border-border">
-              <div className="flex items-center gap-3">
-                <div className={`w-12 h-12 rounded-xl flex items-center justify-center text-2xl ${activityType?.color || "bg-muted"}`}>
+            <div className="flex items-start justify-between gap-3 p-6 border-b border-border">
+              <div className="flex items-center gap-3 min-w-0 flex-1">
+                <div className={`shrink-0 w-12 h-12 rounded-xl flex items-center justify-center text-2xl ${activityType?.color || "bg-muted"}`}>
                   {activityType?.icon || "📅"}
                 </div>
-                <div>
-                  <h2 className="font-heading text-xl font-bold text-foreground">{hangout.title}</h2>
-                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${statusConfig[hangout.status].color}`}>
+                <div className="min-w-0">
+                  <h2 className="font-heading text-xl font-bold text-foreground truncate">{hangout.title}</h2>
+                  <span className={`inline-block mt-1 text-xs px-2 py-0.5 rounded-full font-medium ${statusConfig[hangout.status].color}`}>
                     {statusConfig[hangout.status].label}
                   </span>
                 </div>
               </div>
-              <button
-                onClick={onClose}
-                className="p-2 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            {/* Content */}
-            <div className="flex-1 overflow-y-auto p-6 space-y-6">
-              {isCreator && (
-                <div className="flex flex-wrap justify-end gap-2">
-                  {!isEditingHangout ? (
+              <div className="flex shrink-0 items-center gap-1.5 pt-0.5">
+                {isCreator && (
+                  !isEditingHangout ? (
                     <button
                       type="button"
                       onClick={() => {
                         populateEditFormFromHangout();
                         setIsEditingHangout(true);
                       }}
-                      className="inline-flex items-center gap-2 rounded-lg border border-border bg-background px-3 py-2 text-sm font-medium text-foreground hover:bg-muted transition-colors"
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs font-medium text-foreground hover:bg-muted transition-colors"
+                      title="Edit details"
                     >
-                      <Pencil className="w-4 h-4" />
-                      Edit details
+                      <Pencil className="w-3.5 h-3.5 shrink-0" />
+                      Edit
                     </button>
                   ) : (
                     <>
@@ -432,7 +539,7 @@ const HangoutDetailModal = ({
                           populateEditFormFromHangout();
                           setIsEditingHangout(false);
                         }}
-                        className="inline-flex items-center rounded-lg border border-border bg-background px-3 py-2 text-sm font-medium text-foreground hover:bg-muted disabled:opacity-50"
+                        className="inline-flex items-center rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs font-medium text-foreground hover:bg-muted disabled:opacity-50"
                       >
                         Cancel
                       </button>
@@ -440,15 +547,26 @@ const HangoutDetailModal = ({
                         type="button"
                         disabled={savingHangoutEdit}
                         onClick={() => void handleSaveHangoutEdit()}
-                        className="inline-flex items-center rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-95 disabled:opacity-50"
+                        className="inline-flex items-center rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:opacity-95 disabled:opacity-50"
                       >
-                        {savingHangoutEdit ? "Saving…" : "Save changes"}
+                        {savingHangoutEdit ? "Saving…" : "Save"}
                       </button>
                     </>
-                  )}
-                </div>
-              )}
+                  )
+                )}
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="p-2 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                  aria-label="Close"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
 
+            {/* Content */}
+            <div ref={contentScrollRef} className="flex-1 overflow-y-auto p-6 space-y-6">
               {isEditingHangout ? (
                 <div className="rounded-xl border border-border bg-muted/10 p-4 space-y-4">
                   <div className="space-y-2">
@@ -605,6 +723,72 @@ const HangoutDetailModal = ({
                 </div>
               </div>
 
+              {canInviteMoreFriends && (
+                <div className="rounded-xl border border-border/70 bg-muted/15 px-4 py-4 space-y-3">
+                  <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                    <UserPlus className="w-4 h-4 text-primary shrink-0" />
+                    Invite more friends
+                  </div>
+                  <p className="text-xs text-muted-foreground leading-relaxed">
+                    Adds accepted friends to this hangout. They get the usual invite notification.
+                  </p>
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+                    <Input
+                      value={inviteMoreSearch}
+                      onChange={(e) => setInviteMoreSearch(e.target.value)}
+                      placeholder="Search friends…"
+                      className="pl-9"
+                      disabled={inviteMoreSending}
+                      autoComplete="off"
+                    />
+                  </div>
+                  {additionalInviteFriends.length === 0 ? (
+                    <p className="text-xs text-muted-foreground py-1">
+                      Everyone in your friends list is already on this hangout.
+                    </p>
+                  ) : (
+                    <>
+                      <div className="max-h-40 overflow-y-auto space-y-1.5 pr-1">
+                        {additionalInviteFriends.map((friend) => {
+                          const checked = inviteMoreSelected.includes(friend.id);
+                          return (
+                            <button
+                              key={friend.id}
+                              type="button"
+                              disabled={inviteMoreSending}
+                              onClick={() => toggleInviteMoreFriend(friend.id)}
+                              className={`flex w-full items-center gap-3 rounded-lg border px-3 py-2 text-left text-sm transition-colors ${
+                                checked ? "border-primary/60 bg-primary/5" : "border-border hover:bg-muted/40"
+                              }`}
+                            >
+                              <span
+                                className={`flex h-5 w-5 shrink-0 items-center justify-center rounded border ${
+                                  checked ? "border-primary bg-primary text-primary-foreground" : "border-input bg-background"
+                                }`}
+                              >
+                                {checked ? <Check className="h-3 w-3" /> : null}
+                              </span>
+                              <span className="truncate font-medium text-foreground">{friend.name}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <button
+                        type="button"
+                        disabled={inviteMoreSending || inviteMoreSelected.length === 0}
+                        onClick={() => void handleSendMoreInvites()}
+                        className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground hover:opacity-95 disabled:opacity-50"
+                      >
+                        {inviteMoreSending
+                          ? "Sending…"
+                          : `Send invites${inviteMoreSelected.length ? ` (${inviteMoreSelected.length})` : ""}`}
+                      </button>
+                    </>
+                  )}
+                </div>
+              )}
+
                 {canCreateMemory && (
                   <div className="rounded-xl border border-primary/20 bg-primary/5 p-4">
                     <h4 className="font-heading font-semibold text-foreground mb-1">Save This Moment</h4>
@@ -650,10 +834,15 @@ const HangoutDetailModal = ({
                   {visibleResponses.map((response) => {
                     const friend = getFriendById(response.friendId);
                     const config = responseStatusConfig[response.status];
+                    const showRemoveInvite =
+                      canManageInviteRoster
+                      && response.friendId !== hangout.createdBy
+                      && hangout.responses.length > 1;
+
                     return (
-                      <div key={response.friendId} className="flex items-center justify-between p-3 rounded-xl bg-muted/30">
-                        <div className="flex items-center gap-3">
-                          <div className="w-9 h-9 rounded-full bg-gradient-to-br from-primary/20 to-accent/20 flex items-center justify-center">
+                      <div key={response.friendId} className="flex items-center justify-between gap-2 p-3 rounded-xl bg-muted/30">
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className="w-9 h-9 rounded-full bg-gradient-to-br from-primary/20 to-accent/20 flex items-center justify-center shrink-0">
                             {friend?.avatar_url ? (
                               <img
                                 src={friend.avatar_url}
@@ -666,12 +855,29 @@ const HangoutDetailModal = ({
                               </span>
                             )}
                           </div>
-                          <span className="text-sm font-medium text-foreground">{friend?.name || "Unknown"}</span>
+                          <span className="text-sm font-medium text-foreground truncate">{friend?.name || "Unknown"}</span>
                         </div>
-                        <span className={`flex items-center gap-1.5 text-xs font-medium ${config.color}`}>
-                          {config.icon}
-                          {config.label}
-                        </span>
+                        <div className="flex shrink-0 items-center gap-2">
+                          <span className={`flex items-center gap-1.5 text-xs font-medium whitespace-nowrap ${config.color}`}>
+                            {config.icon}
+                            {config.label}
+                          </span>
+                          {showRemoveInvite ? (
+                            <button
+                              type="button"
+                              title="Remove from hangout"
+                              onClick={() =>
+                                setInviteRemovalTarget({
+                                  friendId: response.friendId,
+                                  name: friend?.name || "this person",
+                                })
+                              }
+                              className="rounded-lg p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors"
+                            >
+                              <UserMinus className="w-4 h-4" />
+                            </button>
+                          ) : null}
+                        </div>
                       </div>
                     );
                   })}
@@ -839,6 +1045,32 @@ const HangoutDetailModal = ({
             )}
           </motion.div>
           </div>
+
+          <AlertDialog
+            open={inviteRemovalTarget !== null}
+            onOpenChange={(open) => {
+              if (!open && !removingInvitee) setInviteRemovalTarget(null);
+            }}
+          >
+            <AlertDialogContent className="max-w-md rounded-2xl">
+              <AlertDialogTitle>Remove from hangout?</AlertDialogTitle>
+              <AlertDialogDescription>
+                <span className="font-medium text-foreground">{inviteRemovalTarget?.name}</span>
+                {" "}will lose access to this hangout and their RSVP will be cleared.
+              </AlertDialogDescription>
+              <AlertDialogFooter>
+                <AlertDialogCancel disabled={removingInvitee}>Cancel</AlertDialogCancel>
+                <Button
+                  type="button"
+                  variant="destructive"
+                  disabled={removingInvitee}
+                  onClick={() => void handleConfirmRemoveInvitee()}
+                >
+                  {removingInvitee ? "Removing…" : "Remove"}
+                </Button>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
 
           {isCreator && (
             <ConfirmDeleteHangoutDialog

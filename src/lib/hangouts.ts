@@ -94,6 +94,50 @@ const createHangoutInviteNotifications = async (
   });
 };
 
+/** Notify everyone already on the hangout except the editor (best-effort; skips if notifications RPC/table rejects unknown types). */
+const notifyHangoutParticipantsAfterDetailsEdit = async (params: {
+  editorUserId: string;
+  hangoutId: string;
+  hangoutTitle: string;
+}) => {
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("name,email")
+    .eq("id", params.editorUserId)
+    .maybeSingle();
+
+  const editorName =
+    (profile as { name?: string | null; email?: string | null } | null)?.name
+    || (profile as { name?: string | null; email?: string | null } | null)?.email
+    || "Someone";
+
+  const { data: inviteRows, error } = await supabase
+    .from("hangout_invites")
+    .select("friend_id")
+    .eq("hangout_id", params.hangoutId);
+
+  if (error || !inviteRows?.length) return;
+
+  const recipients = [...new Set(inviteRows.map((r: { friend_id: string }) => r.friend_id))].filter(
+    (id) => id !== params.editorUserId,
+  );
+
+  if (!recipients.length) return;
+
+  await createNotificationsBatch({
+    recipientUserIds: recipients,
+    type: "hangout_updated",
+    title: "Hangout updated",
+    message: `${editorName} updated "${params.hangoutTitle}". Open Hangouts for the latest details.`,
+    entityType: "hangout",
+    entityId: params.hangoutId,
+    metadata: {
+      hangoutId: params.hangoutId,
+      hangoutTitle: params.hangoutTitle,
+    },
+  });
+};
+
 const notifyHangoutHostOfResponse = async (args: {
   actor: { id: string; email?: string | null; user_metadata?: { full_name?: string } };
   hostUserId: string;
@@ -760,6 +804,130 @@ export async function updateHangoutDetails(hangoutId: string, input: UpdateHango
   }
 
   const { error } = await supabase.from("hangouts").update(payload).eq("id", hangoutId).eq("created_by", user.id);
+
+  if (error) throw error;
+
+  await syncHangoutStatus(hangoutId);
+
+  try {
+    await notifyHangoutParticipantsAfterDetailsEdit({
+      editorUserId: user.id,
+      hangoutId,
+      hangoutTitle: title,
+    });
+  } catch (notificationError) {
+    console.warn("Hangout update notifications skipped", notificationError);
+  }
+}
+
+export async function inviteFriendsToHangout(
+  hangoutId: string,
+  input: { friendIds: string[]; highlightedFriendIds?: string[] },
+): Promise<{ invitedCount: number }> {
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) throw new Error("You must be signed in to invite friends.");
+
+  const owner = await fetchHangoutOwnerAndTitle(hangoutId);
+  if (!owner || owner.createdBy !== user.id) {
+    throw new Error("Only the hangout creator can add invites.");
+  }
+
+  const unique = [...new Set(input.friendIds)].filter((id) => !!id && id !== user.id);
+  if (unique.length === 0) return { invitedCount: 0 };
+
+  const { data: existingRows, error: existingError } = await supabase
+    .from("hangout_invites")
+    .select("friend_id")
+    .eq("hangout_id", hangoutId);
+
+  if (existingError) throw existingError;
+
+  const existingSet = new Set((existingRows || []).map((r: { friend_id: string }) => r.friend_id));
+  const candidates = unique.filter((id) => !existingSet.has(id));
+  if (candidates.length === 0) return { invitedCount: 0 };
+
+  const { data: outFriends, error: outErr } = await supabase
+    .from("friendships")
+    .select("friend_id")
+    .eq("user_id", user.id)
+    .eq("status", "accepted")
+    .in("friend_id", candidates);
+
+  if (outErr) throw outErr;
+
+  const { data: inFriends, error: inErr } = await supabase
+    .from("friendships")
+    .select("user_id")
+    .eq("friend_id", user.id)
+    .eq("status", "accepted")
+    .in("user_id", candidates);
+
+  if (inErr) throw inErr;
+
+  const allowed = new Set<string>();
+  (outFriends || []).forEach((r: { friend_id: string }) => allowed.add(r.friend_id));
+  (inFriends || []).forEach((r: { user_id: string }) => allowed.add(r.user_id));
+
+  const toInvite = candidates.filter((id) => allowed.has(id));
+  if (toInvite.length === 0) return { invitedCount: 0 };
+
+  const highlight = new Set(input.highlightedFriendIds ?? []);
+
+  const rows = toInvite.map((friendId) => ({
+    hangout_id: hangoutId,
+    friend_id: friendId,
+    is_highlighted: highlight.has(friendId),
+    response_status: "invited" as const,
+    availability_submitted: [],
+  }));
+
+  const { error: insertError } = await supabase.from("hangout_invites").insert(rows);
+
+  if (insertError) throw insertError;
+
+  try {
+    await createHangoutInviteNotifications(user, toInvite, hangoutId, owner.title);
+  } catch (notificationError) {
+    console.warn("Hangout invite notifications skipped", notificationError);
+  }
+
+  await syncHangoutStatus(hangoutId);
+
+  return { invitedCount: toInvite.length };
+}
+
+/** Creator removes another user's invite row. Keeps hangout status in sync. */
+export async function removeHangoutInvitee(hangoutId: string, friendId: string): Promise<void> {
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) throw new Error("You must be signed in to manage invites.");
+
+  const owner = await fetchHangoutOwnerAndTitle(hangoutId);
+  if (!owner || owner.createdBy !== user.id) {
+    throw new Error("Only the hangout creator can remove invitees.");
+  }
+
+  if (friendId === owner.createdBy) {
+    throw new Error("You can't remove yourself as the organizer.");
+  }
+
+  const { data: inviteRows, error: countError } = await supabase
+    .from("hangout_invites")
+    .select("friend_id")
+    .eq("hangout_id", hangoutId);
+
+  if (countError) throw countError;
+
+  if ((inviteRows?.length ?? 0) <= 1) {
+    throw new Error("Can't remove the last invitee. Invite someone else first or delete the hangout.");
+  }
+
+  const { error } = await supabase.from("hangout_invites").delete().eq("hangout_id", hangoutId).eq("friend_id", friendId);
 
   if (error) throw error;
 

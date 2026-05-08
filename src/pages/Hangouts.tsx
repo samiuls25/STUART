@@ -1141,6 +1141,7 @@ const Hangouts = () => {
           onHangoutUpdated={loadHangouts}
           initialShowAvailability={openAvailabilityEditor}
           currentUserId={currentUserId}
+          inviteCandidates={inviteCandidates}
         />
       ) : null}
       <CreateMemoryModal

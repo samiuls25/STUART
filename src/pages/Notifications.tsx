@@ -34,6 +34,7 @@ const getNotificationMeta = (notification: AppNotification): NotificationMeta =>
     || notification.type === "hangout_response"
     || notification.type === "hangout_confirmed"
     || notification.type === "hangout_reminder"
+    || notification.type === "hangout_updated"
   ) {
     return { icon: Calendar, destination: "/hangouts" };
   }
