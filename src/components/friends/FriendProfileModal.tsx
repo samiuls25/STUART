@@ -151,6 +151,12 @@ const FriendProfileModal = ({ friend, isOpen, onClose, onRemove }: FriendProfile
                     {statusLabels[resolvedStatus]}
                   </p>
 
+                  {friend.bio?.trim() ? (
+                    <p className="mt-3 text-sm text-muted-foreground leading-relaxed whitespace-pre-wrap">
+                      {friend.bio.trim()}
+                    </p>
+                  ) : null}
+
                   <div className="flex items-center gap-3 mt-3 text-sm text-muted-foreground flex-wrap">
                     {friend.mutualFriends != null && (
                       <>

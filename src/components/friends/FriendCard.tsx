@@ -54,6 +54,9 @@ const FriendCard = ({ friend, onViewProfile, onRemove, compact = false }: Friend
         </div>
         <div className="flex-1 min-w-0">
           <p className="font-medium text-foreground truncate">{friend.name}</p>
+          {friend.bio?.trim() ? (
+            <p className="text-xs text-muted-foreground line-clamp-1 mt-0.5">{friend.bio.trim()}</p>
+          ) : null}
           <div className="flex gap-1 flex-wrap">
             {friendBadges.map((badge) => (
               <span
@@ -104,6 +107,10 @@ const FriendCard = ({ friend, onViewProfile, onRemove, compact = false }: Friend
             {friend.name}
           </button>
         </div>
+
+        {friend.bio?.trim() ? (
+          <p className="text-sm text-muted-foreground line-clamp-2 mt-1">{friend.bio.trim()}</p>
+        ) : null}
         
         {/* Badges */}
         <div className="flex items-center gap-1.5 mt-1">
