@@ -1,14 +1,45 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, MapPin, Clock, Calendar, Users, Check, HelpCircle, Sparkles, MessageCircle, Trash2 } from "lucide-react";
-import { Hangout, TimeRange, getFriendById, getActivityType } from "../../data/friends";
+import {
+  X,
+  MapPin,
+  Clock,
+  Calendar,
+  Users,
+  Check,
+  HelpCircle,
+  Sparkles,
+  MessageCircle,
+  Trash2,
+  Link2,
+  Pencil,
+  UserPlus,
+  UserMinus,
+  Search,
+} from "lucide-react";
+import { Hangout, Friend, TimeRange, getFriendById, getActivityType, activityTypes } from "../../data/friends";
 import { format, parseISO, isBefore, startOfDay } from "date-fns";
 import AvailabilityHeatmap from "../availability/AvailabilityHeatmap";
 import ConfirmDeleteHangoutDialog from "./ConfirmDeleteHangoutDialog";
 import { scoreAvailabilitySlots } from "../../lib/hangoutFinalization";
+import { useToast } from "../../hooks/use-toast";
+import { inviteFriendsToHangout, removeHangoutInvitee, updateHangoutDetails } from "../../lib/hangouts";
+import { trackAnalytics } from "../../lib/analytics";
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogTitle,
+} from "../ui/alert-dialog";
+import { Button } from "../ui/button";
+import { Input } from "../ui/input";
+import { Textarea } from "../ui/textarea";
+import { Switch } from "../ui/switch";
 
 interface HangoutDetailModalProps {
-  hangout: Hangout | null;
+  hangout: Hangout;
   isOpen: boolean;
   onClose: () => void;
   onRespond?: (hangout: Hangout, response: "yes" | "no" | "maybe") => void;
@@ -19,8 +50,12 @@ interface HangoutDetailModalProps {
   ) => Promise<void> | void;
   onDeleteHangout?: (hangout: Hangout) => void;
   onCreateMemory?: (hangout: Hangout) => void;
+  /** Refresh list + merge selected hangout (e.g. after creator edits details). */
+  onHangoutUpdated?: () => void | Promise<void>;
   initialShowAvailability?: boolean;
   currentUserId?: string;
+  /** Accepted friends directory (same source as create flow); used for late invites by the creator. */
+  inviteCandidates?: Friend[];
 }
 
 const HangoutDetailModal = ({
@@ -32,16 +67,39 @@ const HangoutDetailModal = ({
   onApplySuggestedTime,
   onDeleteHangout,
   onCreateMemory,
+  onHangoutUpdated,
   initialShowAvailability,
   currentUserId,
+  inviteCandidates,
 }: HangoutDetailModalProps) => {
-  if (!hangout) return null;
+  const { toast } = useToast();
 
   const [showAvailabilityEditor, setShowAvailabilityEditor] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [applyingSuggestedTime, setApplyingSuggestedTime] = useState(false);
   const [selectedSuggestedSlotKey, setSelectedSuggestedSlotKey] = useState<string | null>(null);
   const [availabilitySlots, setAvailabilitySlots] = useState<Record<string, number>>({});
+
+  const [isEditingHangout, setIsEditingHangout] = useState(false);
+  const [savingHangoutEdit, setSavingHangoutEdit] = useState(false);
+  const [editTitle, setEditTitle] = useState("");
+  const [editDescription, setEditDescription] = useState("");
+  const [editActivityType, setEditActivityType] = useState<Hangout["activityType"]>("chill");
+  const [editDate, setEditDate] = useState("");
+  const [editStartTime, setEditStartTime] = useState("");
+  const [editEndTime, setEditEndTime] = useState("");
+  const [editLocationName, setEditLocationName] = useState("");
+  const [editLocationAddress, setEditLocationAddress] = useState("");
+  const [editLocationFlexible, setEditLocationFlexible] = useState(true);
+
+  const [inviteMoreSearch, setInviteMoreSearch] = useState("");
+  const [inviteMoreSelected, setInviteMoreSelected] = useState<string[]>([]);
+  const [inviteMoreSending, setInviteMoreSending] = useState(false);
+
+  const [inviteRemovalTarget, setInviteRemovalTarget] = useState<{ friendId: string; name: string } | null>(null);
+  const [removingInvitee, setRemovingInvitee] = useState(false);
+
+  const contentScrollRef = useRef<HTMLDivElement>(null);
 
   const viewerId = currentUserId || "current-user";
 
@@ -53,6 +111,8 @@ const HangoutDetailModal = ({
     ? hangout.responses.filter((response) => response.status !== "no")
     : hangout.responses;
   const isCreator = hangout.createdBy === viewerId;
+  const canManageInviteRoster =
+    isCreator && hangout.status !== "completed" && hangout.status !== "cancelled";
   const timeRange = hangout.confirmedTime || hangout.proposedTimeRange;
   const canRespond = !!currentUserResponse;
   const canShareAvailability = !!currentUserResponse && currentUserResponse.status !== "no";
@@ -122,6 +182,60 @@ const HangoutDetailModal = ({
     setShowAvailabilityEditor(!!initialShowAvailability);
   }, [hangout.id, initialShowAvailability]);
 
+  useEffect(() => {
+    setIsEditingHangout(false);
+  }, [hangout.id]);
+
+  useEffect(() => {
+    setInviteMoreSearch("");
+    setInviteMoreSelected([]);
+    setInviteRemovalTarget(null);
+  }, [hangout.id]);
+
+  useEffect(() => {
+    if (!isEditingHangout) return;
+    contentScrollRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+  }, [isEditingHangout]);
+
+  const canInviteMoreFriends =
+    canManageInviteRoster
+    && (inviteCandidates?.length ?? 0) > 0;
+
+  const alreadyInvitedIds = useMemo(() => {
+    const ids = new Set<string>();
+    ids.add(hangout.createdBy);
+    hangout.responses.forEach((r) => ids.add(r.friendId));
+    return ids;
+  }, [hangout.createdBy, hangout.responses]);
+
+  const additionalInviteFriends = useMemo(() => {
+    if (!inviteCandidates?.length) return [];
+    const q = inviteMoreSearch.trim().toLowerCase();
+    return inviteCandidates.filter((f) => {
+      if (!f.id || f.id === viewerId) return false;
+      if (f.isBlocked) return false;
+      if (alreadyInvitedIds.has(f.id)) return false;
+      if (!q) return true;
+      const name = (f.name || "").toLowerCase();
+      const email = (f.email || "").toLowerCase();
+      return name.includes(q) || email.includes(q);
+    });
+  }, [inviteCandidates, inviteMoreSearch, viewerId, alreadyInvitedIds]);
+
+  const populateEditFormFromHangout = () => {
+    const tr = hangout.confirmedTime || hangout.proposedTimeRange;
+    const normalizeTime = (t: string) => (t && t.length >= 5 ? t.slice(0, 5) : t || "");
+    setEditTitle(hangout.title);
+    setEditDescription(hangout.description ?? "");
+    setEditActivityType(hangout.activityType);
+    setEditDate(tr.date);
+    setEditStartTime(normalizeTime(tr.startTime));
+    setEditEndTime(normalizeTime(tr.endTime));
+    setEditLocationName(hangout.location?.name ?? "");
+    setEditLocationAddress(hangout.location?.address ?? "");
+    setEditLocationFlexible(hangout.location?.isFlexible ?? true);
+  };
+
   const friendAvailabilityForEditor = useMemo(() => {
     const map: Record<string, string[]> = {};
     hangout.responses
@@ -172,6 +286,129 @@ const HangoutDetailModal = ({
       }))
     );
   }, [hangout.responses]);
+
+  const handleCopyHangoutLink = async () => {
+    const url = `${typeof window !== "undefined" ? window.location.origin : ""}/hangouts?hangout=${hangout.id}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      trackAnalytics("hangout_share_link_copied", {
+        hangout_id: hangout.id,
+        is_public: Boolean(hangout.isPublic),
+        hangout_status: hangout.status,
+      });
+      toast({
+        title: "Hangout link copied",
+        description: "Opens Hangouts for someone signed in who already has access to this hangout.",
+      });
+    } catch {
+      toast({ title: "Couldn't copy", description: url, variant: "destructive" });
+    }
+  };
+
+  const handleSaveHangoutEdit = async () => {
+    if (!editTitle.trim()) {
+      toast({
+        title: "Title required",
+        description: "Add a title for this hangout.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (!editDate || !editStartTime || !editEndTime) {
+      toast({
+        title: "Date and time required",
+        description: "Choose a date, start time, and end time.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setSavingHangoutEdit(true);
+    try {
+      await updateHangoutDetails(hangout.id, {
+        title: editTitle.trim(),
+        description: editDescription,
+        activityType: editActivityType,
+        proposedTimeRange: {
+          date: editDate,
+          startTime: editStartTime,
+          endTime: editEndTime,
+        },
+        locationName: editLocationName,
+        locationAddress: editLocationAddress,
+        isFlexibleLocation: editLocationFlexible,
+      });
+      toast({
+        title: "Hangout updated",
+        description: "Your changes were saved.",
+      });
+      setIsEditingHangout(false);
+      await onHangoutUpdated?.();
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : "Could not save changes.";
+      toast({
+        title: "Could not update hangout",
+        description: msg,
+        variant: "destructive",
+      });
+    } finally {
+      setSavingHangoutEdit(false);
+    }
+  };
+
+  const toggleInviteMoreFriend = (friendId: string) => {
+    setInviteMoreSelected((prev) =>
+      prev.includes(friendId) ? prev.filter((id) => id !== friendId) : [...prev, friendId]
+    );
+  };
+
+  const handleSendMoreInvites = async () => {
+    if (inviteMoreSelected.length === 0) return;
+    setInviteMoreSending(true);
+    try {
+      const { invitedCount } = await inviteFriendsToHangout(hangout.id, {
+        friendIds: inviteMoreSelected,
+      });
+      if (invitedCount === 0) {
+        toast({
+          title: "No new invites",
+          description: "Those people may already be invited or aren't mutual friends.",
+        });
+        return;
+      }
+      toast({
+        title: "Invites sent",
+        description:
+          invitedCount === 1 ? "1 friend was invited." : `${invitedCount} friends were invited.`,
+      });
+      setInviteMoreSelected([]);
+      await onHangoutUpdated?.();
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : "Could not send invites.";
+      toast({ title: "Could not invite", description: msg, variant: "destructive" });
+    } finally {
+      setInviteMoreSending(false);
+    }
+  };
+
+  const handleConfirmRemoveInvitee = async () => {
+    if (!inviteRemovalTarget) return;
+    setRemovingInvitee(true);
+    try {
+      await removeHangoutInvitee(hangout.id, inviteRemovalTarget.friendId);
+      toast({
+        title: "Invite removed",
+        description: `${inviteRemovalTarget.name} is no longer on this hangout.`,
+      });
+      setInviteRemovalTarget(null);
+      await onHangoutUpdated?.();
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : "Could not remove invite.";
+      toast({ title: "Couldn't remove", description: msg, variant: "destructive" });
+    } finally {
+      setRemovingInvitee(false);
+    }
+  };
 
   const bestAvailabilitySuggestion = rankedAvailabilitySuggestions[0] || null;
   const selectedAvailabilitySuggestion = selectedSuggestedSlotKey
@@ -272,72 +509,291 @@ const HangoutDetailModal = ({
             className="w-full max-w-lg max-h-[85vh] bg-card rounded-2xl shadow-2xl flex flex-col overflow-hidden pointer-events-auto"
           >
             {/* Header */}
-            <div className="flex items-center justify-between p-6 border-b border-border">
-              <div className="flex items-center gap-3">
-                <div className={`w-12 h-12 rounded-xl flex items-center justify-center text-2xl ${activityType?.color || "bg-muted"}`}>
+            <div className="flex items-start justify-between gap-3 p-6 border-b border-border">
+              <div className="flex items-center gap-3 min-w-0 flex-1">
+                <div className={`shrink-0 w-12 h-12 rounded-xl flex items-center justify-center text-2xl ${activityType?.color || "bg-muted"}`}>
                   {activityType?.icon || "📅"}
                 </div>
-                <div>
-                  <h2 className="font-heading text-xl font-bold text-foreground">{hangout.title}</h2>
-                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${statusConfig[hangout.status].color}`}>
+                <div className="min-w-0">
+                  <h2 className="font-heading text-xl font-bold text-foreground truncate">{hangout.title}</h2>
+                  <span className={`inline-block mt-1 text-xs px-2 py-0.5 rounded-full font-medium ${statusConfig[hangout.status].color}`}>
                     {statusConfig[hangout.status].label}
                   </span>
                 </div>
               </div>
-              <button
-                onClick={onClose}
-                className="p-2 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
-              >
-                <X className="w-5 h-5" />
-              </button>
+              <div className="flex shrink-0 items-center gap-1.5 pt-0.5">
+                {isCreator && (
+                  !isEditingHangout ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        populateEditFormFromHangout();
+                        setIsEditingHangout(true);
+                      }}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs font-medium text-foreground hover:bg-muted transition-colors"
+                      title="Edit details"
+                    >
+                      <Pencil className="w-3.5 h-3.5 shrink-0" />
+                      Edit
+                    </button>
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        disabled={savingHangoutEdit}
+                        onClick={() => {
+                          populateEditFormFromHangout();
+                          setIsEditingHangout(false);
+                        }}
+                        className="inline-flex items-center rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs font-medium text-foreground hover:bg-muted disabled:opacity-50"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        disabled={savingHangoutEdit}
+                        onClick={() => void handleSaveHangoutEdit()}
+                        className="inline-flex items-center rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:opacity-95 disabled:opacity-50"
+                      >
+                        {savingHangoutEdit ? "Saving…" : "Save"}
+                      </button>
+                    </>
+                  )
+                )}
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="p-2 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                  aria-label="Close"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
             </div>
 
             {/* Content */}
-            <div className="flex-1 overflow-y-auto p-6 space-y-6">
-              {/* Description */}
-              {hangout.description && (
-                <p className="text-sm text-muted-foreground">{hangout.description}</p>
+            <div ref={contentScrollRef} className="flex-1 overflow-y-auto p-6 space-y-6">
+              {isEditingHangout ? (
+                <div className="rounded-xl border border-border bg-muted/10 p-4 space-y-4">
+                  <div className="space-y-2">
+                    <label htmlFor="hangout-edit-title" className="text-xs font-medium text-muted-foreground">
+                      Title
+                    </label>
+                    <Input
+                      id="hangout-edit-title"
+                      value={editTitle}
+                      onChange={(e) => setEditTitle(e.target.value)}
+                      placeholder="Hangout title"
+                      maxLength={200}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label htmlFor="hangout-edit-desc" className="text-xs font-medium text-muted-foreground">
+                      Description (optional)
+                    </label>
+                    <Textarea
+                      id="hangout-edit-desc"
+                      value={editDescription}
+                      onChange={(e) => setEditDescription(e.target.value)}
+                      placeholder="What's the plan?"
+                      rows={3}
+                      maxLength={2000}
+                      className="resize-none"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label htmlFor="hangout-edit-activity" className="text-xs font-medium text-muted-foreground">
+                      Activity (updates the icon)
+                    </label>
+                    <select
+                      id="hangout-edit-activity"
+                      value={editActivityType}
+                      onChange={(e) => setEditActivityType(e.target.value as Hangout["activityType"])}
+                      className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm text-foreground"
+                    >
+                      {activityTypes.map((opt) => (
+                        <option key={opt.id} value={opt.id}>
+                          {opt.icon} {opt.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div className="space-y-2 sm:col-span-1">
+                      <label htmlFor="hangout-edit-date" className="text-xs font-medium text-muted-foreground">
+                        Date
+                      </label>
+                      <Input id="hangout-edit-date" type="date" value={editDate} onChange={(e) => setEditDate(e.target.value)} />
+                    </div>
+                    <div className="space-y-2">
+                      <label htmlFor="hangout-edit-start" className="text-xs font-medium text-muted-foreground">
+                        Start
+                      </label>
+                      <Input id="hangout-edit-start" type="time" value={editStartTime} onChange={(e) => setEditStartTime(e.target.value)} />
+                    </div>
+                    <div className="space-y-2">
+                      <label htmlFor="hangout-edit-end" className="text-xs font-medium text-muted-foreground">
+                        End
+                      </label>
+                      <Input id="hangout-edit-end" type="time" value={editEndTime} onChange={(e) => setEditEndTime(e.target.value)} />
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <label htmlFor="hangout-edit-loc" className="text-xs font-medium text-muted-foreground">
+                      Location (optional)
+                    </label>
+                    <Input
+                      id="hangout-edit-loc"
+                      value={editLocationName}
+                      onChange={(e) => setEditLocationName(e.target.value)}
+                      placeholder="Place name"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label htmlFor="hangout-edit-loc-addr" className="text-xs font-medium text-muted-foreground">
+                      Address (optional)
+                    </label>
+                    <Input
+                      id="hangout-edit-loc-addr"
+                      value={editLocationAddress}
+                      onChange={(e) => setEditLocationAddress(e.target.value)}
+                      placeholder="Street or maps hint"
+                    />
+                  </div>
+                  <div className="flex items-center justify-between gap-3 rounded-lg border border-border/70 px-3 py-2">
+                    <span className="text-sm text-foreground">Flexible location</span>
+                    <Switch checked={editLocationFlexible} onCheckedChange={setEditLocationFlexible} />
+                  </div>
+                  <p className="text-xs text-muted-foreground leading-relaxed">
+                    Updating date/time adjusts both the proposed schedule and confirmed times when this hangout is confirmed (invitees may want a heads-up in chat).
+                  </p>
+                </div>
+              ) : (
+                <>
+                  {hangout.description && <p className="text-sm text-muted-foreground">{hangout.description}</p>}
+                  {/* Details */}
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-3 text-sm">
+                      <Calendar className="w-4 h-4 text-primary flex-shrink-0" />
+                      <span className="text-foreground font-medium">
+                        {format(new Date(timeRange.date), "EEEE, MMMM d, yyyy")}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-3 text-sm">
+                      <Clock className="w-4 h-4 text-primary flex-shrink-0" />
+                      <span className="text-foreground">
+                        {timeRange.startTime} – {timeRange.endTime}
+                      </span>
+                    </div>
+                    {hangout.location && (
+                      <div className="flex items-center gap-3 text-sm">
+                        <MapPin className="w-4 h-4 text-primary flex-shrink-0" />
+                        <span className="text-foreground">
+                          {hangout.location.name}
+                          {hangout.location.address && ` • ${hangout.location.address}`}
+                          {hangout.location.isFlexible && (
+                            <span className="text-xs ml-1 text-primary">(flexible)</span>
+                          )}
+                        </span>
+                      </div>
+                    )}
+                    <div className="flex items-center gap-3 text-sm">
+                      <Users className="w-4 h-4 text-primary flex-shrink-0" />
+                      <span className="text-foreground">
+                        {isCreator ? "Created by you" : `Created by ${creator?.name || "Unknown"}`}
+                      </span>
+                    </div>
+                    {confirmationAuditStamp && (
+                      <div className="flex items-center gap-3 text-sm">
+                        <Check className="w-4 h-4 text-green-600 flex-shrink-0" />
+                        <span className="text-foreground">{confirmationAuditStamp}</span>
+                      </div>
+                    )}
+                  </div>
+                </>
               )}
 
-              {/* Details */}
-              <div className="space-y-3">
-                <div className="flex items-center gap-3 text-sm">
-                  <Calendar className="w-4 h-4 text-primary flex-shrink-0" />
-                  <span className="text-foreground font-medium">
-                    {format(new Date(timeRange.date), "EEEE, MMMM d, yyyy")}
-                  </span>
+              <div className="rounded-xl border border-border/70 bg-muted/15 px-4 py-4">
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                  <p className="text-xs text-muted-foreground leading-relaxed max-w-md">
+                    Copy a link that opens this hangout in the Hangouts page. Recipients must be signed in and already invited or included.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => void handleCopyHangoutLink()}
+                    className="inline-flex shrink-0 items-center justify-center gap-2 rounded-lg border border-border bg-background px-4 py-2.5 text-sm font-medium text-foreground shadow-sm hover:bg-muted transition-colors"
+                  >
+                    <Link2 className="w-4 h-4" />
+                    Copy link
+                  </button>
                 </div>
-                <div className="flex items-center gap-3 text-sm">
-                  <Clock className="w-4 h-4 text-primary flex-shrink-0" />
-                  <span className="text-foreground">
-                    {timeRange.startTime} – {timeRange.endTime}
-                  </span>
-                </div>
-                {hangout.location && (
-                  <div className="flex items-center gap-3 text-sm">
-                    <MapPin className="w-4 h-4 text-primary flex-shrink-0" />
-                    <span className="text-foreground">
-                      {hangout.location.name}
-                      {hangout.location.address && ` • ${hangout.location.address}`}
-                      {hangout.location.isFlexible && (
-                        <span className="text-xs ml-1 text-primary">(flexible)</span>
-                      )}
-                    </span>
-                  </div>
-                )}
-                <div className="flex items-center gap-3 text-sm">
-                  <Users className="w-4 h-4 text-primary flex-shrink-0" />
-                  <span className="text-foreground">
-                    {isCreator ? "Created by you" : `Created by ${creator?.name || "Unknown"}`}
-                  </span>
-                </div>
-                {confirmationAuditStamp && (
-                  <div className="flex items-center gap-3 text-sm">
-                    <Check className="w-4 h-4 text-green-600 flex-shrink-0" />
-                    <span className="text-foreground">{confirmationAuditStamp}</span>
-                  </div>
-                )}
               </div>
+
+              {canInviteMoreFriends && (
+                <div className="rounded-xl border border-border/70 bg-muted/15 px-4 py-4 space-y-3">
+                  <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                    <UserPlus className="w-4 h-4 text-primary shrink-0" />
+                    Invite more friends
+                  </div>
+                  <p className="text-xs text-muted-foreground leading-relaxed">
+                    Adds accepted friends to this hangout. They get the usual invite notification.
+                  </p>
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+                    <Input
+                      value={inviteMoreSearch}
+                      onChange={(e) => setInviteMoreSearch(e.target.value)}
+                      placeholder="Search friends…"
+                      className="pl-9"
+                      disabled={inviteMoreSending}
+                      autoComplete="off"
+                    />
+                  </div>
+                  {additionalInviteFriends.length === 0 ? (
+                    <p className="text-xs text-muted-foreground py-1">
+                      Everyone in your friends list is already on this hangout.
+                    </p>
+                  ) : (
+                    <>
+                      <div className="max-h-40 overflow-y-auto space-y-1.5 pr-1">
+                        {additionalInviteFriends.map((friend) => {
+                          const checked = inviteMoreSelected.includes(friend.id);
+                          return (
+                            <button
+                              key={friend.id}
+                              type="button"
+                              disabled={inviteMoreSending}
+                              onClick={() => toggleInviteMoreFriend(friend.id)}
+                              className={`flex w-full items-center gap-3 rounded-lg border px-3 py-2 text-left text-sm transition-colors ${
+                                checked ? "border-primary/60 bg-primary/5" : "border-border hover:bg-muted/40"
+                              }`}
+                            >
+                              <span
+                                className={`flex h-5 w-5 shrink-0 items-center justify-center rounded border ${
+                                  checked ? "border-primary bg-primary text-primary-foreground" : "border-input bg-background"
+                                }`}
+                              >
+                                {checked ? <Check className="h-3 w-3" /> : null}
+                              </span>
+                              <span className="truncate font-medium text-foreground">{friend.name}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <button
+                        type="button"
+                        disabled={inviteMoreSending || inviteMoreSelected.length === 0}
+                        onClick={() => void handleSendMoreInvites()}
+                        className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground hover:opacity-95 disabled:opacity-50"
+                      >
+                        {inviteMoreSending
+                          ? "Sending…"
+                          : `Send invites${inviteMoreSelected.length ? ` (${inviteMoreSelected.length})` : ""}`}
+                      </button>
+                    </>
+                  )}
+                </div>
+              )}
 
                 {canCreateMemory && (
                   <div className="rounded-xl border border-primary/20 bg-primary/5 p-4">
@@ -384,10 +840,15 @@ const HangoutDetailModal = ({
                   {visibleResponses.map((response) => {
                     const friend = getFriendById(response.friendId);
                     const config = responseStatusConfig[response.status];
+                    const showRemoveInvite =
+                      canManageInviteRoster
+                      && response.friendId !== hangout.createdBy
+                      && hangout.responses.length > 1;
+
                     return (
-                      <div key={response.friendId} className="flex items-center justify-between p-3 rounded-xl bg-muted/30">
-                        <div className="flex items-center gap-3">
-                          <div className="w-9 h-9 rounded-full bg-gradient-to-br from-primary/20 to-accent/20 flex items-center justify-center">
+                      <div key={response.friendId} className="flex items-center justify-between gap-2 p-3 rounded-xl bg-muted/30">
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className="w-9 h-9 rounded-full bg-gradient-to-br from-primary/20 to-accent/20 flex items-center justify-center shrink-0">
                             {friend?.avatar_url ? (
                               <img
                                 src={friend.avatar_url}
@@ -400,12 +861,29 @@ const HangoutDetailModal = ({
                               </span>
                             )}
                           </div>
-                          <span className="text-sm font-medium text-foreground">{friend?.name || "Unknown"}</span>
+                          <span className="text-sm font-medium text-foreground truncate">{friend?.name || "Unknown"}</span>
                         </div>
-                        <span className={`flex items-center gap-1.5 text-xs font-medium ${config.color}`}>
-                          {config.icon}
-                          {config.label}
-                        </span>
+                        <div className="flex shrink-0 items-center gap-2">
+                          <span className={`flex items-center gap-1.5 text-xs font-medium whitespace-nowrap ${config.color}`}>
+                            {config.icon}
+                            {config.label}
+                          </span>
+                          {showRemoveInvite ? (
+                            <button
+                              type="button"
+                              title="Remove from hangout"
+                              onClick={() =>
+                                setInviteRemovalTarget({
+                                  friendId: response.friendId,
+                                  name: friend?.name || "this person",
+                                })
+                              }
+                              className="rounded-lg p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors"
+                            >
+                              <UserMinus className="w-4 h-4" />
+                            </button>
+                          ) : null}
+                        </div>
                       </div>
                     );
                   })}
@@ -429,7 +907,7 @@ const HangoutDetailModal = ({
                 </div>
               )}
 
-              {isCreator && bestAvailabilitySuggestion && (
+              {isCreator && bestAvailabilitySuggestion && !isEditingHangout && (
                 <div className="rounded-xl border border-primary/20 bg-primary/5 p-4">
                   <h4 className="font-heading font-semibold text-foreground mb-1">Suggested Best Time</h4>
                   <p className="text-sm text-primary font-medium">
@@ -573,6 +1051,32 @@ const HangoutDetailModal = ({
             )}
           </motion.div>
           </div>
+
+          <AlertDialog
+            open={inviteRemovalTarget !== null}
+            onOpenChange={(open) => {
+              if (!open && !removingInvitee) setInviteRemovalTarget(null);
+            }}
+          >
+            <AlertDialogContent className="max-w-md rounded-2xl">
+              <AlertDialogTitle>Remove from hangout?</AlertDialogTitle>
+              <AlertDialogDescription>
+                <span className="font-medium text-foreground">{inviteRemovalTarget?.name}</span>
+                {" "}will lose access to this hangout and their RSVP will be cleared.
+              </AlertDialogDescription>
+              <AlertDialogFooter>
+                <AlertDialogCancel disabled={removingInvitee}>Cancel</AlertDialogCancel>
+                <Button
+                  type="button"
+                  variant="destructive"
+                  disabled={removingInvitee}
+                  onClick={() => void handleConfirmRemoveInvitee()}
+                >
+                  {removingInvitee ? "Removing…" : "Remove"}
+                </Button>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
 
           {isCreator && (
             <ConfirmDeleteHangoutDialog

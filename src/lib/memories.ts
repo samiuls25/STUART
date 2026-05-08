@@ -24,6 +24,8 @@ export interface Memory {
   attendees: MemoryAttendee[];
   photos: MemoryPhoto[];
   heroImage: string;
+  /** Optional link to a fuller album (e.g. Google Photos). */
+  albumUrl?: string;
 }
 
 export interface MemoryUsageSummary {
@@ -43,6 +45,7 @@ interface MemoryRow {
   location: string | null;
   memory_date: string | null;
   created_at: string;
+  album_url?: string | null;
 }
 
 interface ProfileRow {
@@ -81,6 +84,28 @@ interface CreateMemoryInput {
   eventId?: string;
   hangoutId?: string;
   prefillImageUrl?: string;
+  /** Optional https/http URL (full gallery elsewhere). */
+  albumUrl?: string | null;
+}
+
+/** Columns selected when hydrating Memory rows from Postgres (keep in sync with MemoryRow). */
+const MEMORY_ROW_COLUMNS =
+  "id,user_id,title,description,image_url,event_id,hangout_id,location,memory_date,created_at,album_url";
+
+const MAX_ALBUM_URL_LENGTH = 2048;
+
+/** Valid http(s) URL only; used at create and when rendering stored rows. */
+export function normalizeAlbumUrlForMemory(raw: string | undefined | null): string | null {
+  const trimmed = typeof raw === "string" ? raw.trim() : "";
+  if (!trimmed) return null;
+  if (trimmed.length > MAX_ALBUM_URL_LENGTH) return null;
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return null;
+    return parsed.toString();
+  } catch {
+    return null;
+  }
 }
 
 const MEMORY_PHOTOS_BUCKET = (import.meta.env.VITE_MEMORY_PHOTOS_BUCKET as string | undefined) || "memory-photos";
@@ -318,6 +343,8 @@ const mapMemoryRowsToUi = (
             },
           ];
 
+    const resolvedAlbumUrl = normalizeAlbumUrlForMemory(row.album_url ?? undefined);
+
     return {
       id: row.id,
       eventName: row.title || "Memory",
@@ -328,6 +355,7 @@ const mapMemoryRowsToUi = (
       attendees: resolvedAttendees,
       photos: resolvedPhotos,
       heroImage,
+      ...(resolvedAlbumUrl ? { albumUrl: resolvedAlbumUrl } : {}),
     };
   });
 };
@@ -512,7 +540,7 @@ async function fetchSharedMemoryRowsForUser(
 
     const { data: memoryRows, error: memoryError } = await supabase
       .from("memories")
-      .select("id,user_id,title,description,image_url,event_id,hangout_id,location,memory_date,created_at")
+      .select(MEMORY_ROW_COLUMNS)
       .in("id", sharedMemoryIds)
       .neq("user_id", currentUserId)
       .order("memory_date", { ascending: false })
@@ -556,7 +584,7 @@ async function fetchSharedMemoryRowsForUser(
 
   const { data: memoryRows, error: memoryError } = await supabase
     .from("memories")
-    .select("id,user_id,title,description,image_url,event_id,hangout_id,location,memory_date,created_at")
+    .select(MEMORY_ROW_COLUMNS)
     .in("id", sharedIds)
     .order("memory_date", { ascending: false })
     .order("created_at", { ascending: false });
@@ -605,7 +633,7 @@ export async function fetchMemoriesForUser(userId: string): Promise<Memory[]> {
 
   const { data: memoryRows, error: memoryError } = await supabase
     .from("memories")
-    .select("id,user_id,title,description,image_url,event_id,hangout_id,location,memory_date,created_at")
+    .select(MEMORY_ROW_COLUMNS)
     .eq("user_id", userId)
     .order("memory_date", { ascending: false })
     .order("created_at", { ascending: false });
@@ -657,6 +685,7 @@ export async function createMemory(input: CreateMemoryInput): Promise<{ id: stri
   }
 
   const prefillImageUrl = input.prefillImageUrl?.trim() || null;
+  const albumUrlNormalized = normalizeAlbumUrlForMemory(input.albumUrl);
 
   const payload = {
     user_id: user.id,
@@ -667,6 +696,7 @@ export async function createMemory(input: CreateMemoryInput): Promise<{ id: stri
     event_id: input.eventId || null,
     hangout_id: input.hangoutId || null,
     image_url: prefillImageUrl,
+    ...(albumUrlNormalized ? { album_url: albumUrlNormalized } : {}),
   };
 
   const { data, error } = await supabase
@@ -704,6 +734,37 @@ export async function createMemory(input: CreateMemoryInput): Promise<{ id: stri
   }
 
   return { id: data.id };
+}
+
+/** Owner-only: set or clear optional album URL (empty string clears). */
+export async function updateMemoryAlbumUrl(memoryId: string, rawInput: string): Promise<void> {
+  if (!memoryId) {
+    throw new Error("Memory id is required.");
+  }
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    throw new Error("You must be signed in to update memories.");
+  }
+
+  const trimmed = rawInput.trim();
+  const normalized = trimmed ? normalizeAlbumUrlForMemory(trimmed) : null;
+  if (trimmed && !normalized) {
+    throw new Error("Invalid album URL. Use http:// or https:// (max 2048 characters).");
+  }
+
+  const { error } = await supabase
+    .from("memories")
+    .update({ album_url: normalized })
+    .eq("id", memoryId)
+    .eq("user_id", user.id);
+
+  if (error) {
+    throw error;
+  }
 }
 
 export async function uploadPhotosToMemory(memoryId: string, files: File[]): Promise<MemoryPhoto[]> {

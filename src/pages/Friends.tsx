@@ -1,11 +1,22 @@
 import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Search, UserPlus, Check, X, Bell, UserCheck } from "lucide-react";
+import { Search, UserPlus, Check, X, Bell, UserCheck, Link2, Copy, Trash2, Loader2 } from "lucide-react";
+import { useLocation, useNavigate } from "react-router-dom";
 import Navbar from "../components/layout/Navbar";
 import AuthModal from "../components/auth/AuthModal";
 import FriendCard from "../components/friends/FriendCard";
 import FriendProfileModal from "../components/friends/FriendProfileModal";
-import { getFriends, getPendingRequests, acceptFriendRequest, rejectFriendRequest, removeFriend, sendFriendRequest } from "../lib/friends";
+import {
+  getFriends,
+  getPendingRequests,
+  acceptFriendRequest,
+  rejectFriendRequest,
+  removeFriend,
+  sendFriendRequest,
+  fetchActiveFriendInviteToken,
+  rotateFriendInviteLink,
+  revokeActiveFriendInviteLinks,
+} from "../lib/friends";
 import type { Friend } from "../lib/friends";
 import { useAuth } from "../lib/AuthContext";
 import { toast } from "../hooks/use-toast";
@@ -24,6 +35,9 @@ import { trackAnalytics } from "../lib/analytics";
 
 const Friends = () => {
   const { user } = useAuth();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const [friendsTab, setFriendsTab] = useState<"friends" | "requests">("friends");
   const [showAuth, setShowAuth] = useState(false);
   const [friends, setFriends] = useState<Friend[]>([]);
   const [pendingRequests, setPendingRequests] = useState<Friend[]>([]);
@@ -36,6 +50,9 @@ const Friends = () => {
   const [filter, setFilter] = useState<"all" | "online">("all");
   const [friendToRemove, setFriendToRemove] = useState<Friend | null>(null);
   const [removingFriend, setRemovingFriend] = useState(false);
+  const [inviteLinkToken, setInviteLinkToken] = useState<string | null>(null);
+  const [inviteLinkLoading, setInviteLinkLoading] = useState(false);
+  const [inviteLinkBusy, setInviteLinkBusy] = useState(false);
   const pendingFriendsPageTrackRef = useRef(true);
 
   const refreshFriends = () => {
@@ -44,6 +61,36 @@ const Friends = () => {
       setPendingRequests(requestsData);
     });
   };
+
+  useEffect(() => {
+    const state = location.state as { openRequestsTab?: boolean } | null | undefined;
+    if (state?.openRequestsTab) {
+      setFriendsTab("requests");
+      navigate(location.pathname, { replace: true, state: {} });
+    }
+  }, [location.state, location.pathname, navigate]);
+
+  useEffect(() => {
+    if (!user?.id) {
+      setInviteLinkToken(null);
+      return;
+    }
+
+    let cancelled = false;
+    setInviteLinkLoading(true);
+
+    fetchActiveFriendInviteToken()
+      .then((token) => {
+        if (!cancelled) setInviteLinkToken(token);
+      })
+      .finally(() => {
+        if (!cancelled) setInviteLinkLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id]);
 
   useEffect(() => {
     if (!user) {
@@ -112,7 +159,7 @@ const Friends = () => {
     if (success) {
       await refreshFriends();
       toast({ title: "Friend request accepted!" });
-      trackAnalytics("friend_request_accepted", {});
+      trackAnalytics("friend_request_accepted", { surface: "friends_requests_tab" });
     } else {
       toast({ title: "Failed to accept request", variant: "destructive" });
     }
@@ -136,13 +183,93 @@ const Friends = () => {
       setFriendEmail("");
       setShowAddFriend(false);
       toast({ title: "Friend request sent!" });
-      trackAnalytics("friend_request_sent", {});
+      trackAnalytics("friend_request_sent", { surface: "email_lookup" });
     } else {
       toast({ 
         title: "Couldn't send request", 
         description: "Make sure the email is correct and the user has signed up",
         variant: "destructive" 
       });
+    }
+  };
+
+  const inviteUrlForToken = (token: string) =>
+    `${typeof window !== "undefined" ? window.location.origin : ""}/invite/friend/${token}`;
+
+  const tryCopyInviteUrl = async (token: string): Promise<boolean> => {
+    try {
+      await navigator.clipboard.writeText(inviteUrlForToken(token));
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  const handleCopyInviteLink = async () => {
+    if (!inviteLinkToken) return;
+    const url = inviteUrlForToken(inviteLinkToken);
+    const copied = await tryCopyInviteUrl(inviteLinkToken);
+    if (copied) {
+      trackAnalytics("friend_invite_link_copied", {});
+      toast({ title: "Copied invite link" });
+    }
+    else
+      toast({
+        title: "Could not copy automatically",
+        description: url,
+        variant: "destructive",
+      });
+  };
+
+  const handleCreateInviteLink = async () => {
+    setInviteLinkBusy(true);
+    try {
+      const token = await rotateFriendInviteLink();
+      setInviteLinkToken(token);
+      trackAnalytics("friend_invite_link_rotated", {});
+      const copied = await tryCopyInviteUrl(token);
+      if (copied) {
+        toast({
+          title: "Invite link copied",
+          description: "Paste it anywhere to share. Recipients sign in, then confirm.",
+        });
+      } else {
+        toast({
+          title: "Invite link ready",
+          description: "Copy it from the box below, we couldn't access your clipboard.",
+        });
+      }
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : "";
+      const hint =
+        msg.toLowerCase().includes("function") || msg.toLowerCase().includes("does not exist")
+          ? " Run docs/db/friend_invite_links.sql in Supabase."
+          : "";
+      toast({
+        title: "Could not create invite link",
+        description: `${msg || "Please try again."}${hint}`,
+        variant: "destructive",
+      });
+    } finally {
+      setInviteLinkBusy(false);
+    }
+  };
+
+  const handleRevokeInviteLink = async () => {
+    setInviteLinkBusy(true);
+    try {
+      await revokeActiveFriendInviteLinks();
+      setInviteLinkToken(null);
+      toast({ title: "Invite link revoked" });
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : "";
+      toast({
+        title: "Could not revoke link",
+        description: msg || "Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setInviteLinkBusy(false);
     }
   };
 
@@ -201,7 +328,7 @@ const Friends = () => {
             </p>
           </motion.div>
 
-          <Tabs defaultValue="friends" className="space-y-6">
+          <Tabs value={friendsTab} onValueChange={(v) => setFriendsTab(v as "friends" | "requests")} className="space-y-6">
             <TabsList className="grid w-full grid-cols-2">
               <TabsTrigger value="friends" className="flex items-center gap-2">
                 <UserCheck className="w-4 h-4" />
@@ -220,6 +347,71 @@ const Friends = () => {
 
             {/* Friends Tab */}
             <TabsContent value="friends" className="space-y-6">
+              <div className="rounded-2xl border border-border bg-card p-4 space-y-4">
+                <div className="flex items-start gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
+                    <Link2 className="w-5 h-5 text-primary" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <h2 className="font-heading text-base font-semibold text-foreground">Your invite link</h2>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Share outside STUART: they sign in, then confirm sending you a friend request. Revoke anytime.
+                    </p>
+                  </div>
+                </div>
+
+                {inviteLinkLoading ? (
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Loading link status…
+                  </div>
+                ) : inviteLinkToken ? (
+                  <div className="space-y-3">
+                    <div className="rounded-lg border border-border bg-muted/40 px-3 py-2 font-mono text-xs text-foreground break-all">
+                      {`${typeof window !== "undefined" ? window.location.origin : ""}/invite/friend/${inviteLinkToken}`}
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => void handleCopyInviteLink()}
+                        disabled={inviteLinkBusy}
+                        className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-95 disabled:opacity-50"
+                      >
+                        <Copy className="w-4 h-4" />
+                        Copy link
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void handleCreateInviteLink()}
+                        disabled={inviteLinkBusy}
+                        className="inline-flex items-center gap-2 rounded-xl border border-border bg-background px-4 py-2 text-sm font-medium text-foreground hover:bg-muted disabled:opacity-50"
+                      >
+                        New link
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void handleRevokeInviteLink()}
+                        disabled={inviteLinkBusy}
+                        className="inline-flex items-center gap-2 rounded-xl border border-destructive/30 bg-destructive/5 px-4 py-2 text-sm font-medium text-destructive hover:bg-destructive/10 disabled:opacity-50"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                        Revoke
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => void handleCreateInviteLink()}
+                    disabled={inviteLinkBusy}
+                    className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-95 disabled:opacity-50"
+                  >
+                    {inviteLinkBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Link2 className="w-4 h-4" />}
+                    Create invite link
+                  </button>
+                )}
+              </div>
+
               {/* Search and Filter */}
               <div className="flex flex-col sm:flex-row gap-4">
                 <div className="relative flex-1">

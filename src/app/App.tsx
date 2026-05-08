@@ -18,6 +18,7 @@ const Profile = lazy(() => import("../pages/Profile"));
 const Settings = lazy(() => import("../pages/Settings"));
 const Notifications = lazy(() => import("../pages/Notifications"));
 const NotFound = lazy(() => import("../pages/NotFound"));
+const FriendInviteLanding = lazy(() => import("../pages/FriendInviteLanding"));
 
 const queryClient = new QueryClient();
 
@@ -48,6 +49,7 @@ const App = () => (
               <Route path="/profile" element={<Profile />} />
               <Route path="/notifications" element={<Notifications />} />
               <Route path="/settings" element={<Settings />} />
+              <Route path="/invite/friend/:token" element={<FriendInviteLanding />} />
               {/* Redirect old groups routes */}
               <Route path="/groups" element={<Navigate to="/hangouts" replace />} />
               <Route path="/groups/:id" element={<Navigate to="/hangouts" replace />} />
