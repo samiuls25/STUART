@@ -416,29 +416,29 @@
   {
     "schemaname": "public",
     "tablename": "memory_attendees",
-    "policyname": "Memory owners can delete attendees",
+    "policyname": "Memory editors delete attendees",
     "cmd": "DELETE",
     "roles": "{public}",
-    "qual": "can_edit_memory(memory_id)",
+    "qual": "(can_edit_memory(memory_id) AND ((EXISTS ( SELECT 1\n   FROM memories m\n  WHERE ((m.id = memory_attendees.memory_id) AND (m.user_id = auth.uid())))) OR (NOT COALESCE(is_owner, false))))",
     "with_check": null
   },
   {
     "schemaname": "public",
     "tablename": "memory_attendees",
-    "policyname": "Memory owners can insert attendees",
+    "policyname": "Memory editors insert attendees",
     "cmd": "INSERT",
     "roles": "{public}",
     "qual": null,
-    "with_check": "can_edit_memory(memory_id)"
+    "with_check": "(can_edit_memory(memory_id) AND ((EXISTS ( SELECT 1\n   FROM memories m\n  WHERE ((m.id = memory_attendees.memory_id) AND (m.user_id = auth.uid())))) OR (NOT COALESCE(is_owner, false))))"
   },
   {
     "schemaname": "public",
     "tablename": "memory_attendees",
-    "policyname": "Memory owners can update attendees",
+    "policyname": "Memory editors update attendees",
     "cmd": "UPDATE",
     "roles": "{public}",
-    "qual": "can_edit_memory(memory_id)",
-    "with_check": "can_edit_memory(memory_id)"
+    "qual": "(can_edit_memory(memory_id) AND ((EXISTS ( SELECT 1\n   FROM memories m\n  WHERE ((m.id = memory_attendees.memory_id) AND (m.user_id = auth.uid())))) OR (NOT COALESCE(is_owner, false))))",
+    "with_check": "(can_edit_memory(memory_id) AND ((EXISTS ( SELECT 1\n   FROM memories m\n  WHERE ((m.id = memory_attendees.memory_id) AND (m.user_id = auth.uid())))) OR (NOT COALESCE(is_owner, false))))"
   },
   {
     "schemaname": "public",
@@ -448,6 +448,15 @@
     "roles": "{public}",
     "qual": "can_view_memory(memory_id)",
     "with_check": null
+  },
+  {
+    "schemaname": "public",
+    "tablename": "memory_photos",
+    "policyname": "Memory editors can update photos",
+    "cmd": "UPDATE",
+    "roles": "{public}",
+    "qual": "can_edit_memory(memory_id)",
+    "with_check": "can_edit_memory(memory_id)"
   },
   {
     "schemaname": "public",
@@ -465,15 +474,6 @@
     "cmd": "INSERT",
     "roles": "{public}",
     "qual": null,
-    "with_check": "(can_edit_memory(memory_id) AND ((uploaded_by IS NULL) OR (uploaded_by = auth.uid())))"
-  },
-  {
-    "schemaname": "public",
-    "tablename": "memory_photos",
-    "policyname": "Memory owners can update photos",
-    "cmd": "UPDATE",
-    "roles": "{public}",
-    "qual": "can_edit_memory(memory_id)",
     "with_check": "(can_edit_memory(memory_id) AND ((uploaded_by IS NULL) OR (uploaded_by = auth.uid())))"
   },
   {
