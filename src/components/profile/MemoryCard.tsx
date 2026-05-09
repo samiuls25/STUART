@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import type { Friend } from "../../lib/friends";
 import { getFriends } from "../../lib/friends";
+import { useAuth } from "../../lib/AuthContext";
 import {
   addMemoryAttendee,
   deleteMemory,
@@ -81,7 +82,9 @@ const MemoryCard = ({
   onDeepLinkConsumed,
   onMemoryUpdated,
 }: MemoryCardProps) => {
+  const { user } = useAuth();
   const { toast } = useToast();
+  const canEditAlbumLink = Boolean(editable && user?.id && memory.ownerUserId === user.id);
   const [isExpanded, setIsExpanded] = useState(false);
   const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
   const [friends, setFriends] = useState<Friend[]>([]);
@@ -404,7 +407,7 @@ const MemoryCard = ({
   };
 
   const handleSaveAlbumLink = async () => {
-    if (!editable) return;
+    if (!editable || !canEditAlbumLink) return;
     const trimmed = albumDraft.trim();
     if (trimmed && !normalizeAlbumUrlForMemory(trimmed)) {
       toast({
@@ -436,7 +439,7 @@ const MemoryCard = ({
   };
 
   const handleClearAlbumLink = async () => {
-    if (!editable) return;
+    if (!editable || !canEditAlbumLink) return;
     setSavingAlbum(true);
     try {
       await updateMemoryAlbumUrl(memory.id, "");
@@ -459,7 +462,7 @@ const MemoryCard = ({
   };
 
   const renderAlbumLinkSection = () => {
-    if (editable) {
+    if (canEditAlbumLink) {
       return (
         <div className="mb-6 space-y-2 rounded-xl border border-border bg-muted/20 p-4">
           <label className="text-sm font-medium text-foreground">Album link (optional)</label>
@@ -1261,12 +1264,14 @@ const MemoryCard = ({
       <AlertDialog open={showDeleteMemoryConfirm} onOpenChange={setShowDeleteMemoryConfirm}>
         <AlertDialogContent className="max-w-md rounded-2xl">
           <AlertDialogTitle className="text-destructive">Delete Memory?</AlertDialogTitle>
-          <AlertDialogDescription className="space-y-3">
-            <p>This memory and all uploaded photos will be permanently removed.</p>
-            <div className="rounded-xl border border-destructive/30 bg-destructive/10 p-3">
-              <p className="text-sm text-foreground">
-                <strong>{memory.eventName}</strong>
-              </p>
+          <AlertDialogDescription asChild>
+            <div className="space-y-3 text-sm text-muted-foreground">
+              <p>This memory and all uploaded photos will be permanently removed.</p>
+              <div className="rounded-xl border border-destructive/30 bg-destructive/10 p-3">
+                <p className="text-sm text-foreground">
+                  <strong>{memory.eventName}</strong>
+                </p>
+              </div>
             </div>
           </AlertDialogDescription>
           <AlertDialogFooter>
@@ -1294,12 +1299,14 @@ const MemoryCard = ({
       >
         <AlertDialogContent className="max-w-md rounded-2xl">
           <AlertDialogTitle className="text-destructive">Delete Selected Photo?</AlertDialogTitle>
-          <AlertDialogDescription className="space-y-3">
-            <p>This photo will be removed from the memory.</p>
-            <div className="rounded-xl border border-destructive/30 bg-destructive/10 p-3">
-              <p className="text-sm text-foreground">
-                {pendingDeletePhoto ? `Photo by ${pendingDeletePhoto.uploadedBy}` : "Selected photo"}
-              </p>
+          <AlertDialogDescription asChild>
+            <div className="space-y-3 text-sm text-muted-foreground">
+              <p>This photo will be removed from the memory.</p>
+              <div className="rounded-xl border border-destructive/30 bg-destructive/10 p-3">
+                <p className="text-sm text-foreground">
+                  {pendingDeletePhoto ? `Photo by ${pendingDeletePhoto.uploadedBy}` : "Selected photo"}
+                </p>
+              </div>
             </div>
           </AlertDialogDescription>
           <AlertDialogFooter>

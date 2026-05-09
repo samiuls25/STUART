@@ -4,7 +4,12 @@ import { X, Trophy, Camera, Calendar, UserMinus } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { Friend } from "../../lib/friends";
 import MemoryCard from "../profile/MemoryCard";
-import { fetchSharedMemoriesWithUser, type Memory } from "../../lib/memories";
+import {
+  fetchSharedMemoriesWithUser,
+  memoryEditableByUser,
+  memoryOwnedByUser,
+  type Memory,
+} from "../../lib/memories";
 import { useAuth } from "../../lib/AuthContext";
 import { toast } from "../../hooks/use-toast";
 
@@ -213,7 +218,21 @@ const FriendProfileModal = ({ friend, isOpen, onClose, onRemove }: FriendProfile
                 ) : visibleMemories.length > 0 ? (
                   <div className="space-y-3">
                     {visibleMemories.map((memory) => (
-                      <MemoryCard key={memory.id} memory={memory} allowDelete={false} editable={false} />
+                      <MemoryCard
+                        key={memory.id}
+                        memory={memory}
+                        editable={memoryEditableByUser(memory, user?.id)}
+                        allowDelete={memoryOwnedByUser(memory, user?.id)}
+                        onMemoryUpdated={async () => {
+                          if (!friendId) return;
+                          try {
+                            const rows = await fetchSharedMemoriesWithUser(friendId);
+                            setVisibleMemories(rows);
+                          } catch (err) {
+                            console.warn("Unable to refresh shared memories", err);
+                          }
+                        }}
+                      />
                     ))}
                   </div>
                 ) : (

@@ -16,6 +16,8 @@ export interface MemoryAttendee {
 
 export interface Memory {
   id: string;
+  /** Profile user who created the memory (RLS owner for delete / album URL updates). */
+  ownerUserId: string;
   eventName: string;
   location: string;
   date: string;
@@ -26,6 +28,17 @@ export interface Memory {
   heroImage: string;
   /** Optional link to a fuller album (e.g. Google Photos). */
   albumUrl?: string;
+}
+
+/** Tagged attendees (and legacy fallback owner-only row) imply in-app edit rights when RLS uses can_edit_memory. */
+export function memoryEditableByUser(memory: Memory, userId: string | null | undefined): boolean {
+  if (!userId) return false;
+  return memory.attendees.some((a) => a.id === userId);
+}
+
+export function memoryOwnedByUser(memory: Memory, userId: string | null | undefined): boolean {
+  if (!userId) return false;
+  return memory.ownerUserId === userId;
 }
 
 export interface MemoryUsageSummary {
@@ -217,14 +230,45 @@ const parseRatioEnv = (value: string | undefined, fallback: number): number => {
   return parsed;
 };
 
+const isMissingRpcError = (error: unknown) => {
+  if (!error || typeof error !== "object") return false;
+  const candidate = error as { code?: string; message?: string };
+  const msg = (candidate.message || "").toLowerCase();
+  return (
+    candidate.code === "42883" ||
+    msg.includes("could not find the function") ||
+    msg.includes("function public.memory_set_image_url") ||
+    msg.includes("does not exist")
+  );
+};
+
 async function setMemoryHeroImage(memoryId: string, url: string | null): Promise<void> {
-  const { error } = await supabase
+  const { error: rpcError } = await supabase.rpc("memory_set_image_url", {
+    p_memory_id: memoryId,
+    p_image_url: url,
+  });
+
+  if (!rpcError) {
+    return;
+  }
+
+  if (!isMissingRpcError(rpcError)) {
+    throw rpcError;
+  }
+
+  const { data, error } = await supabase
     .from("memories")
     .update({ image_url: url })
-    .eq("id", memoryId);
+    .eq("id", memoryId)
+    .select("id");
 
   if (error) {
     throw error;
+  }
+  if (!data?.length) {
+    throw new Error(
+      "Could not update the memory cover image. Apply docs/db/memory_collaborators_can_edit.sql so tagged friends can refresh the cover after photo changes.",
+    );
   }
 }
 
@@ -347,6 +391,7 @@ const mapMemoryRowsToUi = (
 
     return {
       id: row.id,
+      ownerUserId: row.user_id,
       eventName: row.title || "Memory",
       location: row.location || "New York",
       date: formatDateLabel(row.memory_date || undefined),
@@ -965,14 +1010,18 @@ export async function removeMemoryAttendee(memoryId: string, userId: string): Pr
     throw new Error("Memory owner cannot be removed from attendees.");
   }
 
-  const { error: deleteError } = await supabase
+  const { data: deletedRows, error: deleteError } = await supabase
     .from("memory_attendees")
     .delete()
     .eq("memory_id", memoryId)
-    .eq("user_id", userId);
+    .eq("user_id", userId)
+    .select("memory_id");
 
   if (deleteError) {
     throw deleteError;
+  }
+  if (!deletedRows?.length) {
+    throw new Error("Could not remove this attendee.");
   }
 }
 
@@ -1038,13 +1087,17 @@ export async function deleteMemory(memoryId: string): Promise<void> {
     }
   }
 
-  const { error: deleteError } = await supabase
+  const { data: deletedRows, error: deleteError } = await supabase
     .from("memories")
     .delete()
-    .eq("id", memoryId);
+    .eq("id", memoryId)
+    .select("id");
 
   if (deleteError) {
     throw deleteError;
+  }
+  if (!deletedRows?.length) {
+    throw new Error("Could not delete this memory. You may not be the owner.");
   }
 }
 
@@ -1116,14 +1169,18 @@ export async function deleteMemoryPhoto(memoryId: string, photoId: string): Prom
     }
   }
 
-  const { error: deleteRowError } = await supabase
+  const { data: deletedPhotoRows, error: deleteRowError } = await supabase
     .from("memory_photos")
     .delete()
     .eq("memory_id", memoryId)
-    .eq("id", photoId);
+    .eq("id", photoId)
+    .select("id");
 
   if (deleteRowError) {
     throw deleteRowError;
+  }
+  if (!deletedPhotoRows?.length) {
+    throw new Error("Could not remove this photo. You may not have permission, or it was already removed.");
   }
 
   const remainingRows = await fetchOrderedMemoryPhotoRows(memoryId);
