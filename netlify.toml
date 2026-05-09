@@ -6,6 +6,10 @@
   NODE_VERSION = "20"
 
 # SPA fallback so React Router (BrowserRouter) routes resolve on refresh / direct hit.
+#
+# Edge function netlify/edge-functions/embed-meta.ts customizes OG/twitter meta for crawlers on:
+#   /invite/friend/* , /hangouts?hangout=… , /profile?memory=…
+# Set SUPABASE_URL and SUPABASE_ANON_KEY on Netlify (Site settings → Environment variables).
 [[redirects]]
   from = "/*"
   to = "/index.html"
