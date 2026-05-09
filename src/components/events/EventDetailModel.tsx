@@ -97,6 +97,8 @@ interface EventDetailModalProps {
   initialSuggestOpen?: boolean;
   /** Where the modal was opened from (for analytics only). */
   analyticsSurface?: AnalyticsSurface;
+  /** Called after save/unsave succeeds so parents can refresh list/card UI. */
+  onSavedChange?: (eventId: string, isSaved: boolean) => void;
 }
 
 const EventDetailModal = ({
@@ -104,6 +106,7 @@ const EventDetailModal = ({
   onClose,
   initialSuggestOpen = false,
   analyticsSurface = "explore",
+  onSavedChange,
 }: EventDetailModalProps) => {
   const { user } = useAuth();
   const [isSaved, setIsSaved] = useState(false);
@@ -284,7 +287,9 @@ const EventDetailModal = ({
     const success = isSaved ? await unsaveEvent(event.id) : await saveEvent(event.id);
     
     if (success) {
-      setIsSaved(!isSaved);
+      const nextSaved = !isSaved;
+      setIsSaved(nextSaved);
+      onSavedChange?.(event.id, nextSaved);
       toast({
         title: isSaved ? "Removed from saved" : "Event saved!",
         description: isSaved ? "Event removed from your saved list" : "You can find this in your Saved events",
