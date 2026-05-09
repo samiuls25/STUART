@@ -104,6 +104,8 @@ const MemoryCard = ({
   const galleryUploadInputRef = useRef<HTMLInputElement | null>(null);
   const defaultUploadInputRef = useRef<HTMLInputElement | null>(null);
   const deepLinkExpandedRef = useRef(false);
+  const openedViaDeepLinkRef = useRef(false);
+  const prevIsExpandedRef = useRef(false);
 
   const galleryPhotos = useMemo(
     () =>
@@ -189,9 +191,20 @@ const MemoryCard = ({
   useEffect(() => {
     if (!deepLinkMemoryId || deepLinkMemoryId !== memory.id || deepLinkExpandedRef.current) return;
     deepLinkExpandedRef.current = true;
+    openedViaDeepLinkRef.current = true;
     setIsExpanded(true);
+    // Do not clear ?memory= here: React Strict Mode remounts before paint; clearing the URL
+    // drops deepLinkMemoryId so the remounted card never opens. Clear when the modal closes instead.
+  }, [deepLinkMemoryId, memory.id]);
+
+  useEffect(() => {
+    const wasExpanded = prevIsExpandedRef.current;
+    prevIsExpandedRef.current = isExpanded;
+    if (!wasExpanded || isExpanded || !openedViaDeepLinkRef.current) return;
+    openedViaDeepLinkRef.current = false;
+    deepLinkExpandedRef.current = false;
     onDeepLinkConsumed?.();
-  }, [deepLinkMemoryId, memory.id, onDeepLinkConsumed]);
+  }, [isExpanded, onDeepLinkConsumed]);
 
   useEffect(() => {
     if (addableFriends.length === 0) {
