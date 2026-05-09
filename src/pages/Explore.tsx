@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
 import { motion } from "framer-motion";
 import { Search, Sparkles, X, Heart, MapPin, ArrowUp, Users, ThumbsUp, ThumbsDown } from "lucide-react";
 import React from "react";
@@ -57,6 +57,11 @@ const Explore = () => {
   const [selectedMood, setSelectedMood] = useState<string | null>(null);
   const [detailEvent, setDetailEvent] = useState<Event | null>(null);
   const [detailOpenSuggest, setDetailOpenSuggest] = useState(false);
+  /** Bumped when save state changes in the detail modal so grid cards re-sync hearts. */
+  const [savedListRevision, setSavedListRevision] = useState(0);
+  const handleModalSavedChange = useCallback(() => {
+    setSavedListRevision((r) => r + 1);
+  }, []);
   const [searchQuery, setSearchQuery] = useState("");
   const [placeholderIndex] = useState(Math.floor(Math.random() * searchPlaceholders.length));
 
@@ -518,6 +523,7 @@ const Explore = () => {
                     onClick={handleEventClick}
                     onSuggest={handleSuggestFromCard}
                     index={index}
+                    savedListRevision={savedListRevision}
                   />
                 ))}
               </motion.div>
@@ -604,6 +610,7 @@ const Explore = () => {
         event={detailEvent}
         analyticsSurface="explore"
         initialSuggestOpen={detailOpenSuggest}
+        onSavedChange={handleModalSavedChange}
         onClose={() => {
           setDetailEvent(null);
           setDetailOpenSuggest(false);
@@ -619,11 +626,13 @@ const EventCardGrid = ({
   onClick,
   onSuggest,
   index,
+  savedListRevision,
 }: {
   event: Event;
   onClick: (event: Event) => void;
   onSuggest: (event: Event, reactEvent: React.MouseEvent) => void;
   index: number;
+  savedListRevision: number;
 }) => {
   const { user } = useAuth();
   const [isSaved, setIsSaved] = useState(false);
@@ -650,7 +659,7 @@ const EventCardGrid = ({
     } else {
       setIsSaved(false);
     }
-  }, [user, event.id, event.isSaveable]);
+  }, [user, event.id, event.isSaveable, savedListRevision]);
 
   const handleFeedback = async (
     reactEvent: React.MouseEvent,

@@ -14,6 +14,11 @@ let savedIdsCache:
 let inFlightSavedIdsPromise: Promise<string[]> | null = null;
 let inFlightUserIdPromise: Promise<string | null> | null = null;
 
+/** Drop cached IDs so the next getSavedEventIds() hits Supabase (avoids stale grid vs modal). */
+function clearSavedIdsCache(): void {
+  savedIdsCache = null;
+}
+
 async function getAuthenticatedUserId(): Promise<string | null> {
   if (inFlightUserIdPromise) {
     return inFlightUserIdPromise;
@@ -95,19 +100,18 @@ export async function saveEvent(eventId: string): Promise<boolean> {
     .insert({ user_id: userId, event_id: eventId });
 
   if (error) {
+    const code = (error as { code?: string }).code;
+    // Already saved (e.g. grid UI stale after modal save). Treat as success and resync cache.
+    if (code === "23505") {
+      clearSavedIdsCache();
+      return true;
+    }
     console.error("Error saving event:", error);
     return false;
   }
 
   trackAnalytics("event_saved", { event_id: eventId });
-
-  if (savedIdsCache?.userId === userId && !savedIdsCache.ids.includes(eventId)) {
-    savedIdsCache = {
-      userId,
-      ids: [...savedIdsCache.ids, eventId],
-      fetchedAt: Date.now(),
-    };
-  }
+  clearSavedIdsCache();
 
   return true;
 }
@@ -128,14 +132,7 @@ export async function unsaveEvent(eventId: string): Promise<boolean> {
   }
 
   trackAnalytics("event_unsaved", { event_id: eventId });
-
-  if (savedIdsCache?.userId === userId) {
-    savedIdsCache = {
-      userId,
-      ids: savedIdsCache.ids.filter((id) => id !== eventId),
-      fetchedAt: Date.now(),
-    };
-  }
+  clearSavedIdsCache();
 
   return true;
 }

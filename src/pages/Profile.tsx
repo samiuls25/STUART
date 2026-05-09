@@ -26,7 +26,9 @@ import { getUserBadges } from "../lib/badges";
 import { trackAnalytics } from "../lib/analytics";
 import {
   fetchMemoriesForCurrentUser,
+  memoryEditableByUser,
   memoryMonitoringConfig,
+  memoryOwnedByUser,
   summarizeMemoryUsage,
   type Memory,
 } from "../lib/memories";
@@ -457,6 +459,8 @@ const Profile = () => {
                         <MemoryCard
                           key={memory.id}
                           memory={memory}
+                          editable={memoryEditableByUser(memory, user?.id)}
+                          allowDelete={memoryOwnedByUser(memory, user?.id)}
                           deepLinkMemoryId={deepLinkMemoryId}
                           onDeepLinkConsumed={clearMemoryDeepLink}
                           onMemoryUpdated={refreshMemories}
@@ -608,6 +612,8 @@ const Profile = () => {
                               >
                                 <MemoryCard
                                   memory={memory}
+                                  editable={memoryEditableByUser(memory, user?.id)}
+                                  allowDelete={memoryOwnedByUser(memory, user?.id)}
                                   deepLinkMemoryId={deepLinkMemoryId}
                                   onDeepLinkConsumed={clearMemoryDeepLink}
                                   onMemoryUpdated={refreshMemories}
@@ -631,6 +637,8 @@ const Profile = () => {
                           <MemoryCard
                             memory={memory}
                             displayMode="gallery"
+                            editable={memoryEditableByUser(memory, user?.id)}
+                            allowDelete={memoryOwnedByUser(memory, user?.id)}
                             deepLinkMemoryId={deepLinkMemoryId}
                             onDeepLinkConsumed={clearMemoryDeepLink}
                             onMemoryUpdated={refreshMemories}
