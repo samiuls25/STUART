@@ -35,6 +35,7 @@ import {
   type RecommendationFeedbackType,
 } from "../../lib/recommendationFeedback";
 import { trackAnalytics } from "../../lib/analytics";
+import { eventListingTimeCaption } from "../../lib/viewerTimezone";
 
 const pad2 = (value: number) => String(value).padStart(2, "0");
 export type AnalyticsSurface = "explore" | "map" | "saved" | "groups";
@@ -265,6 +266,8 @@ const EventDetailModal = ({
   }, [event?.id, initialSuggestOpen, isHangoutEvent, user]);
 
   if (!event) return null;
+
+  const listingTimeCaption = eventListingTimeCaption(event);
 
   const handleSave = async () => {
     if (event.isSaveable === false) {
@@ -574,6 +577,9 @@ const EventDetailModal = ({
                       <div>
                         <p className="text-xs text-muted-foreground">Time</p>
                         <p className="font-medium text-foreground text-sm">{event.time}</p>
+                        {listingTimeCaption && (
+                          <p className="text-[11px] text-muted-foreground mt-1 leading-snug">{listingTimeCaption}</p>
+                        )}
                       </div>
                     </div>
                     {typeof event.distance === "number" && event.distance > 0 && (

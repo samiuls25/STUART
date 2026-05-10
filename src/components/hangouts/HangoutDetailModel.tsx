@@ -19,6 +19,14 @@ import {
 } from "lucide-react";
 import { Hangout, Friend, TimeRange, getFriendById, getActivityType, activityTypes } from "../../data/friends";
 import { format, parseISO, isBefore, startOfDay } from "date-fns";
+import { parseLocalCalendarDate } from "../../lib/eventFilters";
+import {
+  formatIsoInstantInEastern,
+  HANGOUT_AVAILABILITY_EDITOR_CAPTION,
+  HANGOUT_AVAILABILITY_SUBMITTED_CAPTION,
+  HANGOUT_SCHEDULE_EXPLAINER_SHORT,
+  HANGOUT_SCHEDULE_ZONE_ABBREV,
+} from "../../lib/hangoutScheduleTimezone";
 import AvailabilityHeatmap from "../availability/AvailabilityHeatmap";
 import ConfirmDeleteHangoutDialog from "./ConfirmDeleteHangoutDialog";
 import { scoreAvailabilitySlots } from "../../lib/hangoutFinalization";
@@ -120,7 +128,10 @@ const HangoutDetailModal = ({
     !!onCreateMemory
     && (
       hangout.status === "completed"
-      || (hangout.status === "confirmed" && isBefore(parseISO(timeRange.date), startOfDay(new Date())))
+      || (
+          hangout.status === "confirmed"
+          && isBefore(startOfDay(parseLocalCalendarDate(timeRange.date)), startOfDay(new Date()))
+        )
     );
 
   const toggleAvailabilitySlot = (key: string) => {
@@ -235,6 +246,21 @@ const HangoutDetailModal = ({
     setEditLocationAddress(hangout.location?.address ?? "");
     setEditLocationFlexible(hangout.location?.isFlexible ?? true);
   };
+
+  useEffect(() => {
+    if (!isEditingHangout) return;
+    populateEditFormFromHangout();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- re-sync draft schedule when server hangout times/status change (e.g. apply suggested slot)
+  }, [
+    isEditingHangout,
+    hangout.proposedTimeRange.date,
+    hangout.proposedTimeRange.startTime,
+    hangout.proposedTimeRange.endTime,
+    hangout.confirmedTime?.date,
+    hangout.confirmedTime?.startTime,
+    hangout.confirmedTime?.endTime,
+    hangout.status,
+  ]);
 
   const friendAvailabilityForEditor = useMemo(() => {
     const map: Record<string, string[]> = {};
@@ -428,8 +454,8 @@ const HangoutDetailModal = ({
 
   const formatSuggestedSlot = (date: string, startTime: string, endTime: string) => {
     try {
-      const dateLabel = format(parseISO(`${date}T${startTime}:00`), "EEE, MMM d");
-      return `${dateLabel} • ${startTime} - ${endTime}`;
+      const dateLabel = format(parseLocalCalendarDate(date), "EEE, MMM d");
+      return `${dateLabel} • ${startTime} – ${endTime} ${HANGOUT_SCHEDULE_ZONE_ABBREV}`;
     } catch {
       return `${date} • ${startTime} - ${endTime}`;
     }
@@ -442,7 +468,7 @@ const HangoutDetailModal = ({
 
     let confirmedAtLabel = hangout.confirmedAt;
     try {
-      confirmedAtLabel = format(parseISO(hangout.confirmedAt), "MMM d, yyyy 'at' h:mm a");
+      confirmedAtLabel = formatIsoInstantInEastern(hangout.confirmedAt);
     } catch {
       // Fall back to the raw value if parsing fails.
     }
@@ -638,6 +664,9 @@ const HangoutDetailModal = ({
                       <Input id="hangout-edit-end" type="time" value={editEndTime} onChange={(e) => setEditEndTime(e.target.value)} />
                     </div>
                   </div>
+                  <p className="text-xs text-muted-foreground">
+                    Date and times are Eastern Time ({HANGOUT_SCHEDULE_ZONE_ABBREV}).
+                  </p>
                   <div className="space-y-2">
                     <label htmlFor="hangout-edit-loc" className="text-xs font-medium text-muted-foreground">
                       Location (optional)
@@ -676,15 +705,18 @@ const HangoutDetailModal = ({
                     <div className="flex items-center gap-3 text-sm">
                       <Calendar className="w-4 h-4 text-primary flex-shrink-0" />
                       <span className="text-foreground font-medium">
-                        {format(new Date(timeRange.date), "EEEE, MMMM d, yyyy")}
+                        {format(parseLocalCalendarDate(timeRange.date), "EEEE, MMMM d, yyyy")}
                       </span>
                     </div>
                     <div className="flex items-center gap-3 text-sm">
                       <Clock className="w-4 h-4 text-primary flex-shrink-0" />
                       <span className="text-foreground">
-                        {timeRange.startTime} – {timeRange.endTime}
+                        {timeRange.startTime} – {timeRange.endTime} {HANGOUT_SCHEDULE_ZONE_ABBREV}
                       </span>
                     </div>
+                    <p className="text-xs text-muted-foreground pl-7 -mt-2 leading-snug">
+                      {HANGOUT_SCHEDULE_EXPLAINER_SHORT}
+                    </p>
                     {hangout.location && (
                       <div className="flex items-center gap-3 text-sm">
                         <MapPin className="w-4 h-4 text-primary flex-shrink-0" />
@@ -893,7 +925,8 @@ const HangoutDetailModal = ({
               {/* Availability submissions */}
               {hangout.responses.some((r) => r.availabilitySubmitted?.length) && (
                 <div>
-                  <h4 className="font-heading font-semibold text-foreground mb-3">Submitted Availability</h4>
+                  <h4 className="font-heading font-semibold text-foreground mb-1">Submitted Availability</h4>
+                  <p className="text-xs text-muted-foreground mb-3">{HANGOUT_AVAILABILITY_SUBMITTED_CAPTION}</p>
                   <div className="rounded-xl border border-border p-3 bg-muted/20">
                     <AvailabilityHeatmap
                       startDate={timeRange.date}
@@ -910,6 +943,7 @@ const HangoutDetailModal = ({
               {isCreator && bestAvailabilitySuggestion && !isEditingHangout && (
                 <div className="rounded-xl border border-primary/20 bg-primary/5 p-4">
                   <h4 className="font-heading font-semibold text-foreground mb-1">Suggested Best Time</h4>
+                  <p className="text-xs text-muted-foreground mb-2">{HANGOUT_SCHEDULE_EXPLAINER_SHORT}</p>
                   <p className="text-sm text-primary font-medium">
                     {formatSuggestedSlot(
                       selectedAvailabilitySuggestion?.date || bestAvailabilitySuggestion.date,
@@ -973,6 +1007,7 @@ const HangoutDetailModal = ({
 
                   {showAvailabilityEditor && (
                     <div className="space-y-3">
+                      <p className="text-xs text-muted-foreground">{HANGOUT_AVAILABILITY_EDITOR_CAPTION}</p>
                       <AvailabilityHeatmap
                         startDate={timeRange.date}
                         numDays={7}

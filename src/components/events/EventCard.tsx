@@ -11,6 +11,7 @@ import {
   type RecommendationFeedbackType,
 } from "../../lib/recommendationFeedback";
 import { formatDistanceMiles } from "../../lib/eventFilters";
+import { eventListingTimeCaption } from "../../lib/viewerTimezone";
 
 interface EventCardProps {
   event: Event;
@@ -32,6 +33,7 @@ const EventCard = ({
   index,
   showQuickFeedback = false,
 }: EventCardProps) => {
+  const listingTimeCaption = eventListingTimeCaption(event);
   const { user } = useAuth();
   const [isSaved, setIsSaved] = useState(false);
   const [submittedFeedback, setSubmittedFeedback] = useState<RecommendationFeedbackType | null>(
@@ -207,6 +209,9 @@ const EventCard = ({
               </span>
             )}
           </div>
+          {listingTimeCaption && (
+            <p className="text-[11px] text-muted-foreground mb-1.5 leading-snug">{listingTimeCaption}</p>
+          )}
 
           {/* Venue */}
           <div className="flex items-center gap-1.5 text-sm text-muted-foreground">

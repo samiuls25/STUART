@@ -1,5 +1,6 @@
 import React from "react";
 import { useEffect, useMemo, useState } from "react";
+import { HANGOUT_SCHEDULE_EXPLAINER_SHORT } from "../../lib/hangoutScheduleTimezone";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, Plus, UserPlus, Search, Check, Clock, MapPin, Calendar, Users, Sparkles, AlertCircle } from "lucide-react";
 import { friends, activityTypes, Friend, Hangout, TimeRange } from "../../data/friends";
@@ -362,29 +363,32 @@ const CreateHangoutModal = ({
                     </div>
 
                     {schedulingMode === "set" ? (
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <label className="block text-sm font-medium text-foreground mb-2 flex items-center gap-2">
-                            <Clock className="w-4 h-4 text-primary" />
-                            Start time
-                          </label>
-                          <Input
-                            type="time"
-                            value={startTime}
-                            onChange={(e) => setStartTime(e.target.value)}
-                          />
+                      <>
+                        <div className="grid grid-cols-2 gap-4">
+                          <div>
+                            <label className="block text-sm font-medium text-foreground mb-2 flex items-center gap-2">
+                              <Clock className="w-4 h-4 text-primary" />
+                              Start time
+                            </label>
+                            <Input
+                              type="time"
+                              value={startTime}
+                              onChange={(e) => setStartTime(e.target.value)}
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-sm font-medium text-foreground mb-2">
+                              End time
+                            </label>
+                            <Input
+                              type="time"
+                              value={endTime}
+                              onChange={(e) => setEndTime(e.target.value)}
+                            />
+                          </div>
                         </div>
-                        <div>
-                          <label className="block text-sm font-medium text-foreground mb-2">
-                            End time
-                          </label>
-                          <Input
-                            type="time"
-                            value={endTime}
-                            onChange={(e) => setEndTime(e.target.value)}
-                          />
-                        </div>
-                      </div>
+                        <p className="text-xs text-muted-foreground mt-2">{HANGOUT_SCHEDULE_EXPLAINER_SHORT}</p>
+                      </>
                     ) : (
                       date && (
                         <div>
@@ -402,6 +406,7 @@ const CreateHangoutModal = ({
                           <p className="text-xs text-muted-foreground mt-2">
                             Your friends will see this and add their own availability. Overlapping times will be highlighted.
                           </p>
+                          <p className="text-xs text-muted-foreground mt-1">{HANGOUT_SCHEDULE_EXPLAINER_SHORT}</p>
                         </div>
                       )
                     )}
