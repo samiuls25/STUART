@@ -407,6 +407,15 @@
   {
     "schemaname": "public",
     "tablename": "memories",
+    "policyname": "Users can view memories they are tagged on",
+    "cmd": "SELECT",
+    "roles": "{authenticated}",
+    "qual": "memory_user_is_attendee(id)",
+    "with_check": null
+  },
+  {
+    "schemaname": "public",
+    "tablename": "memories",
     "policyname": "Users can view their own memories",
     "cmd": "SELECT",
     "roles": "{public}",
