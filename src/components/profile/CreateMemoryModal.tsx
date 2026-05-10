@@ -229,7 +229,11 @@ const CreateMemoryModal = ({ isOpen, onClose, onCreated, initialValues }: Create
         const settled = await Promise.allSettled(
           prefillAttendeeIds.map((memberId) => addMemoryAttendee(result.id, memberId)),
         );
-        const peersAdded = settled.filter((row) => row.status === "fulfilled").length;
+        const peersAdded = settled.filter(
+          (row) =>
+            row.status === "fulfilled"
+            && row.value.inserted,
+        ).length;
         if (peersAdded > 0) {
           trackAnalytics("memory_attendees_added", {
             memory_id: result.id,

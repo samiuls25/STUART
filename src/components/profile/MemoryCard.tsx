@@ -223,16 +223,23 @@ const MemoryCard = ({
 
     setIsAddingAttendee(true);
     try {
-      await addMemoryAttendee(memory.id, selectedFriendId);
-      trackAnalytics("memory_attendees_added", {
-        memory_id: memory.id,
-        peers_added: 1,
-        source: "memory_card",
-      });
-      toast({
-        title: "Attendee added",
-        description: "Friend added to this memory.",
-      });
+      const { inserted } = await addMemoryAttendee(memory.id, selectedFriendId);
+      if (inserted) {
+        trackAnalytics("memory_attendees_added", {
+          memory_id: memory.id,
+          peers_added: 1,
+          source: "memory_card",
+        });
+        toast({
+          title: "Attendee added",
+          description: "Friend added to this memory.",
+        });
+      } else {
+        toast({
+          title: "Already tagged",
+          description: "That friend is already listed on this memory.",
+        });
+      }
       await onMemoryUpdated?.();
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to add attendee.";
