@@ -30,7 +30,7 @@ export interface Memory {
   albumUrl?: string;
 }
 
-/** Tagged attendees (and legacy fallback owner-only row) imply in-app edit rights when RLS uses can_edit_memory. */
+/** True when the viewer is tagged on the memory—same rule as DB `can_edit_memory` (owners + attendees). */
 export function memoryEditableByUser(memory: Memory, userId: string | null | undefined): boolean {
   if (!userId) return false;
   return memory.attendees.some((a) => a.id === userId);
@@ -154,6 +154,30 @@ const isDuplicateValueError = (error: unknown) => {
   const candidate = error as { code?: string };
   return Boolean(candidate.code && duplicateValueCodes.has(candidate.code));
 };
+
+const isPermissionDeniedError = (error: unknown) => {
+  if (!error || typeof error !== "object") return false;
+  const candidate = error as { code?: string; message?: string };
+  if (candidate.code === "42501") return true;
+  const m = (candidate.message || "").toLowerCase();
+  return (
+    m.includes("permission denied")
+    || m.includes("row-level security")
+    || m.includes("violates row-level security policy")
+  );
+};
+
+const mapMemoryAttendeeMutationError = (error: unknown): Error => {
+  if (isPermissionDeniedError(error)) {
+    return new Error(
+      "You don't have permission to change attendees on this memory. Only the owner and people tagged on it can edit.",
+    );
+  }
+  return error instanceof Error ? error : new Error(String(error));
+};
+
+/** Result of tagging someone who wasn't already listed (duplicate tag → inserted false). */
+export type AddMemoryAttendeeResult = { inserted: boolean };
 
 const formatDateLabel = (value: string | null | undefined) => {
   if (!value) return "Unknown date";
@@ -554,6 +578,9 @@ async function mapMemoryRowsWithRelations(memoryRows: MemoryRow[]): Promise<Memo
   return mapMemoryRowsToUi(memories, profileMap, photoMap, attendeeMap);
 }
 
+/** Memories the user appears on as a non-owner attendee (merged into profile via fetchMemoriesForCurrentUser).
+ *  DB: `can_view_memory` + a SELECT policy on `memories` for tagged users — see
+ *  docs/db/can_view_memory_include_attendees.sql and docs/db/memories_select_for_tagged_attendees.sql. */
 async function fetchSharedMemoryRowsForUser(
   currentUserId: string,
   otherUserId?: string,
@@ -944,7 +971,7 @@ export async function createMemoryWithPhotos(
   };
 }
 
-export async function addMemoryAttendee(memoryId: string, userId: string): Promise<void> {
+export async function addMemoryAttendee(memoryId: string, userId: string): Promise<AddMemoryAttendeeResult> {
   if (!memoryId || !userId) {
     throw new Error("Memory and attendee ids are required.");
   }
@@ -957,22 +984,28 @@ export async function addMemoryAttendee(memoryId: string, userId: string): Promi
     throw new Error("You must be signed in to edit memory attendees.");
   }
 
-  const { error } = await supabase.from("memory_attendees").insert({
-    memory_id: memoryId,
-    user_id: userId,
-    added_by: user.id,
-    is_owner: false,
-  });
+  const { data, error } = await supabase
+    .from("memory_attendees")
+    .insert({
+      memory_id: memoryId,
+      user_id: userId,
+      added_by: user.id,
+      is_owner: false,
+    })
+    .select("memory_id")
+    .maybeSingle();
 
   if (error) {
     if (isMissingTableError(error)) {
       throw new Error("Memory attendees are not enabled yet. Run docs/db/memories_phase1.sql first.");
     }
     if (isDuplicateValueError(error)) {
-      return;
+      return { inserted: false };
     }
-    throw error;
+    throw mapMemoryAttendeeMutationError(error);
   }
+
+  return { inserted: Boolean(data) };
 }
 
 export async function removeMemoryAttendee(memoryId: string, userId: string): Promise<void> {
@@ -999,11 +1032,11 @@ export async function removeMemoryAttendee(memoryId: string, userId: string): Pr
     if (isMissingTableError(existingError)) {
       throw new Error("Memory attendees are not enabled yet. Run docs/db/memories_phase1.sql first.");
     }
-    throw existingError;
+    throw mapMemoryAttendeeMutationError(existingError);
   }
 
   if (!existingRow) {
-    return;
+    throw new Error("Couldn't load that attendee row. Refresh the page and try again.");
   }
 
   if (existingRow.is_owner) {
@@ -1018,10 +1051,10 @@ export async function removeMemoryAttendee(memoryId: string, userId: string): Pr
     .select("memory_id");
 
   if (deleteError) {
-    throw deleteError;
+    throw mapMemoryAttendeeMutationError(deleteError);
   }
   if (!deletedRows?.length) {
-    throw new Error("Could not remove this attendee.");
+    throw new Error("Could not remove this attendee. You may not have permission, or policies may need updating.");
   }
 }
 

@@ -1,6 +1,24 @@
 import { parseISO, startOfDay, nextSaturday, nextSunday, addDays } from "date-fns";
 import type { Event } from "../data/events";
 
+/**
+ * Calendar dates stored as `YYYY-MM-DD` (hangouts, etc.). Do not use `new Date(iso)` or
+ * `parseISO` alone — date-only strings are parsed as UTC midnight and shift the calendar day
+ * in negative-offset timezones (e.g. US), so "Tuesday" can render as "Monday".
+ */
+export function parseLocalCalendarDate(isoDateOnly: string): Date {
+  const trimmed = isoDateOnly.trim();
+  const match = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) {
+    const fallback = parseISO(trimmed);
+    return isNaN(fallback.getTime()) ? new Date(NaN) : fallback;
+  }
+  const y = Number(match[1]);
+  const m = Number(match[2]);
+  const d = Number(match[3]);
+  return new Date(y, m - 1, d);
+}
+
 /** Parse event date string (ISO "2024-12-28" or "Dec 28, 2024") to Date or null */
 export function parseEventDate(dateStr: string | undefined): Date | null {
   if (!dateStr) return null;

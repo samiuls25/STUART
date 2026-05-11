@@ -679,7 +679,7 @@ export async function applySuggestedHangoutTime(
 
   if (!user) throw new Error("You must be signed in to finalize a hangout time.");
 
-  const { error } = await supabase
+  const { data: updatedRow, error } = await supabase
     .from("hangouts")
     .update({
       status: "confirmed",
@@ -692,9 +692,14 @@ export async function applySuggestedHangoutTime(
       updated_at: new Date().toISOString(),
     })
     .eq("id", hangoutId)
-    .eq("created_by", user.id);
+    .eq("created_by", user.id)
+    .select("id")
+    .maybeSingle();
 
   if (error) throw error;
+  if (!updatedRow) {
+    throw new Error("Could not confirm this time. Only the organizer can apply a suggested slot.");
+  }
 
   trackAnalytics("best_slot_applied", { hangout_id: hangoutId });
 
@@ -1020,6 +1025,16 @@ async function syncHangoutStatus(hangoutId: string): Promise<void> {
   if (updateError) throw updateError;
 }
 
+/** Postgres TIME often returns `HH:mm:ss`; UI and availability scoring use `HH:mm`. */
+function normalizeHangoutClock(value: string | null | undefined): string {
+  if (value == null || value === "") return "";
+  const trimmed = String(value).trim();
+  if (/^\d{1,2}:\d{2}:\d{2}/.test(trimmed)) {
+    return trimmed.slice(0, 5);
+  }
+  return trimmed;
+}
+
 function mapRowToHangout(row: HangoutRow, invites: HangoutInviteRow[]): Hangout {
   const responses = invites.map((invite) => ({
     friendId: invite.friend_id,
@@ -1037,8 +1052,8 @@ function mapRowToHangout(row: HangoutRow, invites: HangoutInviteRow[]): Hangout 
     createdBy: row.created_by,
     proposedTimeRange: {
       date: row.proposed_date,
-      startTime: row.proposed_start_time,
-      endTime: row.proposed_end_time,
+      startTime: normalizeHangoutClock(row.proposed_start_time),
+      endTime: normalizeHangoutClock(row.proposed_end_time),
     },
     location: row.location_name
       ? {
@@ -1055,8 +1070,8 @@ function mapRowToHangout(row: HangoutRow, invites: HangoutInviteRow[]): Hangout 
       row.confirmed_date && row.confirmed_start_time && row.confirmed_end_time
         ? {
             date: row.confirmed_date,
-            startTime: row.confirmed_start_time,
-            endTime: row.confirmed_end_time,
+            startTime: normalizeHangoutClock(row.confirmed_start_time),
+            endTime: normalizeHangoutClock(row.confirmed_end_time),
           }
         : undefined,
     confirmedAt: row.status === "confirmed" ? (row.updated_at || row.created_at) : undefined,

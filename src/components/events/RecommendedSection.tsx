@@ -3,6 +3,7 @@ import React from "react";
 import { Sparkles, Star, Info, Heart } from "lucide-react";
 import type { Event } from "../../data/events";
 import { isEventUpcomingForBrowse } from "../../lib/eventFilters";
+import { eventListingTimeCaption } from "../../lib/viewerTimezone";
 
 interface RecommendedSectionProps {
   events: Event[];
@@ -40,7 +41,9 @@ const RecommendedSection = ({ events, onEventClick }: RecommendedSectionProps) =
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {recommendedEvents.map((event, index) => (
+        {recommendedEvents.map((event, index) => {
+          const listingCaption = eventListingTimeCaption(event);
+          return (
           <motion.div
             key={event.id}
             initial={{ opacity: 0, y: 20 }}
@@ -73,6 +76,9 @@ const RecommendedSection = ({ events, onEventClick }: RecommendedSectionProps) =
                 <p className="text-xs text-muted-foreground mt-1">
                   {event.date} • {event.time}
                 </p>
+                {listingCaption && (
+                  <p className="text-[10px] text-muted-foreground mt-0.5 leading-snug">{listingCaption}</p>
+                )}
                 
                 {/* Recommendation Reasons */}
                 {event.recommendationReasons && event.recommendationReasons.length > 0 && (
@@ -102,7 +108,8 @@ const RecommendedSection = ({ events, onEventClick }: RecommendedSectionProps) =
               </button>
             </div>
           </motion.div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );

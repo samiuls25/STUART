@@ -11,6 +11,8 @@ export interface Event {
     segment: string;
     genre: string;
     ticketUrl: string;
+  /** IANA zone when stored (e.g. Ticketmaster); optional. */
+  venueTimezone?: string | null;
   source?: string;
   sourceLabel?: string;
   organizerName?: string;
@@ -855,6 +857,7 @@ export async function fetchEvents(userId?: string): Promise<Event[]> {
       segment: e.segment,
       genre: e.genre,
       ticketUrl: e.ticket_url || e.ticketUrl || "",
+      venueTimezone: e.timezone ?? e.venue_timezone ?? e.venueTimezone ?? null,
       source: e.source || "ticketmaster",
       sourceLabel: e.source === "manual" ? "Manual" : "Ticketmaster",
       organizerName: undefined,

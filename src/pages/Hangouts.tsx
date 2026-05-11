@@ -11,7 +11,8 @@ import CreateMemoryModal, { CreateMemoryInitialValues } from "../components/prof
 import CreateGroupModal from "../components/groups/CreateGroupModal";
 import AuthModal from "../components/auth/AuthModal";
 import { hangouts, Hangout, setFriendsDirectory, Friend, TimeRange } from "../data/friends.ts";
-import { format, isAfter, isBefore, parseISO, startOfDay, addWeeks } from "date-fns";
+import { format, isAfter, isBefore, startOfDay, addWeeks } from "date-fns";
+import { parseLocalCalendarDate } from "../lib/eventFilters";
 import { Input } from "../components/ui/input.tsx";
 import { useAuth } from "../lib/AuthContext";
 import { useToast } from "../hooks/use-toast";
@@ -67,7 +68,8 @@ const Hangouts = () => {
     ? `stuart:hiddenDeclinedHangouts:${currentUserId}`
     : null;
 
-  const hangoutScheduleDay = (h: Hangout) => parseISO(h.confirmedTime?.date || h.proposedTimeRange.date);
+  const hangoutScheduleDay = (h: Hangout) =>
+    startOfDay(parseLocalCalendarDate(h.confirmedTime?.date || h.proposedTimeRange.date));
   /** Calendar date strictly before local today → treat as past for listing (any RSVP status). */
   const isHangoutScheduledBeforeToday = (h: Hangout) => isBefore(hangoutScheduleDay(h), today);
 
@@ -205,9 +207,9 @@ const Hangouts = () => {
 
   const isInDateRange = (h: Hangout) => {
     if (!filterFrom && !filterTo) return true;
-    const hangoutDate = parseISO(h.confirmedTime?.date || h.proposedTimeRange.date);
-    if (filterFrom && isBefore(hangoutDate, parseISO(filterFrom))) return false;
-    if (filterTo && isAfter(hangoutDate, parseISO(filterTo))) return false;
+    const hangoutDate = startOfDay(parseLocalCalendarDate(h.confirmedTime?.date || h.proposedTimeRange.date));
+    if (filterFrom && isBefore(hangoutDate, startOfDay(parseLocalCalendarDate(filterFrom)))) return false;
+    if (filterTo && isAfter(hangoutDate, startOfDay(parseLocalCalendarDate(filterTo)))) return false;
     return true;
   };
 
@@ -276,7 +278,7 @@ const Hangouts = () => {
     (h) =>
       !isExcludedFromPrimarySections(h) &&
       h.status === "confirmed" &&
-      isAfter(parseISO(h.confirmedTime?.date || h.proposedTimeRange.date), today) &&
+      isAfter(startOfDay(parseLocalCalendarDate(h.confirmedTime?.date || h.proposedTimeRange.date)), today) &&
       isInDateRange(h)
   );
 
@@ -442,6 +444,36 @@ const Hangouts = () => {
   ) => {
     try {
       await applySuggestedHangoutTime(hangout.id, suggestedTime);
+
+      const normalizedRange = {
+        date: suggestedTime.date,
+        startTime:
+          suggestedTime.startTime.length >= 5 ? suggestedTime.startTime.slice(0, 5) : suggestedTime.startTime,
+        endTime: suggestedTime.endTime.length >= 5 ? suggestedTime.endTime.slice(0, 5) : suggestedTime.endTime,
+      };
+
+      setHangoutsState((prev) =>
+        prev.map((h) =>
+          h.id !== hangout.id
+            ? h
+            : {
+                ...h,
+                status: "confirmed",
+                proposedTimeRange: normalizedRange,
+                confirmedTime: normalizedRange,
+              },
+        ),
+      );
+      setSelectedHangout((prev) => {
+        if (!prev || prev.id !== hangout.id) return prev;
+        return {
+          ...prev,
+          status: "confirmed",
+          proposedTimeRange: normalizedRange,
+          confirmedTime: normalizedRange,
+        };
+      });
+
       toast({
         title: "Time confirmed",
         description: "Suggested best time has been applied.",
@@ -1058,7 +1090,7 @@ const Hangouts = () => {
                       <div>
                         <p className="font-medium text-foreground">{hangout.title}</p>
                         <p className="text-sm text-muted-foreground">
-                          {format(parseISO(`${timeRange.date}T${timeRange.startTime}:00`), "EEE, MMM d")}
+                          {format(parseLocalCalendarDate(timeRange.date), "EEE, MMM d")}
                           {" • "}
                           {timeRange.startTime} - {timeRange.endTime}
                           {hangout.location?.name ? ` • ${hangout.location.name}` : ""}

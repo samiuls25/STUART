@@ -3,6 +3,7 @@ import { motion } from "framer-motion";
 import { MapPin, Clock, Users, Check, X, HelpCircle, ChevronRight, Trash2, Eye, EyeOff } from "lucide-react";
 import { Hangout, getFriendById, getActivityType } from "../../data/friends";
 import { format } from "date-fns";
+import { parseLocalCalendarDate } from "../../lib/eventFilters";
 import ConfirmDeleteHangoutDialog from "./ConfirmDeleteHangoutDialog";
 
 interface HangoutCardProps {
@@ -68,7 +69,7 @@ const HangoutCard = ({
 
   const formatTimeRange = () => {
     const timeRange = hangout.confirmedTime || hangout.proposedTimeRange;
-    const date = format(new Date(timeRange.date), "EEE, MMM d");
+    const date = format(parseLocalCalendarDate(timeRange.date), "EEE, MMM d");
     return `${date} • ${timeRange.startTime} - ${timeRange.endTime}`;
   };
 

@@ -10,6 +10,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Plus,
+  Minus,
   Trash2,
   ExternalLink,
   Link2,
@@ -86,6 +87,8 @@ const MemoryCard = ({
   const { toast } = useToast();
   const canEditAlbumLink = Boolean(editable && user?.id && memory.ownerUserId === user.id);
   const [isExpanded, setIsExpanded] = useState(false);
+  const [isZoomOpen, setIsZoomOpen] = useState(false);
+  const [zoomScale, setZoomScale] = useState(1);
   const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
   const [friends, setFriends] = useState<Friend[]>([]);
   const [selectedFriendId, setSelectedFriendId] = useState<string>("");
@@ -207,6 +210,19 @@ const MemoryCard = ({
   }, [isExpanded, onDeepLinkConsumed]);
 
   useEffect(() => {
+    if (!isZoomOpen) return;
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        closeZoomViewer();
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [isZoomOpen]);
+
+  useEffect(() => {
     if (addableFriends.length === 0) {
       setSelectedFriendId("");
       return;
@@ -223,16 +239,23 @@ const MemoryCard = ({
 
     setIsAddingAttendee(true);
     try {
-      await addMemoryAttendee(memory.id, selectedFriendId);
-      trackAnalytics("memory_attendees_added", {
-        memory_id: memory.id,
-        peers_added: 1,
-        source: "memory_card",
-      });
-      toast({
-        title: "Attendee added",
-        description: "Friend added to this memory.",
-      });
+      const { inserted } = await addMemoryAttendee(memory.id, selectedFriendId);
+      if (inserted) {
+        trackAnalytics("memory_attendees_added", {
+          memory_id: memory.id,
+          peers_added: 1,
+          source: "memory_card",
+        });
+        toast({
+          title: "Attendee added",
+          description: "Friend added to this memory.",
+        });
+      } else {
+        toast({
+          title: "Already tagged",
+          description: "That friend is already listed on this memory.",
+        });
+      }
       await onMemoryUpdated?.();
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to add attendee.";
@@ -582,6 +605,19 @@ const MemoryCard = ({
     setCurrentPhotoIndex((prev) => (prev - 1 + galleryPhotos.length) % galleryPhotos.length);
   };
 
+  const openZoomViewer = () => {
+    setZoomScale(1);
+    setIsZoomOpen(true);
+  };
+
+  const closeZoomViewer = () => {
+    setIsZoomOpen(false);
+    setZoomScale(1);
+  };
+
+  const zoomIn = () => setZoomScale((prev) => Math.min(prev + 0.25, 3));
+  const zoomOut = () => setZoomScale((prev) => Math.max(prev - 0.25, 1));
+
   if (compact) {
     return (
       <motion.div
@@ -661,7 +697,9 @@ const MemoryCard = ({
                   <img
                     src={galleryPhotos[currentPhotoIndex]?.url || memory.heroImage}
                     alt={`Photo ${currentPhotoIndex + 1}`}
-                    className="w-full h-full object-contain"
+                    className="w-full h-full object-contain cursor-zoom-in"
+                    onClick={openZoomViewer}
+                    title="Click to zoom"
                   />
 
                   {galleryPhotos.length > 1 && (
@@ -877,7 +915,80 @@ const MemoryCard = ({
           )}
         </AnimatePresence>
 
-        <AlertDialog open={showDeleteMemoryConfirm} onOpenChange={setShowDeleteMemoryConfirm}>
+  
+
+      <AnimatePresence>
+        {isZoomOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[60] bg-black/90 backdrop-blur-sm"
+            onClick={closeZoomViewer}
+          >
+            <div className="absolute top-4 right-4 z-10 flex items-center gap-2">
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  zoomOut();
+                }}
+                className="rounded-full bg-black/60 p-2 text-white hover:bg-black/80 transition-colors"
+                disabled={zoomScale <= 1}
+                title="Zoom out"
+              >
+                <Minus className="w-4 h-4" />
+              </button>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  zoomIn();
+                }}
+                className="rounded-full bg-black/60 p-2 text-white hover:bg-black/80 transition-colors"
+                disabled={zoomScale >= 3}
+                title="Zoom in"
+              >
+                <Plus className="w-4 h-4" />
+              </button>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setZoomScale(1);
+                }}
+                className="rounded-full bg-black/60 px-3 py-2 text-xs font-medium text-white hover:bg-black/80 transition-colors"
+                title="Reset zoom"
+              >
+                {Math.round(zoomScale * 100)}%
+              </button>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  closeZoomViewer();
+                }}
+                className="rounded-full bg-black/60 p-2 text-white hover:bg-black/80 transition-colors"
+                title="Close"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="flex h-full w-full items-center justify-center p-6" onClick={closeZoomViewer}>
+              <img
+                src={galleryPhotos[currentPhotoIndex]?.url || memory.heroImage}
+                alt={`Zoomed photo ${currentPhotoIndex + 1}`}
+                className="max-h-full max-w-full object-contain transition-transform duration-150"
+                style={{ transform: `scale(${zoomScale})` }}
+                onClick={(e) => e.stopPropagation()}
+              />
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <AlertDialog open={showDeleteMemoryConfirm} onOpenChange={setShowDeleteMemoryConfirm}>
           <AlertDialogContent className="max-w-md rounded-2xl">
             <AlertDialogTitle className="text-destructive">Delete Memory?</AlertDialogTitle>
             <AlertDialogDescription asChild>
@@ -1054,7 +1165,9 @@ const MemoryCard = ({
                 <img
                   src={galleryPhotos[currentPhotoIndex]?.url || memory.heroImage}
                   alt={`Photo ${currentPhotoIndex + 1}`}
-                  className="w-full h-full object-contain"
+                  className="w-full h-full object-contain cursor-zoom-in"
+                  onClick={openZoomViewer}
+                  title="Click to zoom"
                 />
 
                 {galleryPhotos.length > 1 && (
@@ -1270,6 +1383,79 @@ const MemoryCard = ({
                 </div>
               </div>
             </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+
+
+      <AnimatePresence>
+        {isZoomOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[60] bg-black/90 backdrop-blur-sm"
+            onClick={closeZoomViewer}
+          >
+            <div className="absolute top-4 right-4 z-10 flex items-center gap-2">
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  zoomOut();
+                }}
+                className="rounded-full bg-black/60 p-2 text-white hover:bg-black/80 transition-colors"
+                disabled={zoomScale <= 1}
+                title="Zoom out"
+              >
+                <Minus className="w-4 h-4" />
+              </button>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  zoomIn();
+                }}
+                className="rounded-full bg-black/60 p-2 text-white hover:bg-black/80 transition-colors"
+                disabled={zoomScale >= 3}
+                title="Zoom in"
+              >
+                <Plus className="w-4 h-4" />
+              </button>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setZoomScale(1);
+                }}
+                className="rounded-full bg-black/60 px-3 py-2 text-xs font-medium text-white hover:bg-black/80 transition-colors"
+                title="Reset zoom"
+              >
+                {Math.round(zoomScale * 100)}%
+              </button>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  closeZoomViewer();
+                }}
+                className="rounded-full bg-black/60 p-2 text-white hover:bg-black/80 transition-colors"
+                title="Close"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="flex h-full w-full items-center justify-center p-6" onClick={closeZoomViewer}>
+              <img
+                src={galleryPhotos[currentPhotoIndex]?.url || memory.heroImage}
+                alt={`Zoomed photo ${currentPhotoIndex + 1}`}
+                className="max-h-full max-w-full object-contain transition-transform duration-150"
+                style={{ transform: `scale(${zoomScale})` }}
+                onClick={(e) => e.stopPropagation()}
+              />
+            </div>
           </motion.div>
         )}
       </AnimatePresence>

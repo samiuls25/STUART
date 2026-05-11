@@ -1,7 +1,8 @@
 import React from "react";
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { format, addDays, startOfWeek } from "date-fns";
+import { format, addDays } from "date-fns";
+import { HANGOUT_HEATMAP_FOOTER } from "../../lib/hangoutScheduleTimezone";
 
 interface AvailabilityHeatmapProps {
   startDate: string; // ISO date
@@ -124,6 +125,8 @@ const AvailabilityHeatmap = ({
           ))}
         </div>
       </div>
+
+      <p className="text-[11px] text-muted-foreground mt-2">{HANGOUT_HEATMAP_FOOTER}</p>
 
       {friendAvailability && Object.keys(friendAvailability).length > 0 && (
         <div className="mt-3 pt-3 border-t border-border">
